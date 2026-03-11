@@ -15,6 +15,18 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4
 
+  packages/adapter-cloudflare:
+    dependencies:
+      '@then/core':
+        specifier: workspace:*
+        version: link:../core
+
+  packages/adapter-lambda:
+    dependencies:
+      '@then/core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/core:
     dependencies:
       '@celsian/core':
