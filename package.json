@@ -1,0 +1,14 @@
+{
+  "private": true,
+  "name": "then-monorepo",
+  "workspaces": ["packages/*", "examples/*"],
+  "scripts": {
+    "build": "tsc -b packages/core packages/cli packages/vite-plugin packages/adapter-lambda packages/adapter-cloudflare",
+    "test": "vitest run",
+    "dev": "node packages/cli/dist/bin.js dev"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
