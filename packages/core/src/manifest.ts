@@ -40,6 +40,8 @@ export interface PageRoute {
   mode: PageMode;
   /** Has layout wrapper */
   layout?: string;
+  /** Whether the page exports getServerData() */
+  hasGetServerData: boolean;
   /** Raw page config from the file */
   config: Record<string, unknown>;
 }
@@ -79,11 +81,9 @@ export function extractApiExports(source: string): {
   let kind: RouteKind = 'serverless'; // default
   const config: Record<string, unknown> = {};
 
-  const routeMatch = source.match(
-    /export\s+const\s+route\s*=\s*\{([^}]+)\}/,
-  );
-  if (routeMatch) {
-    const body = routeMatch[1]!;
+  const routeBody = extractBalancedBraces(source, /export\s+const\s+route\s*=\s*\{/);
+  if (routeBody) {
+    const body = routeBody;
 
     // Extract kind
     const kindMatch = body.match(/kind\s*:\s*['"](\w+)['"]/);
@@ -109,16 +109,15 @@ export function extractApiExports(source: string): {
  */
 export function extractPageConfig(source: string): {
   mode: PageMode;
+  hasGetServerData: boolean;
   config: Record<string, unknown>;
 } {
   let mode: PageMode = 'static'; // default: static
   const config: Record<string, unknown> = {};
 
-  const pageMatch = source.match(
-    /export\s+const\s+page\s*=\s*\{([^}]+)\}/,
-  );
-  if (pageMatch) {
-    const body = pageMatch[1]!;
+  const pageBody = extractBalancedBraces(source, /export\s+const\s+page\s*=\s*\{/);
+  if (pageBody) {
+    const body = pageBody;
 
     const modeMatch = body.match(/mode\s*:\s*['"](\w+)['"]/);
     if (modeMatch && isPageMode(modeMatch[1]!)) {
@@ -134,15 +133,19 @@ export function extractPageConfig(source: string): {
     }
   }
 
+  // Detect getServerData export
+  const hasGetServerData = /export\s+(?:async\s+)?function\s+getServerData|export\s+(?:const|let)\s+getServerData/.test(source);
+
   // Heuristic: if source imports server-side data functions, default to server
   if (mode === 'static') {
-    if (/import\s+.*from\s+['"]then\/server['"]/.test(source) ||
+    if (hasGetServerData ||
+        /import\s+.*from\s+['"]then\/server['"]/.test(source) ||
         /useSWR|useQuery|useServerData/.test(source)) {
       mode = 'server';
     }
   }
 
-  return { mode, config };
+  return { mode, hasGetServerData, config };
 }
 
 // ─── File Scanner ───
@@ -241,7 +244,7 @@ export async function buildManifest(projectRoot: string): Promise<RouteManifest>
   for (const file of pageFiles) {
     const source = await readFile(file, 'utf-8');
     const relPath = relative(pagesDir, file);
-    const { mode, config } = extractPageConfig(source);
+    const { mode, hasGetServerData, config } = extractPageConfig(source);
 
     pages.push({
       filePath: relative(projectRoot, file),
@@ -250,6 +253,7 @@ export async function buildManifest(projectRoot: string): Promise<RouteManifest>
         '',
       ),
       mode,
+      hasGetServerData,
       config,
     });
   }
@@ -262,6 +266,25 @@ export async function buildManifest(projectRoot: string): Promise<RouteManifest>
 }
 
 // ─── Helpers ───
+
+/**
+ * Extract content inside balanced braces after a regex match.
+ * Handles nested objects: { kind: 'task', retry: { attempts: 3 }, timeout: 30000 }
+ */
+function extractBalancedBraces(source: string, startPattern: RegExp): string | null {
+  const match = startPattern.exec(source);
+  if (!match) return null;
+  let depth = 1;
+  let i = match.index + match[0].length;
+  const start = i;
+  while (i < source.length && depth > 0) {
+    if (source[i] === '{') depth++;
+    else if (source[i] === '}') depth--;
+    if (depth > 0) i++;
+  }
+  if (depth !== 0) return null;
+  return source.slice(start, i);
+}
 
 function isRouteKind(s: string): s is RouteKind {
   return s === 'serverless' || s === 'hot' || s === 'task';

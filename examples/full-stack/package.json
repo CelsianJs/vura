@@ -1,0 +1,9 @@
+{
+  "name": "then-full-stack-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "then dev",
+    "build": "then build"
+  }
+}

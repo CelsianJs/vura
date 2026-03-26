@@ -1,14 +1,30 @@
 {
   "private": true,
   "name": "then-monorepo",
-  "workspaces": ["packages/*", "examples/*"],
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
   "scripts": {
     "build": "tsc -b packages/core packages/cli packages/vite-plugin packages/adapter-lambda packages/adapter-cloudflare",
     "test": "vitest run",
     "dev": "node packages/cli/dist/bin.js dev"
   },
   "devDependencies": {
+    "@types/node": "^25.4.0",
+    "esbuild": "^0.27.3",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vite": "^6.4.1",
+    "vitest": "^3.0.0",
+    "wrangler": "^4.72.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "workerd"
+    ]
+  },
+  "dependencies": {
+    "what-core": "file:/Users/macbookpro-kirby/Desktop/Coding/ZVN/what-fw/packages/core",
+    "what-framework": "file:/Users/macbookpro-kirby/Desktop/Coding/ZVN/what-fw/packages/what"
   }
 }

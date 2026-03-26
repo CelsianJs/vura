@@ -1,0 +1,20 @@
+{
+  "name": "@then/cli",
+  "version": "0.1.0",
+  "description": "ThenJS CLI — build and deploy full-stack apps",
+  "type": "module",
+  "bin": {
+    "then": "dist/bin.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch"
+  },
+  "dependencies": {
+    "@then/core": "workspace:*"
+  }
+}

@@ -509,9 +509,13 @@ describe('lambdaAdapter', () => {
     expect(handlerPath).toBeDefined();
 
     const handlerCode = writtenFiles.get(handlerPath!)!;
-    expect(handlerCode).toContain("import { createApp } from '@celsian/core'");
-    expect(handlerCode).toContain("import { createLambdaHandler } from '@then/adapter-lambda'");
-    expect(handlerCode).toContain('export const handler = createLambdaHandler(app)');
+    // Self-contained — no @celsian/core or @then/adapter-lambda dependency
+    expect(handlerCode).not.toContain('@celsian/core');
+    expect(handlerCode).not.toContain('@then/adapter-lambda');
+    // Has inline event conversion and req/reply shim
+    expect(handlerCode).toContain('function eventToRequest');
+    expect(handlerCode).toContain('function parseBody');
+    expect(handlerCode).toContain('export async function handler');
   });
 
   it('has correct adapter name', () => {

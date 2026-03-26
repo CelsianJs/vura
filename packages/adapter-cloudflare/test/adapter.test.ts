@@ -125,7 +125,7 @@ describe('generateWranglerToml', () => {
 // ─── Worker Entry Generation ───
 
 describe('generateWorkerEntry', () => {
-  it('generates a worker with route registrations', () => {
+  it('generates a self-contained worker with route table', () => {
     const routes = [
       makeRoute({ filePath: 'src/api/hello.ts', urlPattern: '/api/hello', methods: ['GET'] }),
       makeRoute({ filePath: 'src/api/users/index.ts', urlPattern: '/api/users', methods: ['GET', 'POST'] }),
@@ -133,14 +133,21 @@ describe('generateWorkerEntry', () => {
 
     const entry = generateWorkerEntry(routes, '/project', '/project/dist/cloudflare');
 
-    expect(entry).toContain("import { createApp } from '@celsian/core'");
-    expect(entry).toContain("app.get('/api/hello'");
-    expect(entry).toContain("app.get('/api/users'");
-    expect(entry).toContain("app.post('/api/users'");
+    // Self-contained — no @celsian/core dependency
+    expect(entry).not.toContain('@celsian/core');
+    // Route table with patterns
+    expect(entry).toContain("pattern: '/api/hello'");
+    expect(entry).toContain("pattern: '/api/users'");
+    expect(entry).toContain("'GET'");
+    expect(entry).toContain("'POST'");
+    // Inline route matching and body parsing
+    expect(entry).toContain('function matchRoute');
+    expect(entry).toContain('function parseBody');
+    // Health check
     expect(entry).toContain('/__health');
   });
 
-  it('exports a fetch handler with env and ctx', () => {
+  it('exports a self-contained fetch handler with env and ctx', () => {
     const entry = generateWorkerEntry(
       [makeRoute()],
       '/project',
@@ -149,9 +156,9 @@ describe('generateWorkerEntry', () => {
 
     expect(entry).toContain('export default');
     expect(entry).toContain('async fetch(request, env, ctx)');
-    expect(entry).toContain('request.__cf_env = env');
-    expect(entry).toContain('request.__cf_ctx = ctx');
-    expect(entry).toContain('app.handle(request)');
+    // CF env/ctx passed through to handlers via req object
+    expect(entry).toContain('__cf_env: env');
+    expect(entry).toContain('__cf_ctx: ctx');
   });
 
   it('imports route modules with correct relative paths', () => {
@@ -295,7 +302,8 @@ describe('cloudflareAdapter', () => {
     const entryContent = entryCall![1] as string;
     expect(entryContent).toContain('/api/hello');
     expect(entryContent).not.toContain('/api/stream');
-    expect(entryContent).not.toContain('/api/cron');
+    // Task routes now appear in entry for the scheduled handler
+    expect(entryContent).toContain('scheduled');
   });
 
   it('generates files in the correct output directory', async () => {

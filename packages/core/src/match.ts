@@ -1,0 +1,103 @@
+/**
+ * Route Matching — shared pattern matching for dev server and vite plugin.
+ *
+ * Compiles URL patterns (e.g. /api/users/:id) into regexes and matches
+ * incoming requests against them. Handles :params, * wildcards, and
+ * proper escaping of regex-special characters.
+ */
+
+import type { ApiRoute } from './manifest.js';
+
+// ─── Types ───
+
+export interface CompiledRoute {
+  route: ApiRoute;
+  regex: RegExp;
+  paramNames: string[];
+}
+
+export interface RouteMatch {
+  route: ApiRoute;
+  params: Record<string, string>;
+}
+
+// ─── Compile a URL pattern into a regex ───
+
+function compilePattern(pattern: string): { regex: RegExp; paramNames: string[] } {
+  const paramNames: string[] = [];
+  let regexStr = '';
+  let i = 0;
+
+  while (i < pattern.length) {
+    if (pattern[i] === ':' && i > 0 && pattern[i - 1] === '/') {
+      // :param — capture until next /
+      let name = '';
+      i++; // skip ':'
+      while (i < pattern.length && /[a-zA-Z0-9_]/.test(pattern[i])) {
+        name += pattern[i];
+        i++;
+      }
+      paramNames.push(name);
+      regexStr += '([^/]+)';
+    } else if (pattern[i] === '*') {
+      // Wildcard — capture rest of path
+      paramNames.push('*');
+      regexStr += '(.*)';
+      i++;
+    } else {
+      // Escape regex-special characters
+      const ch = pattern[i];
+      if ('.+?^${}()|[]\\'.includes(ch)) {
+        regexStr += '\\' + ch;
+      } else {
+        regexStr += ch;
+      }
+      i++;
+    }
+  }
+
+  return {
+    regex: new RegExp(`^${regexStr}$`),
+    paramNames,
+  };
+}
+
+// ─── Compile all routes at once ───
+
+export function compileRoutes(routes: ApiRoute[]): CompiledRoute[] {
+  return routes.map((route) => {
+    const { regex, paramNames } = compilePattern(route.urlPattern);
+    return { route, regex, paramNames };
+  });
+}
+
+// ─── Match a request against compiled routes ───
+
+export function matchRoute(
+  routes: ApiRoute[] | CompiledRoute[],
+  method: string,
+  pathname: string,
+): RouteMatch | null {
+  // Auto-compile if given raw ApiRoute[]
+  const compiled: CompiledRoute[] =
+    routes.length > 0 && 'regex' in routes[0]
+      ? (routes as CompiledRoute[])
+      : compileRoutes(routes as ApiRoute[]);
+
+  const upperMethod = method.toUpperCase();
+
+  for (const { route, regex, paramNames } of compiled) {
+    if (!route.methods.includes(upperMethod as any)) continue;
+
+    const match = pathname.match(regex);
+    if (match) {
+      const params: Record<string, string> = {};
+      for (let i = 0; i < paramNames.length; i++) {
+        try { params[paramNames[i]] = decodeURIComponent(match[i + 1]); } catch { params[paramNames[i]] = match[i + 1]; }
+      }
+      return { route, params };
+    }
+  }
+
+  return null;
+}

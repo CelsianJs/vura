@@ -1,0 +1,5 @@
+{
+  "name": "stress-test",
+  "private": true,
+  "type": "module"
+}

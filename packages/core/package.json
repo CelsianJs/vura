@@ -9,15 +9,23 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./jsx-runtime": {
+      "types": "./dist/jsx-runtime.d.ts",
+      "import": "./dist/jsx-runtime.js",
+      "default": "./dist/jsx-runtime.js"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./dist/jsx-runtime.d.ts",
+      "import": "./dist/jsx-runtime.js",
+      "default": "./dist/jsx-runtime.js"
     }
   },
   "files": ["dist"],
   "scripts": {
     "build": "tsc -b"
   },
-  "dependencies": {
-    "@celsian/core": "^0.1.1"
-  },
+  "dependencies": {},
   "publishConfig": {
     "access": "public"
   }

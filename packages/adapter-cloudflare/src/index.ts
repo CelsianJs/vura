@@ -75,6 +75,7 @@ export interface CloudflareAdapterOptions {
 export function generateWranglerToml(
   options: CloudflareAdapterOptions,
   routes: ApiRoute[],
+  taskRoutes: ApiRoute[] = [],
 ): string {
   const lines: string[] = [];
 
@@ -135,61 +136,175 @@ export function generateWranglerToml(
     }
   }
 
+  // Cron triggers from task routes
+  const cronTasks = taskRoutes.filter(r => r.config.schedule);
+  if (cronTasks.length > 0) {
+    lines.push('# Cron Triggers');
+    lines.push('[triggers]');
+    lines.push(`crons = [${cronTasks.map(r => `"${r.config.schedule}"`).join(', ')}]`);
+    lines.push('');
+  }
+
   return lines.join('\n');
 }
 
 // ─── Worker Entry Generator ───
 
 /**
- * Generate the Worker entry file that creates a CelsianJS app,
- * registers all serverless routes, and exports a CF Worker fetch handler.
+ * Generate a self-contained Worker entry file that routes requests
+ * to the appropriate handler using @then/core's req/reply pattern.
+ * No CelsianJS dependency required — works standalone.
  */
 export function generateWorkerEntry(
   routes: ApiRoute[],
   projectRoot: string,
   workerDir: string,
+  taskRoutes: ApiRoute[] = [],
 ): string {
-  const imports: string[] = [
-    `import { createApp } from '@celsian/core';`,
-  ];
-  const registrations: string[] = [];
+  const imports: string[] = [];
+  const routeTable: string[] = [];
 
   for (const route of routes) {
     const varName = routeToVarName(route);
     const relPath = relative(workerDir, join(projectRoot, route.filePath))
-      .replace(/\.ts$/, '.js');
-    // Ensure the path starts with ./ for a valid relative import
+      .replace(/\.tsx?$/, '.js')
+      .replace(/\\/g, '/');
     const importPath = relPath.startsWith('.') ? relPath : `./${relPath}`;
     imports.push(`import * as ${varName} from '${importPath}';`);
 
-    for (const method of route.methods) {
-      const celsianMethod = method.toLowerCase();
-      registrations.push(
-        `app.${celsianMethod}('${route.urlPattern}', (req, reply) => ${varName}.${method}(req, reply));`,
-      );
-    }
+    routeTable.push(`  { pattern: '${route.urlPattern}', methods: [${route.methods.map(m => `'${m}'`).join(', ')}], handlers: ${varName} },`);
   }
 
-  return `${imports.join('\n')}
+  // Import task route handlers
+  const taskImports: string[] = [];
+  const taskTable: string[] = [];
+  for (const route of taskRoutes) {
+    const varName = routeToVarName(route);
+    const relPath = relative(workerDir, join(projectRoot, route.filePath))
+      .replace(/\.tsx?$/, '.js')
+      .replace(/\\/g, '/');
+    const importPath = relPath.startsWith('.') ? relPath : `./${relPath}`;
+    taskImports.push(`import * as ${varName} from '${importPath}';`);
+    const taskName = route.urlPattern.replace(/^\/api\//, '').replace(/\//g, '.');
+    const schedule = route.config.schedule ? `'${route.config.schedule}'` : 'null';
+    taskTable.push(`  { name: '${taskName}', handler: ${varName}.POST, schedule: ${schedule} },`);
+  }
 
-const app = createApp();
+  const allImports = [...imports, ...taskImports].join('\n');
 
-// Register API routes
-${registrations.join('\n')}
+  return `${allImports}
 
-// Health check
-app.get('/__health', (req, reply) => reply.json({ ok: true }));
+const routes = [
+${routeTable.join('\n')}
+];
 
-// Cloudflare Worker fetch handler
-// CelsianJS uses Web Standard Request/Response, so this is nearly a pass-through.
+function matchRoute(pathname, method) {
+  for (const route of routes) {
+    if (!route.methods.includes(method)) continue;
+    const paramNames = [];
+    let regexStr = '';
+    let i = 0;
+    while (i < route.pattern.length) {
+      if (route.pattern[i] === ':' && i > 0 && route.pattern[i-1] === '/') {
+        let name = ''; i++;
+        while (i < route.pattern.length && /[a-zA-Z0-9_]/.test(route.pattern[i])) { name += route.pattern[i]; i++; }
+        paramNames.push(name); regexStr += '([^/]+)';
+      } else if (route.pattern[i] === '*') {
+        paramNames.push('*'); regexStr += '(.*)'; i++;
+      } else {
+        const ch = route.pattern[i];
+        if ('.+?^\${}()|[]\\\\'.includes(ch)) regexStr += '\\\\' + ch;
+        else regexStr += ch;
+        i++;
+      }
+    }
+    const match = pathname.match(new RegExp('^' + regexStr + '\$'));
+    if (match) {
+      const params = {};
+      paramNames.forEach((name, idx) => { try { params[name] = decodeURIComponent(match[idx + 1]); } catch { params[name] = match[idx + 1]; } });
+      return { route, params };
+    }
+  }
+  return null;
+}
+
+function parseBody(request) {
+  const ct = request.headers.get('content-type') || '';
+  if (!request.body) return Promise.resolve(null);
+  if (ct.includes('application/json')) return request.json().catch(() => null);
+  if (ct.includes('application/x-www-form-urlencoded')) return request.text().then(t => Object.fromEntries(new URLSearchParams(t)));
+  return request.text();
+}
+
+${taskTable.length > 0 ? `const taskRoutes = [\n${taskTable.join('\n')}\n];\n` : ''}
 export default {
   async fetch(request, env, ctx) {
-    // Decorate the request with Cloudflare bindings so route handlers can access them
-    request.__cf_env = env;
-    request.__cf_ctx = ctx;
-    return app.handle(request);
+    const url = new URL(request.url);
+    const method = request.method.toUpperCase();
+
+    if (url.pathname === '/__health') {
+      return new Response(JSON.stringify({ ok: true, framework: 'ThenJS' }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    const match = matchRoute(url.pathname, method);
+    if (!match) {
+      return new Response(JSON.stringify({ error: 'Not Found', path: url.pathname }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    const handlerFn = match.route.handlers[method];
+    if (typeof handlerFn !== 'function') {
+      return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { status: 405, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    const body = await parseBody(request);
+    const req = {
+      method,
+      url: url.pathname,
+      headers: Object.fromEntries(request.headers.entries()),
+      params: match.params,
+      query: Object.fromEntries(url.searchParams.entries()),
+      parsedBody: body,
+      __cf_env: env,
+      __cf_ctx: ctx,
+    };
+
+    let statusCode = 200;
+    const responseHeaders = { 'content-type': 'application/json' };
+    let responseBody = null;
+    const reply = {
+      status(code) { statusCode = code; return reply; },
+      header(name, value) { responseHeaders[name] = value; return reply; },
+      json(data) { responseBody = JSON.stringify(data); return null; },
+      send(data) { responseBody = data; return null; },
+    };
+
+    const result = await handlerFn(req, reply);
+    if (result instanceof Response) return result;
+    if (responseBody !== null) return new Response(responseBody, { status: statusCode, headers: responseHeaders });
+    if (result && typeof result === 'object') return new Response(JSON.stringify(result), { status: statusCode, headers: responseHeaders });
+    return new Response(null, { status: 204 });
   },
-};
+${taskTable.length > 0 ? `
+  async scheduled(event, env, ctx) {
+    // Execute all task routes that have schedules
+    const results = [];
+    for (const task of taskRoutes) {
+      if (typeof task.handler === 'function') {
+        try {
+          const result = await task.handler({
+            taskId: String(Date.now()),
+            input: { _cron: true, _schedule: task.schedule },
+            attempt: 1,
+          });
+          results.push({ task: task.name, status: 'completed', result });
+        } catch (err) {
+          results.push({ task: task.name, status: 'failed', error: err.message });
+        }
+      }
+    }
+    return results;
+  },
+` : ''}};
 `;
 }
 
@@ -257,6 +372,7 @@ export function cloudflareAdapter(options: CloudflareAdapterOptions): ThenAdapte
 
       // Filter for serverless routes only
       const serverlessRoutes = manifest.api.filter(r => r.kind === 'serverless');
+      const taskRoutes = manifest.api.filter(r => r.kind === 'task');
 
       // Group routes by workerGroup config key (if specified in route config)
       const workerGroups = groupRoutesByWorker(serverlessRoutes, options.workerGroup);
@@ -275,11 +391,11 @@ export function cloudflareAdapter(options: CloudflareAdapterOptions): ThenAdapte
           ...options,
           name: workerName,
         };
-        const toml = generateWranglerToml(groupOptions, routes);
+        const toml = generateWranglerToml(groupOptions, routes, taskRoutes);
         await writeFile(join(workerDir, 'wrangler.toml'), toml);
 
-        // Generate worker entry
-        const entry = generateWorkerEntry(routes, projectRoot, workerDir);
+        // Generate worker entry (include task routes for scheduled handler)
+        const entry = generateWorkerEntry(routes, projectRoot, workerDir, taskRoutes);
         await writeFile(join(workerDir, 'entry.js'), entry);
       }
     },

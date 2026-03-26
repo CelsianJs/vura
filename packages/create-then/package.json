@@ -1,0 +1,20 @@
+{
+  "name": "create-then",
+  "version": "0.1.0",
+  "description": "Scaffold a new ThenJS project",
+  "type": "module",
+  "bin": {
+    "create-then": "dist/index.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "tsc"
+  },
+  "keywords": ["thenjs", "what-framework", "celsianjs", "scaffold", "create"],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

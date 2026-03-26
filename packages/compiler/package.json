@@ -1,0 +1,21 @@
+{
+  "name": "@then/compiler",
+  "version": "0.1.0",
+  "description": "Pure JS compiler fallback for ThenJS — route scanning and JSX transforms",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "types": "./src/index.d.ts"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "vitest run"
+  },
+  "license": "MIT"
+}
