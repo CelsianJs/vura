@@ -45,6 +45,7 @@ describe('CLI admin dashboard rendering', () => {
     const html = renderDashboardHtml('test-token');
     expect(html).toContain("'X-Then-Admin-Token': ADMIN_TOKEN");
     expect(html).toContain("headers: { 'Content-Type': 'application/json' }");
+    expect(html).toContain('if (!response.ok)');
     expect(html).not.toContain('headers: apiHeaders');
   });
 
@@ -70,6 +71,11 @@ describe('CLI admin API browser boundary', () => {
   it('rejects host header confusion against the local admin port', () => {
     expect(isAllowedAdminRequest({ host: 'evil.example:4000' }, '127.0.0.1', 4000)).toBe(false);
     expect(isAllowedAdminRequest({ host: '127.0.0.1:9999' }, '127.0.0.1', 4000)).toBe(false);
+  });
+
+  it('rejects unsafe bind hosts even if the Host header matches', () => {
+    expect(isAllowedAdminRequest({ host: '0.0.0.0:4000' }, '0.0.0.0', 4000)).toBe(false);
+    expect(isAllowedAdminRequest({ host: '192.168.1.10:4000' }, '192.168.1.10', 4000)).toBe(false);
   });
 
   it('does not emit wildcard CORS headers for secret-bearing admin APIs', () => {

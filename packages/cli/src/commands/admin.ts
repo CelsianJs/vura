@@ -61,11 +61,8 @@ export function isAllowedAdminRequest(
     `localhost:${port}`,
     `[::1]:${port}`,
   ]);
-  if (isLocalAdminHost(bindHost)) {
-    allowedHosts.add(`${bindHost}:${port}`);
-  } else {
-    allowedHosts.add(`${bindHost}:${port}`);
-  }
+  if (!isLocalAdminHost(bindHost)) return false;
+  allowedHosts.add(`${bindHost}:${port}`);
   if (!allowedHosts.has(hostHeader)) return false;
 
   const origin = Array.isArray(headers.origin) ? headers.origin[0] : headers.origin;
@@ -1250,11 +1247,16 @@ function collectEnvVars(containerId) {
 
 async function saveEnvFile(file, containerId) {
   const content = collectEnvVars(containerId);
-  await adminFetch('/env', {
+  const response = await adminFetch('/env', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ file, content }),
   });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Save failed' }));
+    showToast(error.error || 'Save failed');
+    return;
+  }
   showToast('Saved ' + file);
   const envData = await adminFetch('/env').then(r => r.json());
   state.env = envData;
