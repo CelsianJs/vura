@@ -13,7 +13,8 @@
     "lint": "node scripts/check-hygiene.mjs",
     "format": "node scripts/check-hygiene.mjs",
     "check": "pnpm run lint && pnpm run build",
-    "audit": "pnpm audit --prod"
+    "audit": "pnpm audit --prod",
+    "verify:registry": "node scripts/verify-registry-install.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.4.0",

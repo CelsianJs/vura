@@ -72,3 +72,21 @@ Verification:
 
 Remaining external blocker:
 - Real publish is still blocked until npm `@then` scope authority exists or package names are intentionally changed and all gates are rerun.
+
+## 2026-05-10 — Post-publish registry smoke follow-up
+
+Gold-standard re-review found that tag releases verified local tarballs but did not prove the packages just published to npm could be installed by a real consumer. Addressed locally:
+
+- Added `scripts/verify-registry-install.mjs` and `pnpm verify:registry` to install the published package set into a fresh temp project, import the public runtime packages, run `create-then --dry-run`, and emit `artifacts/registry-smoke.json`.
+- Release workflow now runs `pnpm verify:registry` immediately after `node scripts/publish-packages.mjs` and uploads the registry smoke artifact for release evidence.
+
+Verification:
+- `node --check scripts/verify-registry-install.mjs` passed
+- `pnpm lint` passed
+- `pnpm build` passed
+- `pnpm test` passed: 27 files, 381 tests
+- `pnpm verify:publish` passed: 8 tarballs, no workspace refs, clean install/import + create-then scaffold smoke
+- `git diff --check` passed
+
+Not run:
+- `pnpm verify:registry` is intentionally post-publish only and remains blocked locally until npm `@then/*` namespace publishing authority or package naming is resolved.
