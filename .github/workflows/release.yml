@@ -26,7 +26,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm test
-      - run: pnpm audit --prod
+      - run: pnpm audit
       - run: pnpm verify:publish
 
   publish:
@@ -46,6 +46,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm verify:publish
-      - run: pnpm -r publish --no-git-checks --access public
+      - run: node scripts/publish-packages.mjs
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

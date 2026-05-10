@@ -4,18 +4,9 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { publishPackages } from './package-list.mjs';
 
 const root = process.cwd();
-const packages = [
-  'packages/core',
-  'packages/compiler',
-  'packages/cli',
-  'packages/create-then',
-  'packages/adapter-cloudflare',
-  'packages/adapter-lambda',
-  'packages/adapter-vura',
-  'packages/vite-plugin',
-];
 
 function run(cmd, args, opts = {}) {
   const res = spawnSync(cmd, args, { cwd: opts.cwd ?? root, encoding: 'utf8', stdio: opts.stdio ?? 'pipe' });
@@ -36,7 +27,7 @@ function npmPack(pkg, outDir) {
 const tmp = await mkdtemp(join(tmpdir(), 'vura-publish-verify-'));
 try {
   const tarballs = [];
-  for (const pkg of packages) {
+  for (const pkg of publishPackages) {
     const packageJson = JSON.parse(await readFile(join(root, pkg, 'package.json'), 'utf8'));
     if (packageJson.private) continue;
     const tarball = npmPack(pkg, tmp);
