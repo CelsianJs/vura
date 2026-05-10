@@ -4,6 +4,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
 import { execSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const THEN_PACKAGE_VERSION = '0.1.0';
+const WHAT_FRAMEWORK_VERSION = '^0.8.1';
 
 // ─── Colors ──────────────────────────────────────────────────────────
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
@@ -62,7 +66,7 @@ function detectPackageManager(): 'pnpm' | 'yarn' | 'npm' {
 }
 
 // ─── File Templates ──────────────────────────────────────────────────
-function getFiles(projectName: string): Record<string, string> {
+export function getFiles(projectName: string): Record<string, string> {
   return {
     'package.json': JSON.stringify(
       {
@@ -76,9 +80,9 @@ function getFiles(projectName: string): Record<string, string> {
           deploy: 'vura deploy',
         },
         dependencies: {
-          'what-framework': 'latest',
-          '@then/core': 'latest',
-          '@then/cli': 'latest',
+          'what-framework': WHAT_FRAMEWORK_VERSION,
+          '@then/core': THEN_PACKAGE_VERSION,
+          '@then/cli': THEN_PACKAGE_VERSION,
         },
       },
       null,
@@ -141,7 +145,7 @@ export default function HomePage() {
   return (
     <div class="home">
       <h1>Welcome to ThenJS</h1>
-      <p>Built with What Framework + CelsianJS</p>
+      <p>Built with What Framework + ThenJS API routes</p>
       <nav>
         <a href="/about">About</a>
         {' | '}
@@ -161,8 +165,7 @@ export default function AboutPage() {
       <p>This project was scaffolded with <code>create-then</code>.</p>
       <p>
         ThenJS is a full-stack meta-framework combining{' '}
-        <strong>What Framework</strong> for the UI and{' '}
-        <strong>CelsianJS</strong> for the backend.
+        <strong>What Framework</strong> for the UI with file-based API routes.
       </p>
       <nav>
         <a href="/">Home</a>
@@ -308,7 +311,9 @@ ${bold('Options:')}
   console.log();
 }
 
-main().catch((err) => {
-  console.error(red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
-  process.exit(1);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error(red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
+    process.exit(1);
+  });
+}

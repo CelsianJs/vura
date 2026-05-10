@@ -5,8 +5,9 @@
  * variables, and domain configuration. Inspired by Vercel's dashboard.
  *
  * Usage:
- *   then admin              — Start on port 4000
- *   then admin --port 9000  — Start on custom port
+ *   then admin                    — Start on 127.0.0.1:4000
+ *   then admin --port 9000        — Start on 127.0.0.1:9000
+ *   then admin --host 0.0.0.0     — Start on all interfaces (unsafe on shared networks)
  */
 
 import { buildManifest } from '@then/core';
@@ -14,15 +15,31 @@ import { loadConfig } from '../config-loader.js';
 
 interface AdminOptions {
   port: number;
+  host: string;
   projectRoot: string;
 }
 
-export async function adminCommand(args: string[]): Promise<void> {
+export function parseAdminOptions(args: string[], projectRoot = process.cwd()): AdminOptions {
   const portArg = args.find((_, i) => args[i - 1] === '--port');
-  const opts: AdminOptions = {
+  const hostArg = args.find((_, i) => args[i - 1] === '--host');
+
+  return {
     port: portArg ? parseInt(portArg, 10) : 4000,
-    projectRoot: process.cwd(),
+    host: hostArg || '127.0.0.1',
+    projectRoot,
   };
+}
+
+export function isLocalAdminHost(host: string): boolean {
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+}
+
+export async function adminCommand(args: string[]): Promise<void> {
+  const opts = parseAdminOptions(args);
+
+  if (!isLocalAdminHost(opts.host)) {
+    console.warn(`\x1b[33m[then admin] Warning: binding admin dashboard to ${opts.host}. Use this only on trusted networks.\x1b[0m`);
+  }
 
   const { createServer } = await import('node:http');
   const { readFile, writeFile, readdir, stat, access } = await import('node:fs/promises');
@@ -254,13 +271,17 @@ export async function adminCommand(args: string[]): Promise<void> {
     res.end(JSON.stringify({ error: 'Not found' }));
   });
 
-  server.listen(opts.port, () => {
+  server.listen(opts.port, opts.host, () => {
+    const displayHost = opts.host === '127.0.0.1' ? 'localhost' : opts.host;
+    const displayUrl = displayHost.includes(':')
+      ? `http://[${displayHost}]:${opts.port}`
+      : `http://${displayHost}:${opts.port}`;
     console.log(`
   ┌─────────────────────────────────────────┐
   │                                         │
   │   then admin                            │
   │                                         │
-  │   Dashboard: http://localhost:${String(opts.port).padEnd(5)}    │
+  │   Dashboard: ${displayUrl.padEnd(22)} │
   │   Project:   ${projectName.slice(0, 25).padEnd(25)} │
   │                                         │
   │   ${manifest.api.length} API routes · ${manifest.pages.length} pages             │

@@ -21,13 +21,14 @@
 
 import { readFile, stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
-import { join, relative } from 'node:path';
-import { exec } from 'node:child_process';
+import { basename, join, relative } from 'node:path';
+import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { homedir } from 'node:os';
 import type { ThenAdapter, AdapterBuildContext } from '@then/core';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const VURA_API_URL = 'https://api.vura.io';
 
@@ -196,9 +197,17 @@ async function getGitInfo(projectRoot: string): Promise<{ ref?: string; sha?: st
   }
 }
 
-async function createTarball(sourceDir: string, outputPath: string): Promise<void> {
+export async function createTarball(sourceDir: string, outputPath: string): Promise<void> {
   // Use the system tar command for reliability
-  await execAsync(`tar -czf "${outputPath}" -C "${sourceDir}" .`);
+  await execFileAsync('tar', [
+    '-czf',
+    outputPath,
+    '--exclude',
+    basename(outputPath),
+    '-C',
+    sourceDir,
+    '.',
+  ]);
 }
 
 async function streamLogs(apiUrl: string, deploymentId: string, token: string): Promise<void> {
