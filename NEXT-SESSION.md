@@ -106,3 +106,17 @@ Verification:
 
 Still blocked:
 - Real `pnpm verify:registry` / publish remains blocked by npm `@then/*` namespace authority or an intentional rename decision.
+
+## 2026-05-10 — Compiler-native release guard follow-up
+
+Gold-standard re-review found the dormant compiler-native workflow could become a future publish footgun. Addressed locally:
+
+- Added `scripts/assert-release-private.mjs` and `pnpm assert:release-private` to verify `@then/compiler-native` remains `private: true` and excluded from `scripts/package-list.mjs`.
+- CI and release workflows now run the assertion before lint/build/publish verification.
+
+Verification:
+- `node --check scripts/assert-release-private.mjs` passed
+- `pnpm assert:release-private` passed
+- `pnpm lint` passed
+- `pnpm verify:publish` passed
+- `git diff --check` passed

@@ -12,9 +12,10 @@
     "verify:publish": "node scripts/verify-publish.mjs",
     "lint": "node scripts/check-hygiene.mjs",
     "format": "node scripts/check-hygiene.mjs",
-    "check": "pnpm run lint && pnpm run build",
+    "check": "pnpm run assert:release-private && pnpm run lint && pnpm run build",
     "audit": "pnpm audit --prod",
-    "verify:registry": "node scripts/verify-registry-install.mjs"
+    "verify:registry": "node scripts/verify-registry-install.mjs",
+    "assert:release-private": "node scripts/assert-release-private.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.4.0",
