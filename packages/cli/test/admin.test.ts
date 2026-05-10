@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ADMIN_ENV_MAX_BODY_BYTES,
   adminApiHeaders,
   assertSafeAdminBindHost,
   isAllowedAdminRequest,
@@ -61,6 +62,10 @@ describe('CLI admin dashboard rendering', () => {
 });
 
 describe('CLI admin API browser boundary', () => {
+  it('limits admin env save bodies to a small local payload', () => {
+    expect(ADMIN_ENV_MAX_BODY_BYTES).toBe(128 * 1024);
+  });
+
   it('allows same-origin localhost API requests', () => {
     expect(isAllowedAdminRequest({ host: '127.0.0.1:4000' }, '127.0.0.1', 4000)).toBe(true);
     expect(isAllowedAdminRequest({ host: 'localhost:4000', origin: 'http://localhost:4000' }, '127.0.0.1', 4000)).toBe(true);
@@ -107,6 +112,7 @@ describe('CLI deploy command', () => {
       expect(messages.join('\n')).toContain('not available in the open-source CLI yet');
       expect(messages.join('\n')).not.toContain('thenjs.dev');
       expect(messages.join('\n')).not.toContain('celsian.dev');
+      expect(messages.join('\n')).not.toContain('Cloudflare');
     } finally {
       console.error = error;
       process.exitCode = previousExitCode;

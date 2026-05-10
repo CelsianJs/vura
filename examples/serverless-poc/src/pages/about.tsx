@@ -22,7 +22,7 @@ export default function AboutPage() {
         <li>Write API routes in src/api/ with CelsianJS req/reply pattern</li>
         <li>Write pages in src/pages/ with What Framework JSX components</li>
         <li>Run <code>vura build</code> to bundle everything</li>
-        <li>Run <code>vura deploy</code> to ship to Cloudflare, Lambda, or Fly.io</li>
+        <li>Use provider-specific adapters or managed Vura Platform access to deploy the generated artifacts</li>
       </ol>
 
       <p>

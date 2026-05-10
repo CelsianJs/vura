@@ -5,8 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "vura build",
-    "manifest": "vura manifest",
-    "deploy": "vura deploy"
+    "manifest": "vura manifest"
   },
   "devDependencies": {
     "@then/cli": "workspace:*",

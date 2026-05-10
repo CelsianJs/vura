@@ -13,6 +13,8 @@
 import { buildManifest } from '@then/core';
 import { loadConfig } from '../config-loader.js';
 
+export const ADMIN_ENV_MAX_BODY_BYTES = 128 * 1024;
+
 interface AdminOptions {
   port: number;
   host: string;
@@ -231,7 +233,18 @@ export async function adminCommand(args: string[]): Promise<void> {
     if (url.pathname === '/__admin/api/env' && method === 'POST') {
       try {
         const chunks: Buffer[] = [];
-        for await (const chunk of req) chunks.push(chunk as Buffer);
+        let totalBytes = 0;
+        for await (const chunk of req) {
+          const buffer = chunk as Buffer;
+          totalBytes += buffer.byteLength;
+          if (totalBytes > ADMIN_ENV_MAX_BODY_BYTES) {
+            res.writeHead(413, apiHeaders);
+            res.end(JSON.stringify({ error: 'Env save payload too large' }));
+            req.destroy();
+            return;
+          }
+          chunks.push(buffer);
+        }
         const body = JSON.parse(Buffer.concat(chunks).toString());
 
         if (body.file !== '.env' && body.file !== '.env.local') {
