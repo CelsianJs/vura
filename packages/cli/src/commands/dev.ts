@@ -221,6 +221,20 @@ async function startStandaloneServer(
       logger.requestEnd(reqCtx, res.statusCode);
     });
 
+    // CORS headers for dev mode
+    const corsOrigin = process.env.THEN_CORS_ORIGIN || '*';
+    res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.setHeader('Access-Control-Max-Age', '86400');
+
+    // Handle CORS preflight
+    if (method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
     // Health check
     if (url.pathname === '/__health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
