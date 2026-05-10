@@ -5,6 +5,8 @@ import { spawnSync } from 'node:child_process';
 import { publishPackages } from './package-list.mjs';
 
 const root = process.cwd();
+const dryRun = process.argv.includes('--dry-run') || process.env.VURA_PUBLISH_DRY_RUN === '1' || process.env.NPM_PUBLISH_DRY_RUN === '1';
+const distTag = process.env.NPM_DIST_TAG || 'latest';
 
 function run(cmd, args, opts = {}) {
   const res = spawnSync(cmd, args, {
@@ -14,15 +16,74 @@ function run(cmd, args, opts = {}) {
     env: process.env,
   });
   if (res.status !== 0) {
-    throw new Error(`${cmd} ${args.join(' ')} failed with ${res.status}`);
+    const details = [res.stdout, res.stderr].filter(Boolean).join('\n');
+    throw new Error(`${cmd} ${args.join(' ')} failed with ${res.status}${details ? `\n${details}` : ''}`);
+  }
+  return res;
+}
+
+function packageSpec(name, version) {
+  return `${name}@${version}`;
+}
+
+function validateDistTag(tag) {
+  if (!/^[a-z][a-z0-9._-]*$/i.test(tag)) {
+    throw new Error(`Invalid npm dist-tag: ${tag}`);
+  }
+  if (/^v?\d+(\.\d+){0,2}$/.test(tag)) {
+    throw new Error(`Refusing semver-looking npm dist-tag: ${tag}`);
   }
 }
 
+function assertVersionNotPublished(name, version) {
+  const spec = packageSpec(name, version);
+  const res = spawnSync('npm', ['view', spec, 'version', '--json'], {
+    cwd: root,
+    encoding: 'utf8',
+    stdio: 'pipe',
+    env: process.env,
+  });
+  if (res.status === 0 && res.stdout.trim()) {
+    throw new Error(`${spec} is already published; refusing to overwrite release history`);
+  }
+  const output = `${res.stdout}\n${res.stderr}`;
+  if (!/E404|404 Not Found|is not in this registry|not found/i.test(output)) {
+    throw new Error(`Unable to confirm ${spec} is unpublished before publish\n${output.trim()}`);
+  }
+}
+
+validateDistTag(distTag);
+
+const planned = [];
 for (const pkg of publishPackages) {
   const packageJson = JSON.parse(await readFile(join(root, pkg, 'package.json'), 'utf8'));
   if (packageJson.private) continue;
-  console.log(`Publishing ${packageJson.name} from ${pkg}`);
-  const args = ['publish', '--access', 'public'];
-  if (process.env.GITHUB_ACTIONS === 'true') args.push('--provenance');
-  run('npm', args, { cwd: join(root, pkg) });
+  if (!packageJson.name || !packageJson.version) {
+    throw new Error(`${pkg}/package.json must define name and version before publish`);
+  }
+  planned.push({ pkg, name: packageJson.name, version: packageJson.version });
+}
+
+if (planned.length === 0) {
+  throw new Error('No publishable packages found');
+}
+
+console.log(`Publish plan: ${planned.length} package(s), dist-tag=${distTag}, dry-run=${dryRun ? 'yes' : 'no'}`);
+for (const item of planned) {
+  assertVersionNotPublished(item.name, item.version);
+}
+
+const published = [];
+for (const item of planned) {
+  console.log(`${dryRun ? 'Dry-run publishing' : 'Publishing'} ${packageSpec(item.name, item.version)} from ${item.pkg}`);
+  const args = ['publish', '--access', 'public', '--tag', distTag];
+  if (dryRun) args.push('--dry-run');
+  if (!dryRun && process.env.GITHUB_ACTIONS === 'true') args.push('--provenance');
+  run('npm', args, { cwd: join(root, item.pkg) });
+  published.push(packageSpec(item.name, item.version));
+}
+
+console.log(`${dryRun ? 'Dry-run publish' : 'Publish'} complete:`);
+for (const spec of published) {
+  console.log(`  - ${spec}`);
 }
