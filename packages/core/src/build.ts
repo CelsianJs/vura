@@ -468,6 +468,53 @@ const TASK_RUNNER_CODE = [
   '}',
 ].join('\n');
 
+// ─── Inline Static File Serving Code (embedded in generated server code) ───
+
+const STATIC_FILE_CODE = [
+  '// Static file serving for public/ directory',
+  "const _mimeTypes = {",
+  "  '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',",
+  "  '.mjs': 'application/javascript', '.json': 'application/json',",
+  "  '.txt': 'text/plain', '.xml': 'application/xml',",
+  "  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',",
+  "  '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp',",
+  "  '.ico': 'image/x-icon', '.avif': 'image/avif',",
+  "  '.mp4': 'video/mp4', '.webm': 'video/webm',",
+  "  '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav',",
+  "  '.woff': 'font/woff', '.woff2': 'font/woff2',",
+  "  '.ttf': 'font/ttf', '.otf': 'font/otf',",
+  "  '.pdf': 'application/pdf', '.zip': 'application/zip',",
+  "  '.wasm': 'application/wasm',",
+  "};",
+  "",
+  "const _fs = require('node:fs');",
+  "const _pathMod = require('node:path');",
+  "const _publicDir = _pathMod.resolve(_pathMod.dirname(new URL(import.meta.url).pathname), '..', 'public');",
+  "",
+  "function _getMimeType(fp) {",
+  "  const ext = _pathMod.extname(fp).toLowerCase();",
+  "  return _mimeTypes[ext] || 'application/octet-stream';",
+  "}",
+  "",
+  "function _tryServeStatic(pathname, method, nodeRes) {",
+  "  if (method !== 'GET' && method !== 'HEAD') return false;",
+  "  const safePath = pathname.replace(/\\.\\./g, '');",
+  "  const filePath = _pathMod.normalize(_pathMod.resolve(_publicDir, '.' + safePath));",
+  "  if (!filePath.startsWith(_publicDir + _pathMod.sep) && filePath !== _publicDir) return false;",
+  "  try {",
+  "    const st = _fs.statSync(filePath);",
+  "    if (!st.isFile()) return false;",
+  "    const ct = _getMimeType(filePath);",
+  "    nodeRes.writeHead(200, { 'content-type': ct, 'content-length': st.size.toString(), 'cache-control': 'public, max-age=31536000, immutable' });",
+  "    if (method === 'HEAD') { nodeRes.end(); return true; }",
+  "    const stream = _fs.createReadStream(filePath);",
+  "    stream.pipe(nodeRes);",
+  "    stream.on('error', () => { if (!nodeRes.writableEnded) nodeRes.end(); });",
+  "    return true;",
+  "  } catch (_) { return false; }",
+  "}",
+].join('\n');
+
 // ─── Inline Validation Code (embedded in generated server code) ───
 
 const VALIDATION_CODE = [
@@ -577,6 +624,9 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
   lines.push("    nodeRes.end(JSON.stringify({ ok: true, framework: 'ThenJS' }));");
   lines.push('    return;');
   lines.push('  }');
+  lines.push('');
+  lines.push('  // Serve static files from public/ directory');
+  lines.push('  if (_tryServeStatic(url.pathname, method, nodeRes)) return;');
 
   // Task management endpoints (protected by THEN_TASK_SECRET env var or localhost-only)
   if (hasTasks) {
@@ -965,6 +1015,10 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
   lines.push(MATCH_ROUTE_CODE);
   lines.push('');
   lines.push(PARSE_BODY_CODE);
+
+  // Inline static file serving
+  lines.push('');
+  lines.push(STATIC_FILE_CODE);
 
   // Inline validation and hook execution (always needed for API routes)
   lines.push('');

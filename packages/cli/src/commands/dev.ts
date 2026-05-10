@@ -31,6 +31,7 @@ import {
   reportError,
   formatErrorResponse,
   HttpError,
+  getMimeType,
 } from '@then/core';
 import type {
   PageRoute,
@@ -233,6 +234,39 @@ async function startStandaloneServer(
       res.writeHead(204);
       res.end();
       return;
+    }
+
+    // Static file serving from public/ directory
+    if (method === 'GET' || method === 'HEAD') {
+      const publicDir = join(opts.projectRoot, 'public');
+      const safePath = url.pathname.replace(/\.\./g, ''); // basic traversal guard
+      const staticPath = join(publicDir, safePath);
+      // Only serve if path is within publicDir (prevent traversal)
+      const { normalize: normPath, resolve: resolvePath } = await import('node:path');
+      const normalizedStatic = normPath(resolvePath(staticPath));
+      const normalizedPublic = normPath(resolvePath(publicDir));
+      if (normalizedStatic.startsWith(normalizedPublic + '/') || normalizedStatic === normalizedPublic) {
+        try {
+          const { stat: statAsync } = await import('node:fs/promises');
+          const fileStat = await statAsync(normalizedStatic);
+          if (fileStat.isFile()) {
+            const { createReadStream } = await import('node:fs');
+            const contentType = getMimeType(normalizedStatic);
+            res.writeHead(200, {
+              'Content-Type': contentType,
+              'Content-Length': fileStat.size.toString(),
+              'Cache-Control': 'no-cache',
+            });
+            if (method === 'HEAD') { res.end(); return; }
+            const stream = createReadStream(normalizedStatic);
+            stream.pipe(res);
+            stream.on('error', () => { if (!res.writableEnded) res.end(); });
+            return;
+          }
+        } catch {
+          // File doesn't exist — fall through to route matching
+        }
+      }
     }
 
     // Health check

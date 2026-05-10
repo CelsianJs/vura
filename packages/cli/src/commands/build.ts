@@ -212,6 +212,15 @@ export async function buildCommand(_args: string[]): Promise<void> {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
 
+  // 6. Copy public/ directory to dist/public/ for production static serving
+  const publicDir = join(root, 'public');
+  if (existsSync(publicDir)) {
+    const { cp } = await import('node:fs/promises');
+    const distPublicDir = join(root, 'dist', 'public');
+    await cp(publicDir, distPublicDir, { recursive: true });
+    console.log('  Copied public/ → dist/public/');
+  }
+
   if (config.adapter) {
     console.log(`  Adapter: ${config.adapter.name}`);
   }
