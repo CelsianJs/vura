@@ -163,6 +163,51 @@ describe('parseCron', () => {
     expect(parseCron('not a cron')).toBeNull();
     expect(parseCron('1 2 3')).toBeNull();
   });
+
+  it('rejects out-of-range minute (0-59)', () => {
+    expect(parseCron('60 * * * *')).toBeNull();
+    expect(parseCron('99 * * * *')).toBeNull();
+    expect(parseCron('-1 * * * *')).toBeNull();
+  });
+
+  it('rejects out-of-range hour (0-23)', () => {
+    expect(parseCron('0 24 * * *')).toBeNull();
+    expect(parseCron('0 25 * * *')).toBeNull();
+  });
+
+  it('rejects out-of-range day of month (1-31)', () => {
+    expect(parseCron('0 0 0 * *')).toBeNull();
+    expect(parseCron('0 0 32 * *')).toBeNull();
+  });
+
+  it('rejects out-of-range month (1-12)', () => {
+    expect(parseCron('0 0 1 0 *')).toBeNull();
+    expect(parseCron('0 0 1 13 *')).toBeNull();
+  });
+
+  it('rejects out-of-range day of week (0-7)', () => {
+    expect(parseCron('0 0 * * 8')).toBeNull();
+  });
+
+  it('accepts valid boundary values', () => {
+    expect(parseCron('0 0 1 1 0')).not.toBeNull();
+    expect(parseCron('59 23 31 12 7')).not.toBeNull();
+  });
+
+  it('validates values inside ranges', () => {
+    expect(parseCron('0-60 * * * *')).toBeNull();   // 60 exceeds minute max
+    expect(parseCron('0-59 * * * *')).not.toBeNull();
+  });
+
+  it('validates values inside comma lists', () => {
+    expect(parseCron('0,30,99 * * * *')).toBeNull();  // 99 exceeds minute max
+    expect(parseCron('0,30,59 * * * *')).not.toBeNull();
+  });
+
+  it('validates step ranges', () => {
+    expect(parseCron('0-60/5 * * * *')).toBeNull();   // 60 exceeds max
+    expect(parseCron('0-55/5 * * * *')).not.toBeNull();
+  });
 });
 
 describe('cronFieldMatches', () => {
