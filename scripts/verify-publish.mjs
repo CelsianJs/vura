@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -49,11 +49,27 @@ try {
   `;
   const node = run(process.execPath, ['--input-type=module', '-e', check], { cwd: smoke });
   if (!node.stdout.includes('VURA_PUBLISH_VERIFY_OK')) throw new Error('publish smoke import did not complete');
+
+  // create-then scaffold smoke: validates the user-facing create command can run
+  // from packed artifacts and emits package dependencies matching this release.
+
+  const createThenBin = realpathSync(join(smoke, 'node_modules/create-then/dist/index.js'));
+  const scaffold = run(process.execPath, [createThenBin, 'smoke-app', '--dry-run'], { cwd: smoke });
+  if (!scaffold.stdout.includes('package.json')) {
+    throw new Error(`create-then scaffold smoke did not list generated package.json; stdout=${JSON.stringify(scaffold.stdout)} stderr=${JSON.stringify(scaffold.stderr)}`);
+  }
+
+  const { getFiles } = await import(join(smoke, 'node_modules/create-then/dist/index.js'));
+  const scaffoldPackage = JSON.parse(getFiles('smoke-app')['package.json']);
+  if (scaffoldPackage.dependencies['@then/core'] !== '0.1.0' || scaffoldPackage.dependencies['@then/cli'] !== '0.1.0') {
+    throw new Error('create-then scaffold dependencies are not aligned with the current publish version');
+  }
+
   if (existsSync(join(root, 'packages/compiler-native/package.json'))) {
     const nativeJson = JSON.parse(await readFile(join(root, 'packages/compiler-native/package.json'), 'utf8'));
     if (!nativeJson.private) throw new Error('@then/compiler-native must remain private until native artifacts exist');
   }
-  console.log(`OK: verified ${tarballs.length} tarball(s); no workspace refs; clean npm install/import passed`);
+  console.log(`OK: verified ${tarballs.length} tarball(s); no workspace refs; clean npm install/import and create-then scaffold smoke passed`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }

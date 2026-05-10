@@ -4,6 +4,8 @@ Vura is the OSS distribution of the ThenJS full-stack framework: file-based API 
 
 ## Install
 
+> **Namespace status:** the code and package tarballs are locally verified, but the public `@then/*` npm scope is not releasable until scope authority is granted or the packages are intentionally renamed. Treat the install and create commands below as the intended public UX after that release blocker is resolved.
+
 ```sh
 pnpm add @then/core @then/cli
 ```
@@ -49,9 +51,13 @@ Before publishing, run:
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm lint
 pnpm build
 pnpm test
+pnpm audit
+pnpm verify:publish
+VURA_PUBLISH_DRY_RUN=1 node scripts/publish-packages.mjs
 git diff --check
 ```
 
-Do not publish from an unverified or dirty release tree.
+Do not publish from an unverified or dirty release tree. If npm returns `E404`/permission errors for `@then/*`, stop: either obtain/admin the `@then` scope or intentionally rename the packages, then rerun the full verification and dry-run before any real publish.

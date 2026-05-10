@@ -52,3 +52,23 @@ cd vura
 pnpm build
 pnpm test    # 360 tests, all should pass
 ```
+
+## 2026-05-10 — Scaffold publish-smoke and namespace honesty
+
+Product-review refresh found that the intended public quickstart depends on the blocked `@then/*` npm namespace and that package verification did not exercise the scaffold path. Addressed locally:
+
+- README now clearly marks `@then/*` install/create commands as intended public UX pending npm scope authority or an intentional rename.
+- README release checks now include lint, audit, `pnpm verify:publish`, dry-run publish, and explicit E404/permission stop guidance.
+- `scripts/verify-publish.mjs` now runs a packed `create-then` dry-run scaffold smoke and checks generated dependencies stay aligned with the current release version.
+
+Verification:
+- `pnpm lint`
+- `pnpm build`
+- `pnpm test` → 27 files, 381 tests passed
+- `pnpm audit` → 0 known vulnerabilities (Node emitted existing `url.parse()` deprecation warning)
+- `pnpm verify:publish` → 8 tarballs, no workspace refs, clean install/import, create-then scaffold smoke passed
+- `VURA_PUBLISH_DRY_RUN=1 node scripts/publish-packages.mjs` → 8 dry-run publish candidates passed
+- `git diff --check`
+
+Remaining external blocker:
+- Real publish is still blocked until npm `@then` scope authority exists or package names are intentionally changed and all gates are rerun.
