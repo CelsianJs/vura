@@ -40,15 +40,34 @@ export interface PageRoute {
   mode: PageMode;
   /** Has layout wrapper */
   layout?: string;
+  /**
+   * Ordered layout chain from outermost to innermost.
+   * Each entry is a file path (relative to project root) of a layout file.
+   * The page's content is wrapped by these layouts in order.
+   */
+  layouts?: string[];
   /** Whether the page exports getServerData() */
   hasGetServerData: boolean;
   /** Raw page config from the file */
   config: Record<string, unknown>;
 }
 
+/**
+ * A layout file that wraps child pages.
+ * Layouts nest following directory structure — parent wraps child.
+ */
+export interface LayoutRoute {
+  /** File path relative to project root */
+  filePath: string;
+  /** Directory this layout covers (relative to pages dir, e.g. "" for root, "blog" for blog/) */
+  dirPattern: string;
+}
+
 export interface RouteManifest {
   api: ApiRoute[];
   pages: PageRoute[];
+  /** Layout files detected in the pages directory */
+  layouts: LayoutRoute[];
   timestamp: string;
 }
 
@@ -208,6 +227,93 @@ async function scanDir(dir: string, extensions: string[]): Promise<string[]> {
 }
 
 /**
+ * Layout file name patterns (without extension).
+ * Supports both `layout.tsx` and `_layout.tsx` conventions.
+ */
+const LAYOUT_NAMES = new Set(['layout', '_layout']);
+
+/**
+ * Check if a filename (without extension) is a layout file.
+ */
+function isLayoutFile(name: string): boolean {
+  return LAYOUT_NAMES.has(name);
+}
+
+/**
+ * Scan a pages directory for layout files.
+ * Returns layout file paths keyed by their directory relative to pagesDir.
+ */
+async function scanLayouts(
+  dir: string,
+  extensions: string[],
+  baseDir: string = dir,
+): Promise<LayoutRoute[]> {
+  const layouts: LayoutRoute[] = [];
+
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return layouts;
+  }
+
+  for (const entry of entries) {
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name !== 'node_modules') {
+        layouts.push(...await scanLayouts(fullPath, extensions, baseDir));
+      }
+    } else {
+      const ext = entry.name.slice(entry.name.lastIndexOf('.'));
+      if (!extensions.includes(ext)) continue;
+      const nameWithoutExt = entry.name.slice(0, entry.name.lastIndexOf('.'));
+      if (isLayoutFile(nameWithoutExt)) {
+        const relDir = relative(baseDir, dir);
+        layouts.push({
+          filePath: relative(join(baseDir, '..', '..'), fullPath), // relative to projectRoot
+          dirPattern: relDir || '',
+        });
+      }
+    }
+  }
+
+  return layouts;
+}
+
+/**
+ * Build the layout chain for a given page.
+ * Walks up the directory tree from the page's directory to the root,
+ * collecting layout files. Returns them outermost-first.
+ */
+function buildLayoutChain(
+  pageRelPath: string,
+  layouts: LayoutRoute[],
+): string[] {
+  // pageRelPath is relative to pagesDir, e.g. "blog/post.tsx"
+  // We need to find layouts at "", "blog", etc.
+  const parts = pageRelPath.split('/');
+  parts.pop(); // remove filename
+
+  const chain: string[] = [];
+  const dirsToCheck: string[] = [''];
+  let accumulated = '';
+  for (const part of parts) {
+    accumulated = accumulated ? `${accumulated}/${part}` : part;
+    dirsToCheck.push(accumulated);
+  }
+
+  // Walk from root to leaf — outermost layout first
+  for (const dir of dirsToCheck) {
+    const layout = layouts.find(l => l.dirPattern === dir);
+    if (layout) {
+      chain.push(layout.filePath);
+    }
+  }
+
+  return chain;
+}
+
+/**
  * Scan the project and build a complete route manifest.
  */
 export async function buildManifest(projectRoot: string): Promise<RouteManifest> {
@@ -237,14 +343,25 @@ export async function buildManifest(projectRoot: string): Promise<RouteManifest>
     });
   }
 
-  // Scan pages
-  const pageFiles = await scanDir(pagesDir, ['.tsx', '.jsx', '.ts', '.js']);
+  // Scan layout files first
+  const pageExtensions = ['.tsx', '.jsx', '.ts', '.js'];
+  const layouts = await scanLayouts(pagesDir, pageExtensions);
+
+  // Scan pages (excluding layout files)
+  const pageFiles = await scanDir(pagesDir, pageExtensions);
   const pages: PageRoute[] = [];
 
   for (const file of pageFiles) {
+    // Skip layout files — they're not routes
+    const nameWithoutExt = parsePath(file).name;
+    if (isLayoutFile(nameWithoutExt)) continue;
+
     const source = await readFile(file, 'utf-8');
     const relPath = relative(pagesDir, file);
     const { mode, hasGetServerData, config } = extractPageConfig(source);
+
+    // Build the layout chain for this page
+    const layoutChain = buildLayoutChain(relPath, layouts);
 
     pages.push({
       filePath: relative(projectRoot, file),
@@ -254,6 +371,7 @@ export async function buildManifest(projectRoot: string): Promise<RouteManifest>
       ),
       mode,
       hasGetServerData,
+      ...(layoutChain.length > 0 ? { layouts: layoutChain } : {}),
       config,
     });
   }
@@ -261,6 +379,7 @@ export async function buildManifest(projectRoot: string): Promise<RouteManifest>
   return {
     api,
     pages,
+    layouts,
     timestamp: new Date().toISOString(),
   };
 }

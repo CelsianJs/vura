@@ -325,7 +325,20 @@ async function startStandaloneServer(
               });
             }
 
-            const vnode = Component({ ...serverData, params: pageMatch.params });
+            let vnode = Component({ ...serverData, params: pageMatch.params });
+
+            // Wrap in layout chain if layouts are defined (outermost first)
+            if (pageMatch.page.layouts && pageMatch.page.layouts.length > 0) {
+              // Load layouts innermost-last, wrap from inside out
+              for (let li = pageMatch.page.layouts.length - 1; li >= 0; li--) {
+                const layoutMod = await loadHandler(pageMatch.page.layouts[li]);
+                const LayoutComponent = layoutMod.default;
+                if (typeof LayoutComponent === 'function') {
+                  vnode = LayoutComponent({ children: vnode, params: pageMatch.params });
+                }
+              }
+            }
+
             const bodyHtml = builtinRenderToString(vnode);
             const html = wrapDocument(bodyHtml, {
               title: pageConfig.title ?? 'ThenJS App',

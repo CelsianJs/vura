@@ -312,7 +312,20 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
           }
 
           // Render with shared renderer from @then/core
-          const vnode = Component({ ...serverData, params: matched.params });
+          let vnode = Component({ ...serverData, params: matched.params });
+
+          // Wrap in layout chain if layouts are defined (outermost first)
+          if (matched.page.layouts && matched.page.layouts.length > 0) {
+            for (let li = matched.page.layouts.length - 1; li >= 0; li--) {
+              const layoutPath = `/${matched.page.layouts[li]}`;
+              const layoutMod = await server.ssrLoadModule(layoutPath);
+              const LayoutComponent = layoutMod.default;
+              if (typeof LayoutComponent === 'function') {
+                vnode = LayoutComponent({ children: vnode, params: matched.params });
+              }
+            }
+          }
+
           const bodyHtml = builtinRenderToString(vnode);
 
           const html = wrapDocument(bodyHtml, {

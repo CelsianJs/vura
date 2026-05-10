@@ -643,7 +643,18 @@ const RENDER_PAGE_CODE = [
   '    });',
   '  }',
   '',
-  '  const vnode = Component({ ...serverData, params });',
+  '  let vnode = Component({ ...serverData, params });',
+  '',
+  '  // Wrap in layout chain if layouts are defined (innermost first iteration)',
+  '  if (page.layouts && page.layouts.length > 0) {',
+  '    for (let li = page.layouts.length - 1; li >= 0; li--) {',
+  '      const LayoutComponent = page.layouts[li].default;',
+  "      if (typeof LayoutComponent === 'function') {",
+  '        vnode = LayoutComponent({ children: vnode, params });',
+  '      }',
+  '    }',
+  '  }',
+  '',
   '  const bodyHtml = renderToString(vnode);',
   '',
   '  return wrapDocument(bodyHtml, {',
@@ -685,6 +696,20 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
     pageVarNames.set(page.filePath, pageToVarName(page));
   }
 
+  // Collect unique layout files used by server pages
+  const layoutVarNames = new Map<string, string>();
+  if (hasPages) {
+    for (const page of serverPages) {
+      if (page.layouts) {
+        for (const layoutPath of page.layouts) {
+          if (!layoutVarNames.has(layoutPath)) {
+            layoutVarNames.set(layoutPath, layoutToVarName(layoutPath));
+          }
+        }
+      }
+    }
+  }
+
   // Import API route handlers
   for (const route of manifest.api) {
     const varName = routeVarNames.get(route.filePath)!;
@@ -696,6 +721,12 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
   for (const page of serverPages) {
     const varName = pageVarNames.get(page.filePath)!;
     const importPath = `./${relative('dist/server', join('dist/server/pages', page.filePath.replace(/^src\/pages\//, '')))}`.replace(/\.([mc])?tsx?$/, '.$1js').replace(/\\/g, '/');
+    lines.push(`import * as ${varName} from '${importPath}';`);
+  }
+
+  // Import layout modules
+  for (const [layoutPath, varName] of layoutVarNames) {
+    const importPath = `./${relative('dist/server', join('dist/server/pages', layoutPath.replace(/^src\/pages\//, '')))}`.replace(/\.([mc])?tsx?$/, '.$1js').replace(/\\/g, '/');
     lines.push(`import * as ${varName} from '${importPath}';`);
   }
 
@@ -716,7 +747,10 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
     for (const page of serverPages) {
       const varName = pageVarNames.get(page.filePath)!;
       const configStr = JSON.stringify(page.config);
-      lines.push(`  { pattern: '${page.urlPattern}', module: ${varName}, config: ${configStr} },`);
+      const layoutsStr = page.layouts && page.layouts.length > 0
+        ? `[${page.layouts.map(lp => layoutVarNames.get(lp)!).join(', ')}]`
+        : 'null';
+      lines.push(`  { pattern: '${page.urlPattern}', module: ${varName}, config: ${configStr}, layouts: ${layoutsStr} },`);
     }
     lines.push('];');
   }
@@ -1006,6 +1040,20 @@ function pageToVarName(page: PageRoute): string {
     .replace(/^\//, '')
     .replace(/[/:*\-]/g, '_')
     .replace(/_+/g, '_'));
+  const base = name;
+  let i = 2;
+  while (_usedVarNames.has(name)) { name = `${base}_${i++}`; }
+  _usedVarNames.add(name);
+  return name;
+}
+
+function layoutToVarName(filePath: string): string {
+  let name = 'layout_' + filePath
+    .replace(/^src\/pages\//, '')
+    .replace(/\.[^.]+$/, '')
+    .replace(/[/:*\-]/g, '_')
+    .replace(/_+/g, '_');
+  if (name === 'layout_' || name === 'layout__layout') name = 'layout_root';
   const base = name;
   let i = 2;
   while (_usedVarNames.has(name)) { name = `${base}_${i++}`; }

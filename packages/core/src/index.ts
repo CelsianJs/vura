@@ -9,6 +9,7 @@ export type {
   RouteManifest,
   ApiRoute,
   PageRoute,
+  LayoutRoute,
   RouteKind,
   PageMode,
   HttpMethod,
