@@ -20,10 +20,15 @@ import {
   existsSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
-import { fork, type ChildProcess } from 'node:child_process';
+import { execFileSync, fork, type ChildProcess } from 'node:child_process';
 
-const nativeImport = new Function('specifier', 'return import(specifier)') as <T = any>(specifier: string) => Promise<T>;
+function runModuleJson(entryPath: string, body: string): any {
+  const source = `const mod = await import(${JSON.stringify(pathToFileURL(entryPath).href)});
+${body}`;
+  return JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', source], { encoding: 'utf8' }));
+}
 
 // ─── Test project scaffold ───
 
@@ -207,10 +212,12 @@ describe('smoke-build: end-to-end build pipeline', () => {
     const routeArtifact = readFileSync(join(dirname(helloFunction!.entryPath), 'route.js'), 'utf-8');
     expect(routeArtifact).not.toContain("from '@then/core'");
     expect(routeArtifact).not.toContain('from "@then/core"');
-    const mod = await nativeImport(helloFunction!.entryPath);
-    const response = await mod.default.fetch(new Request('https://example.com/api/hello'));
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ message: 'hello', marker: 'HttpError' });
+    const result = runModuleJson(helloFunction!.entryPath, `
+const response = await mod.default.fetch(new Request('https://example.com/api/hello'));
+console.log(JSON.stringify({ status: response.status, body: await response.json() }));
+`);
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ message: 'hello', marker: 'HttpError' });
   });
 
   it('writes task entries for task routes', () => {
@@ -437,14 +444,16 @@ describe('smoke-build: end-to-end build pipeline', () => {
     }
 
     const echo = buildResult.functions.find((fn) => fn.route.urlPattern === '/api/echo')!;
-    const mod = await nativeImport(echo.entryPath);
-    const response = await mod.default.fetch(new Request('https://example.com/api/echo', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text: 'hello' }),
-    }));
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ echo: { text: 'hello' } });
+    const echoResult = runModuleJson(echo.entryPath, `
+const response = await mod.default.fetch(new Request('https://example.com/api/echo', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ text: 'hello' }),
+}));
+console.log(JSON.stringify({ status: response.status, body: await response.json() }));
+`);
+    expect(echoResult.status).toBe(200);
+    expect(echoResult.body).toEqual({ echo: { text: 'hello' } });
   });
 
   it('task entries import bundled route.js artifacts, not raw TypeScript', async () => {
@@ -455,15 +464,16 @@ describe('smoke-build: end-to-end build pipeline', () => {
     expect(code).not.toMatch(/from ['\"].*\.tsx?['\"]/);
     expect(routeCode).not.toContain('ctx: {');
 
-    const mod = await nativeImport(task.entryPath);
-    const response = await mod.default.fetch(new Request('https://example.com/api/jobs', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ taskId: 'task-1', input: { text: 'hello' } }),
-    }));
-    expect(response.status).toBe(200);
-    const payload = await response.json();
-    expect(payload).toMatchObject({ taskId: 'task-1', status: 'completed', result: { upper: 'HELLO' } });
+    const taskResult = runModuleJson(task.entryPath, `
+const response = await mod.default.fetch(new Request('https://example.com/api/jobs', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ taskId: 'task-1', input: { text: 'hello' } }),
+}));
+console.log(JSON.stringify({ status: response.status, body: await response.json() }));
+`);
+    expect(taskResult.status).toBe(200);
+    expect(taskResult.body).toMatchObject({ taskId: 'task-1', status: 'completed', result: { upper: 'HELLO' } });
   });
 });
 

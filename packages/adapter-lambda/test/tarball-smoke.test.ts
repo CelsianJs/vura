@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { AdapterBuildContext, ApiRoute, RouteManifest } from '@then/core';
 
 const repoRoot = resolve(__dirname, '../../..');
-const nativeImport = new Function('specifier', 'return import(specifier)') as <T = any>(specifier: string) => Promise<T>;
 
 function packPackage(packageDir: string, destination: string): string {
   const before = new Set(readdirSync(destination));
@@ -66,22 +64,28 @@ export async function POST(req: { body: unknown }) {
         outDir,
       };
 
-      const mod = await nativeImport(pathToFileURL(join(app, 'node_modules/@then/adapter-lambda/dist/index.js')).href);
-      await mod.lambdaAdapter().buildEnd(ctx);
+      execFileSync(process.execPath, ['--input-type=module', '-e', `
+const mod = await import(${JSON.stringify('file://' + join(app, 'node_modules/@then/adapter-lambda/dist/index.js'))});
+const ctx = ${JSON.stringify(ctx)};
+await mod.lambdaAdapter().buildEnd(ctx);
+`], { encoding: 'utf8' });
 
       const handlerPath = join(outDir, 'lambda/api_echo_post/index.js');
-      const handler = await nativeImport(pathToFileURL(handlerPath).href);
-      const result = await handler.handler({
-        version: '2.0',
-        routeKey: 'POST /api/echo',
-        rawPath: '/api/echo',
-        rawQueryString: '',
-        headers: { host: 'example.com', 'content-type': 'application/json' },
-        body: JSON.stringify({ text: 'hello' }),
-        isBase64Encoded: false,
-        requestContext: { domainName: 'example.com', http: { method: 'POST', path: '/api/echo' } },
-      }, {});
-
+      const output = execFileSync(process.execPath, ['--input-type=module', '-e', `
+const handler = await import(${JSON.stringify('file://' + handlerPath)});
+const result = await handler.handler({
+  version: '2.0',
+  routeKey: 'POST /api/echo',
+  rawPath: '/api/echo',
+  rawQueryString: '',
+  headers: { host: 'example.com', 'content-type': 'application/json' },
+  body: JSON.stringify({ text: 'hello' }),
+  isBase64Encoded: false,
+  requestContext: { domainName: 'example.com', http: { method: 'POST', path: '/api/echo' } },
+}, {});
+console.log(JSON.stringify(result));
+`], { encoding: 'utf8' });
+      const result = JSON.parse(output);
       expect(result.statusCode).toBe(200);
       expect(JSON.parse(result.body)).toEqual({ body: { text: 'hello' }, marker: 'HttpError' });
     } finally {

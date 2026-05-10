@@ -35,14 +35,5 @@
     "node": ">= 18"
   },
   "license": "MIT",
-  "optionalDependencies": {
-    "@then/compiler-native-win32-x64-msvc": "0.1.0",
-    "@then/compiler-native-darwin-x64": "0.1.0",
-    "@then/compiler-native-linux-x64-gnu": "0.1.0",
-    "@then/compiler-native-darwin-arm64": "0.1.0",
-    "@then/compiler-native-linux-arm64-gnu": "0.1.0",
-    "@then/compiler-native-linux-arm64-musl": "0.1.0",
-    "@then/compiler-native-linux-x64-musl": "0.1.0"
-  },
   "private": true
 }

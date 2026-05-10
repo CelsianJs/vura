@@ -36,6 +36,7 @@ async function startServer(root: string, manifest: RouteManifest): Promise<{ por
   const port = pickPort();
   const serverDir = join(root, 'dist', 'server');
   mkdirSync(serverDir, { recursive: true });
+  writeFileSync(join(serverDir, 'package.json'), JSON.stringify({ type: 'module' }) + '\n');
   const entryPath = join(serverDir, 'entry.mjs');
   writeFileSync(entryPath, generateServerEntry(manifest, root).replace(
     "parseInt(process.env.PORT || '3000', 10)",

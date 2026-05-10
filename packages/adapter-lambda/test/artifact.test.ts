@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { lambdaAdapter } from '../src/index.js';
 import type { AdapterBuildContext, ApiRoute, RouteManifest } from '@then/core';
 
-const nativeImport = new Function('specifier', 'return import(specifier)') as <T = any>(specifier: string) => Promise<T>;
+function runModuleJson(entryPath: string, body: string): any {
+  const source = `const mod = await import(${JSON.stringify(pathToFileURL(entryPath).href)});
+${body}`;
+  return JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', source], { encoding: 'utf8' }));
+}
 
 function route(overrides: Partial<ApiRoute> = {}): ApiRoute {
   return {
@@ -55,20 +61,22 @@ export async function POST(req: { body: unknown; parsedBody: unknown }) {
       expect(bundledRoute).not.toContain("from '@then/core'");
       expect(bundledRoute).not.toContain('from \"@then/core\"');
 
-      const mod = await nativeImport(entryPath);
-      const result = await mod.handler({
-        version: '2.0',
-        routeKey: 'POST /api/echo',
-        rawPath: '/api/echo',
-        rawQueryString: '',
-        headers: { host: 'example.com', 'content-type': 'application/json' },
-        body: JSON.stringify({ text: 'hello' }),
-        isBase64Encoded: false,
-        requestContext: {
-          domainName: 'example.com',
-          http: { method: 'POST', path: '/api/echo' },
-        },
-      }, {});
+      const result = runModuleJson(entryPath, `
+const result = await mod.handler({
+  version: '2.0',
+  routeKey: 'POST /api/echo',
+  rawPath: '/api/echo',
+  rawQueryString: '',
+  headers: { host: 'example.com', 'content-type': 'application/json' },
+  body: JSON.stringify({ text: 'hello' }),
+  isBase64Encoded: false,
+  requestContext: {
+    domainName: 'example.com',
+    http: { method: 'POST', path: '/api/echo' },
+  },
+}, {});
+console.log(JSON.stringify(result));
+`);
       expect(result.statusCode).toBe(200);
       expect(JSON.parse(result.body)).toEqual({
         body: { text: 'hello' },

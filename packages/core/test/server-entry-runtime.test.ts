@@ -15,6 +15,7 @@ function createTempProject(prefix = 'vura-runtime-'): string {
   tempRoots.add(root);
   mkdirSync(join(root, 'src', 'api'), { recursive: true });
   mkdirSync(join(root, 'dist', 'server', 'pages'), { recursive: true });
+  writeFileSync(join(root, 'dist', 'server', 'package.json'), JSON.stringify({ type: 'module' }) + '\n');
   return root;
 }
 

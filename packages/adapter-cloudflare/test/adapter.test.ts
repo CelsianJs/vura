@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import {
   generateWranglerToml,
@@ -10,7 +12,11 @@ import {
 } from '../src/index.js';
 import type { ApiRoute, RouteManifest } from '@then/core';
 
-const nativeImport = new Function('specifier', 'return import(specifier)') as <T = any>(specifier: string) => Promise<T>;
+function runModuleJson(entryPath: string, body: string): any {
+  const source = `const mod = await import(${JSON.stringify(pathToFileURL(entryPath).href)});
+${body}`;
+  return JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', source], { encoding: 'utf8' }));
+}
 
 // Mock fs so adapter.buildEnd doesn't write to disk
 vi.mock('node:fs/promises', () => ({
@@ -229,14 +235,16 @@ describe('generateWorkerEntry', () => {
       const entryPath = join(workerDir, 'entry.mjs');
       writeFileSync(entryPath, entry);
 
-      const mod = await nativeImport(entryPath);
-      const response = await mod.default.fetch(new Request('https://example.com/api/echo', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text: 'hello' }),
-      }), {}, { waitUntil: () => {}, passThroughOnException: () => {} });
-      expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({
+      const result = runModuleJson(entryPath, `
+const response = await mod.default.fetch(new Request('https://example.com/api/echo', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ text: 'hello' }),
+}), {}, { waitUntil: () => {}, passThroughOnException: () => {} });
+console.log(JSON.stringify({ status: response.status, body: await response.json() }));
+`);
+      expect(result.status).toBe(200);
+      expect(result.body).toEqual({
         body: { text: 'hello' },
         parsedBody: { text: 'hello' },
       });

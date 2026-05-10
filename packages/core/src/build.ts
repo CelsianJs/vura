@@ -1422,6 +1422,11 @@ export async function build(
   // directly instead of going through the CLI.
   await bundleServerApiModules(manifest, projectRoot, serverDir);
 
+  // Generated route/page artifacts use ESM .js output. Make the dist/server
+  // subtree self-describing so Node treats those files as modules even when
+  // the source project has no package.json or defaults to CommonJS.
+  await writeFile(join(serverDir, 'package.json'), JSON.stringify({ type: 'module' }, null, 2) + '\n');
+
   // 1. Generate server entry (with global hooks detection)
   const globalHooksFile = findGlobalHooksFile(projectRoot);
   if (globalHooksFile) {

@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { AdapterBuildContext, ApiRoute, RouteManifest } from '@then/core';
 
 const repoRoot = resolve(__dirname, '../../..');
-const nativeImport = new Function('specifier', 'return import(specifier)') as <T = any>(specifier: string) => Promise<T>;
 
 function packPackage(packageDir: string, destination: string): string {
   const before = new Set(readdirSync(destination));
@@ -66,19 +64,25 @@ export async function POST(req: { body: unknown }) {
         outDir,
       };
 
-      const mod = await nativeImport(pathToFileURL(join(app, 'node_modules/@then/adapter-cloudflare/dist/index.js')).href);
-      await mod.cloudflareAdapter({ name: 'tarball-worker', compatibilityDate: '2026-05-10' }).buildEnd(ctx);
+      execFileSync(process.execPath, ['--input-type=module', '-e', `
+const mod = await import(${JSON.stringify('file://' + join(app, 'node_modules/@then/adapter-cloudflare/dist/index.js'))});
+const ctx = ${JSON.stringify(ctx)};
+await mod.cloudflareAdapter({ name: 'tarball-worker', compatibilityDate: '2026-05-10' }).buildEnd(ctx);
+`], { encoding: 'utf8' });
 
       const entryPath = join(outDir, 'cloudflare/entry.js');
-      const worker = await nativeImport(pathToFileURL(entryPath).href);
-      const response = await worker.default.fetch(new Request('https://example.com/api/echo', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text: 'hello' }),
-      }), {}, { waitUntil: () => {}, passThroughOnException: () => {} });
-
-      expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ body: { text: 'hello' }, marker: 'HttpError' });
+      const output = execFileSync(process.execPath, ['--input-type=module', '-e', `
+const worker = await import(${JSON.stringify('file://' + entryPath)});
+const response = await worker.default.fetch(new Request('https://example.com/api/echo', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ text: 'hello' }),
+}), {}, { waitUntil: () => {}, passThroughOnException: () => {} });
+console.log(JSON.stringify({ status: response.status, body: await response.json() }));
+`], { encoding: 'utf8' });
+      const result = JSON.parse(output);
+      expect(result.status).toBe(200);
+      expect(result.body).toEqual({ body: { text: 'hello' }, marker: 'HttpError' });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -67,7 +67,7 @@ importers:
   packages/adapter-cloudflare:
     dependencies:
       '@then/core':
-        specifier: workspace:*
+        specifier: 0.1.0
         version: link:../core
       esbuild:
         specifier: ^0.27.3
@@ -76,7 +76,7 @@ importers:
   packages/adapter-lambda:
     dependencies:
       '@then/core':
-        specifier: workspace:*
+        specifier: 0.1.0
         version: link:../core
       esbuild:
         specifier: ^0.27.3
@@ -85,13 +85,13 @@ importers:
   packages/adapter-vura:
     dependencies:
       '@then/core':
-        specifier: workspace:*
+        specifier: 0.1.0
         version: link:../core
 
   packages/cli:
     dependencies:
       '@then/core':
-        specifier: workspace:*
+        specifier: 0.1.0
         version: link:../core
       esbuild:
         specifier: ^0.27.3
@@ -123,7 +123,7 @@ importers:
   packages/vite-plugin:
     dependencies:
       '@then/core':
-        specifier: workspace:*
+        specifier: 0.1.0
         version: link:../core
       vite:
         specifier: ^5.0.0 || ^6.0.0

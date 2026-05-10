@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const repoRoot = resolve(__dirname, '../../..');
-const nativeImport = new Function('specifier', 'return import(specifier)') as <T = any>(specifier: string) => Promise<T>;
 
 function packCompiler(destination: string): string {
   execFileSync('pnpm', ['--dir', join(repoRoot, 'packages/compiler'), 'pack', '--pack-destination', destination], {
@@ -36,8 +34,11 @@ describe('compiler clean tarball smoke', () => {
       expect(existsSync(join(packageRoot, 'dist/index.d.ts'))).toBe(true);
       expect(existsSync(join(packageRoot, 'src/index.ts'))).toBe(false);
 
-      const mod = await nativeImport(pathToFileURL(join(packageRoot, 'dist/index.js')).href);
-      expect(mod.scanRoute('export function GET() {}', 'ts').methods).toEqual(['GET']);
+      const output = execFileSync(process.execPath, ['--input-type=module', '-e', `
+const mod = await import(${JSON.stringify('file://' + join(packageRoot, 'dist/index.js'))});
+console.log(JSON.stringify(mod.scanRoute('export function GET() {}', 'ts').methods));
+`], { encoding: 'utf8' });
+      expect(JSON.parse(output)).toEqual(['GET']);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
