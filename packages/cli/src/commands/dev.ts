@@ -13,8 +13,8 @@
  *   then dev --port 8080  — Start on custom port
  */
 
-import { buildManifest, matchRoute, getLogger } from '@then/core';
-import type { PageRoute, ThenRequest, ThenReply } from '@then/core';
+import { buildManifest, matchRoute, compileRoutes, getLogger } from '@then/core';
+import type { PageRoute, ThenRequest, ThenReply, CompiledRoute } from '@then/core';
 
 interface DevOptions {
   port: number;
@@ -133,6 +133,12 @@ async function startStandaloneServer(
 
   const logger = getLogger();
 
+  // Pre-compile route regexes at startup — recompiled only on file change
+  let compiledRoutes: CompiledRoute[] = compileRoutes(manifest.api);
+  let compiledPages: CompiledPageRoute[] = compilePageRoutes(
+    manifest.pages.filter(p => p.mode === 'server' || p.mode === 'hybrid'),
+  );
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     const method = (req.method ?? 'GET').toUpperCase();
@@ -203,8 +209,8 @@ async function startStandaloneServer(
       return;
     }
 
-    // Try API route matching
-    const match = matchRoute(manifest.api, method, url.pathname);
+    // Try API route matching (uses pre-compiled regexes)
+    const match = matchRoute(compiledRoutes, method, url.pathname);
     if (match) {
       try {
         const mod = await loadHandler(match.route.filePath);
@@ -255,10 +261,9 @@ async function startStandaloneServer(
       return;
     }
 
-    // Try server-mode page matching
+    // Try server-mode page matching (uses pre-compiled regexes)
     if (method === 'GET' && !/\.\w+$/.test(url.pathname)) {
-      const serverPages = manifest.pages.filter(p => p.mode === 'server' || p.mode === 'hybrid');
-      const pageMatch = matchDevPageRoute(serverPages, url.pathname);
+      const pageMatch = matchDevPageRoute(compiledPages, url.pathname);
       if (pageMatch) {
         try {
           const mod = await loadHandler(pageMatch.page.filePath);
@@ -314,8 +319,12 @@ async function startStandaloneServer(
       const watcher = watch(dir, { recursive: true }, async (event, filename) => {
         const prefix = dir === apiDir ? 'src/api' : 'src/pages';
         console.log(`  [then] ${event}: ${prefix}/${filename} — re-scanning routes`);
-        const { buildManifest: rescan } = await import('@then/core');
+        const { buildManifest: rescan, compileRoutes: recompile } = await import('@then/core');
         manifest = await rescan(opts.projectRoot);
+        compiledRoutes = recompile(manifest.api);
+        compiledPages = compilePageRoutes(
+          manifest.pages.filter(p => p.mode === 'server' || p.mode === 'hybrid'),
+        );
       });
       process.on('SIGINT', () => { watcher.close(); process.exit(0); });
     } catch {
@@ -334,11 +343,14 @@ async function startStandaloneServer(
 
 // ─── Dev-mode Helpers ───
 
-function matchDevPageRoute(
-  pages: PageRoute[],
-  pathname: string,
-): { page: PageRoute; params: Record<string, string> } | null {
-  for (const page of pages) {
+interface CompiledPageRoute {
+  page: PageRoute;
+  regex: RegExp;
+  paramNames: string[];
+}
+
+function compilePageRoutes(pages: PageRoute[]): CompiledPageRoute[] {
+  return pages.map(page => {
     const paramNames: string[] = [];
     let regexStr = '';
     let i = 0;
@@ -357,7 +369,16 @@ function matchDevPageRoute(
         i++;
       }
     }
-    const match = pathname.match(new RegExp(`^${regexStr}$`));
+    return { page, regex: new RegExp(`^${regexStr}$`), paramNames };
+  });
+}
+
+function matchDevPageRoute(
+  compiled: CompiledPageRoute[],
+  pathname: string,
+): { page: PageRoute; params: Record<string, string> } | null {
+  for (const { page, regex, paramNames } of compiled) {
+    const match = pathname.match(regex);
     if (match) {
       const params: Record<string, string> = {};
       paramNames.forEach((name, idx) => { try { params[name] = decodeURIComponent(match[idx + 1]); } catch { params[name] = match[idx + 1]; } });
