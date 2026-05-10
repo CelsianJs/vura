@@ -433,8 +433,21 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
   const lines: string[] = [];
 
   lines.push("const port = parseInt(process.env.PORT || '3000', 10);");
+  lines.push("const _shutdownTimeoutMs = parseInt(process.env.THEN_SHUTDOWN_TIMEOUT || '30000', 10);");
+  lines.push('let _inFlightRequests = 0;');
+  lines.push('let _isShuttingDown = false;');
   lines.push('');
   lines.push('const server = createServer(async (nodeReq, nodeRes) => {');
+  lines.push('  // Reject new requests during shutdown');
+  lines.push('  if (_isShuttingDown) {');
+  lines.push("    nodeRes.writeHead(503, { 'content-type': 'application/json', 'connection': 'close' });");
+  lines.push('    nodeRes.end(JSON.stringify({ error: "Service shutting down" }));');
+  lines.push('    return;');
+  lines.push('  }');
+  lines.push('');
+  lines.push('  _inFlightRequests++;');
+  lines.push('  nodeRes.on("close", () => { _inFlightRequests--; });');
+  lines.push('');
   lines.push('  const url = new URL(nodeReq.url || "/", "http://" + (nodeReq.headers.host || "localhost"));');
   lines.push("  const method = (nodeReq.method || 'GET').toUpperCase();");
   lines.push('  const _reqId = _generateRequestId();');
@@ -622,6 +635,47 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
   lines.push('server.listen(port, () => {');
   lines.push("  console.log('ThenJS server listening on :' + port);");
   lines.push('});');
+  lines.push('');
+  lines.push('// ─── Graceful Shutdown ───');
+  lines.push('');
+  lines.push('function _gracefulShutdown(signal) {');
+  lines.push('  if (_isShuttingDown) return;');
+  lines.push('  _isShuttingDown = true;');
+  lines.push("  _log('info', 'shutdown initiated', { signal, inFlight: _inFlightRequests });");
+  lines.push('');
+  lines.push('  // Stop accepting new connections');
+  lines.push('  server.close(() => {');
+  lines.push("    _log('info', 'server closed, all connections drained');");
+  lines.push('    process.exit(0);');
+  lines.push('  });');
+  lines.push('');
+  // Close cron timers if tasks exist
+  if (hasTasks) {
+    lines.push('  // Stop cron scheduler');
+    lines.push('  _cronJobs.length = 0;');
+  }
+  lines.push('');
+  lines.push('  // Force exit after timeout if connections refuse to drain');
+  lines.push('  const _forceTimer = setTimeout(() => {');
+  lines.push("    _log('warn', 'shutdown timeout, forcing exit', { inFlight: _inFlightRequests });");
+  lines.push('    process.exit(1);');
+  lines.push('  }, _shutdownTimeoutMs);');
+  lines.push('  if (_forceTimer.unref) _forceTimer.unref();');
+  lines.push('');
+  lines.push('  // Poll for in-flight requests to finish');
+  lines.push('  const _drainCheck = setInterval(() => {');
+  lines.push('    if (_inFlightRequests <= 0) {');
+  lines.push('      clearInterval(_drainCheck);');
+  lines.push('      clearTimeout(_forceTimer);');
+  lines.push("      _log('info', 'all requests drained, exiting');");
+  lines.push('      process.exit(0);');
+  lines.push('    }');
+  lines.push('  }, 100);');
+  lines.push('  if (_drainCheck.unref) _drainCheck.unref();');
+  lines.push('}');
+  lines.push('');
+  lines.push("process.on('SIGTERM', () => _gracefulShutdown('SIGTERM'));");
+  lines.push("process.on('SIGINT', () => _gracefulShutdown('SIGINT'));");
 
   return lines.join('\n');
 }

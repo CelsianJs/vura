@@ -22,6 +22,7 @@ describe('generateServerEntry', () => {
         },
       ],
       pages: [],
+      layouts: [],
       timestamp: new Date().toISOString(),
     };
 
@@ -43,6 +44,14 @@ describe('generateServerEntry', () => {
     expect(entry).toContain('/__health');
     // Listens on port
     expect(entry).toContain('server.listen(port');
+
+    // Graceful shutdown
+    expect(entry).toContain('_gracefulShutdown');
+    expect(entry).toContain("process.on('SIGTERM'");
+    expect(entry).toContain("process.on('SIGINT'");
+    expect(entry).toContain('_inFlightRequests');
+    expect(entry).toContain('_isShuttingDown');
+    expect(entry).toContain('THEN_SHUTDOWN_TIMEOUT');
   });
 });
 
