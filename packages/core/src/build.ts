@@ -558,8 +558,9 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
     lines.push('        const { page, params } = pageMatch;');
     lines.push('        const revalidateMs = page.config.revalidate ? page.config.revalidate * 1000 : 0;');
     lines.push('');
-    lines.push('        // ISR: check cache (key includes query params)');
-    lines.push("        const cacheKey = url.pathname + (url.search || '');");
+    lines.push('        // ISR: normalize cache key by sorting query params');
+    lines.push('        url.searchParams.sort();');
+    lines.push("        const cacheKey = url.pathname + (url.searchParams.toString() ? '?' + url.searchParams.toString() : '');");
     lines.push('        if (revalidateMs > 0) {');
     lines.push('          const cached = isrGet(cacheKey);');
     lines.push('          if (cached) {');
