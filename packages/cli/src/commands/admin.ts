@@ -7,7 +7,7 @@
  * Usage:
  *   then admin                    — Start on 127.0.0.1:4000
  *   then admin --port 9000        — Start on 127.0.0.1:9000
- *   then admin --host 0.0.0.0     — Start on all interfaces (unsafe on shared networks)
+ *   then admin --host 127.0.0.1 — Bind explicitly to loopback
  */
 
 import { buildManifest } from '@then/core';
@@ -34,6 +34,13 @@ export function isLocalAdminHost(host: string): boolean {
   return host === '127.0.0.1' || host === 'localhost' || host === '::1';
 }
 
+export function assertSafeAdminBindHost(host: string): void {
+  if (!isLocalAdminHost(host)) {
+    throw new Error(
+      `then admin must bind to localhost/loopback. Refusing unsafe host "${host}" because the dashboard manages local secrets.`,
+    );
+  }
+}
 
 export function adminApiHeaders(): Record<string, string> {
   return {
@@ -74,9 +81,7 @@ export function isAllowedAdminRequest(
 export async function adminCommand(args: string[]): Promise<void> {
   const opts = parseAdminOptions(args);
 
-  if (!isLocalAdminHost(opts.host)) {
-    console.warn(`\x1b[33m[then admin] Warning: binding admin dashboard to ${opts.host}. Use this only on trusted networks.\x1b[0m`);
-  }
+  assertSafeAdminBindHost(opts.host);
 
   const { createServer } = await import('node:http');
   const { randomBytes } = await import('node:crypto');
@@ -345,7 +350,7 @@ export async function adminCommand(args: string[]): Promise<void> {
 
 // ─── Dashboard HTML ───
 
-function renderDashboardHtml(adminToken: string): string {
+export function renderDashboardHtml(adminToken: string): string {
 return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -969,6 +974,9 @@ const API = '/__admin/api';
 const ADMIN_TOKEN = '__THEN_ADMIN_TOKEN__';
 let state = { project: null, manifest: null, deployments: null, env: null };
 let currentPage = 'overview';
+const HTML_ESCAPE = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function h(value) { return String(value ?? '').replace(/[&<>"']/g, ch => HTML_ESCAPE[ch]); }
+
 
 // ─── Data Fetching ───
 function adminFetch(path, options = {}) {
@@ -990,8 +998,8 @@ async function fetchAll() {
   ]);
   state = { project, manifest, deployments, env };
   document.getElementById('projectName').textContent = project.name;
-  document.getElementById('systemInfo').innerHTML =
-    'Node ' + project.nodeVersion + '<br>' + project.platform;
+  document.getElementById('systemInfo').textContent =
+    'Node ' + project.nodeVersion + ' · ' + project.platform;
   renderPage(currentPage);
 }
 
@@ -1035,8 +1043,8 @@ function renderOverview() {
 
   return \`
     <div class="page-header">
-      <h2>\${p.name}</h2>
-      <p>\${p.root}</p>
+      <h2>\${h(p.name)}</h2>
+      <p>\${h(p.root)}</p>
     </div>
 
     <div class="stats-grid">
@@ -1057,8 +1065,8 @@ function renderOverview() {
       </div>
       <div class="stat-card fade-in">
         <div class="stat-label">Adapter</div>
-        <div class="stat-value" style="font-size:16px">\${p.adapter || 'None'}</div>
-        <div class="stat-detail">\${Object.entries(p.adapterOutput).filter(([,v])=>v).map(([k])=>k).join(', ') || 'no adapter output'}</div>
+        <div class="stat-value" style="font-size:16px">\${h(p.adapter || 'None')}</div>
+        <div class="stat-detail">\${h(Object.entries(p.adapterOutput).filter(([,v])=>v).map(([k])=>k).join(', ') || 'no adapter output')}</div>
       </div>
     </div>
 
@@ -1110,16 +1118,16 @@ function renderDeployments() {
       <div class="deploy-card fade-in" style="animation-delay: \${i * 60}ms">
         <div class="deploy-icon" style="background: \${bgMap[d.type]}; color: \${colorMap[d.type]}">\${iconMap[d.type] || '?'}</div>
         <div class="deploy-info">
-          <h4>\${d.label}</h4>
-          <p>\${d.description}</p>
-          \${d.url ? '<div class="deploy-url">' + d.url + '</div>' : ''}
-          \${d.directory ? '<div class="deploy-url" style="background: var(--bg-elevated); color: var(--text-secondary)">' + d.directory + '</div>' : ''}
-          \${d.routes ? '<div class="deploy-routes">' + d.routes.map(r => '<span class="route-chip">' + r.methods.join(',') + ' ' + r.pattern + '</span>').join('') + '</div>' : ''}
-          \${d.pages ? '<div class="deploy-routes">' + d.pages.map(p => '<span class="route-chip">' + p + '</span>').join('') + '</div>' : ''}
-          \${d.functions ? '<div class="deploy-routes">' + d.functions.map(f => '<span class="route-chip">' + f.methods.join(',') + ' ' + f.pattern + '</span>').join('') + '</div>' : ''}
-          \${d.tasks ? '<div class="deploy-routes">' + d.tasks.map(t => '<span class="route-chip">' + t.pattern + (t.schedule ? ' (' + t.schedule + ')' : '') + '</span>').join('') + '</div>' : ''}
+          <h4>\${h(d.label)}</h4>
+          <p>\${h(d.description)}</p>
+          \${d.url ? '<div class="deploy-url">' + h(d.url) + '</div>' : ''}
+          \${d.directory ? '<div class="deploy-url" style="background: var(--bg-elevated); color: var(--text-secondary)">' + h(d.directory) + '</div>' : ''}
+          \${d.routes ? '<div class="deploy-routes">' + d.routes.map(r => '<span class="route-chip">' + r.methods.map(h).join(',') + ' ' + h(r.pattern) + '</span>').join('') + '</div>' : ''}
+          \${d.pages ? '<div class="deploy-routes">' + d.pages.map(p => '<span class="route-chip">' + h(p) + '</span>').join('') + '</div>' : ''}
+          \${d.functions ? '<div class="deploy-routes">' + d.functions.map(f => '<span class="route-chip">' + f.methods.map(h).join(',') + ' ' + h(f.pattern) + '</span>').join('') + '</div>' : ''}
+          \${d.tasks ? '<div class="deploy-routes">' + d.tasks.map(t => '<span class="route-chip">' + h(t.pattern) + (t.schedule ? ' (' + h(t.schedule) + ')' : '') + '</span>').join('') + '</div>' : ''}
         </div>
-        <span class="badge badge-green"><span class="dot"></span> \${d.status}</span>
+        <span class="badge badge-green"><span class="dot"></span> \${h(d.status)}</span>
       </div>
     \`).join('')}
   \`;
@@ -1148,10 +1156,10 @@ function renderRoutes() {
         <thead><tr><th>Pattern</th><th>Methods</th><th>Kind</th><th>File</th></tr></thead>
         <tbody>
           \${m.api.map(r => \`<tr>
-            <td class="mono">\${r.urlPattern}</td>
-            <td>\${r.methods.map(m => '<span class="badge badge-blue">' + m + '</span> ').join('')}</td>
-            <td><span class="badge \${kindBadge(r.kind)}">\${r.kind}</span></td>
-            <td class="mono" style="color: var(--text-tertiary); font-size: 11px">\${r.filePath}</td>
+            <td class="mono">\${h(r.urlPattern)}</td>
+            <td>\${r.methods.map(m => '<span class="badge badge-blue">' + h(m) + '</span> ').join('')}</td>
+            <td><span class="badge \${kindBadge(r.kind)}">\${h(r.kind)}</span></td>
+            <td class="mono" style="color: var(--text-tertiary); font-size: 11px">\${h(r.filePath)}</td>
           </tr>\`).join('')}
         </tbody>
       </table>
@@ -1166,10 +1174,10 @@ function renderRoutes() {
         <thead><tr><th>Pattern</th><th>Mode</th><th>SSR Data</th><th>File</th></tr></thead>
         <tbody>
           \${m.pages.map(p => \`<tr>
-            <td class="mono">\${p.urlPattern}</td>
-            <td><span class="badge \${modeBadge(p.mode)}">\${p.mode}</span></td>
+            <td class="mono">\${h(p.urlPattern)}</td>
+            <td><span class="badge \${modeBadge(p.mode)}">\${h(p.mode)}</span></td>
             <td>\${p.hasGetServerData ? '<span class="badge badge-green">getServerData</span>' : '<span style="color: var(--text-tertiary)">—</span>'}</td>
-            <td class="mono" style="color: var(--text-tertiary); font-size: 11px">\${p.filePath}</td>
+            <td class="mono" style="color: var(--text-tertiary); font-size: 11px">\${h(p.filePath)}</td>
           </tr>\`).join('')}
         </tbody>
       </table>
@@ -1183,8 +1191,8 @@ function renderEnv() {
 
   const renderVars = (vars, file) => vars.map((v, i) => \`
     <div class="env-row">
-      <input class="env-key" value="\${v.key}" data-file="\${file}" data-index="\${i}" data-field="key" spellcheck="false">
-      <input class="env-value" value="\${v.value}" data-file="\${file}" data-index="\${i}" data-field="value" spellcheck="false" type="\${v.key.includes('SECRET') || v.key.includes('KEY') || v.key.includes('TOKEN') ? 'password' : 'text'}">
+      <input class="env-key" value="\${h(v.key)}" data-file="\${file}" data-index="\${i}" data-field="key" spellcheck="false">
+      <input class="env-value" value="\${h(v.value)}" data-file="\${file}" data-index="\${i}" data-field="value" spellcheck="false" type="\${v.key.includes('SECRET') || v.key.includes('KEY') || v.key.includes('TOKEN') ? 'password' : 'text'}">
       <button class="env-btn" data-remove="\${file}:\${i}" title="Remove">✕</button>
     </div>
   \`).join('');
@@ -1244,7 +1252,7 @@ async function saveEnvFile(file, containerId) {
   const content = collectEnvVars(containerId);
   await adminFetch('/env', {
     method: 'POST',
-    headers: apiHeaders,
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ file, content }),
   });
   showToast('Saved ' + file);
@@ -1329,7 +1337,7 @@ function renderDomains() {
           </tr>
           \${m.pages.filter(p => p.mode === 'server' || p.mode === 'hybrid').map(p => \`
             <tr>
-              <td class="mono">\${p.urlPattern}</td>
+              <td class="mono">\${h(p.urlPattern)}</td>
               <td style="color: var(--text-secondary)">SSR page\${p.hasGetServerData ? ' (getServerData)' : ''}</td>
               <td><span class="badge badge-green">SSR</span></td>
             </tr>

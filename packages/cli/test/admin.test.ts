@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { adminApiHeaders, isAllowedAdminRequest, isLocalAdminHost, parseAdminOptions } from '../src/commands/admin.js';
+import {
+  adminApiHeaders,
+  assertSafeAdminBindHost,
+  isAllowedAdminRequest,
+  isLocalAdminHost,
+  parseAdminOptions,
+  renderDashboardHtml,
+} from '../src/commands/admin.js';
 
 describe('CLI admin options', () => {
   it('binds to loopback by default', () => {
@@ -18,12 +25,35 @@ describe('CLI admin options', () => {
     });
   });
 
+  it('refuses non-loopback binds because the dashboard manages secrets', () => {
+    expect(() => assertSafeAdminBindHost('127.0.0.1')).not.toThrow();
+    expect(() => assertSafeAdminBindHost('0.0.0.0')).toThrow('Refusing unsafe host');
+    expect(() => assertSafeAdminBindHost('192.168.1.10')).toThrow('Refusing unsafe host');
+  });
+
   it('classifies non-local admin hosts as unsafe to bind silently', () => {
     expect(isLocalAdminHost('127.0.0.1')).toBe(true);
     expect(isLocalAdminHost('localhost')).toBe(true);
     expect(isLocalAdminHost('::1')).toBe(true);
     expect(isLocalAdminHost('0.0.0.0')).toBe(false);
     expect(isLocalAdminHost('192.168.1.10')).toBe(false);
+  });
+});
+
+describe('CLI admin dashboard rendering', () => {
+  it('uses tokenized fetch with JSON headers for env saves', () => {
+    const html = renderDashboardHtml('test-token');
+    expect(html).toContain("'X-Then-Admin-Token': ADMIN_TOKEN");
+    expect(html).toContain("headers: { 'Content-Type': 'application/json' }");
+    expect(html).not.toContain('headers: apiHeaders');
+  });
+
+  it('escapes dynamic HTML before injecting admin state into templates', () => {
+    const html = renderDashboardHtml('test-token');
+    expect(html).toContain('function h(value)');
+    expect(html).toContain('${h(p.name)}');
+    expect(html).toContain('${h(d.label)}');
+    expect(html).toContain('value="${h(v.value)}"');
   });
 });
 
