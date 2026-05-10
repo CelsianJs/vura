@@ -146,12 +146,9 @@ async function startStandaloneServer(
     const log = logger.child(reqCtx.requestId);
 
     // Track response to log at end
-    const origEnd = res.end.bind(res);
-    res.end = function (...args: any[]) {
-      const result = origEnd(...args);
+    res.on("finish", () => {
       logger.requestEnd(reqCtx, res.statusCode);
-      return result;
-    } as typeof res.end;
+    });
 
     // Health check
     if (url.pathname === '/__health') {

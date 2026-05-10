@@ -165,8 +165,13 @@ describe('getLogger / setDefaultLogger', () => {
   });
 
   it('can be replaced', () => {
-    const custom = createLogger({ level: 'error' });
-    setDefaultLogger(custom);
-    expect(getLogger()).toBe(custom);
+    const original = getLogger();
+    try {
+      const custom = createLogger({ level: 'error' });
+      setDefaultLogger(custom);
+      expect(getLogger()).toBe(custom);
+    } finally {
+      setDefaultLogger(original);
+    }
   });
 });

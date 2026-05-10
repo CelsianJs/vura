@@ -301,6 +301,7 @@ function validateCronField(field: string, min: number, max: number): boolean {
 
   // Step values: */5 or 1-30/5
   if (field.includes('/')) {
+    if (field.split('/').length > 2) return false;
     const [range, stepStr] = field.split('/');
     const step = parseInt(stepStr, 10);
     if (isNaN(step) || step <= 0) return false;

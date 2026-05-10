@@ -208,6 +208,14 @@ describe('parseCron', () => {
     expect(parseCron('0-60/5 * * * *')).toBeNull();   // 60 exceeds max
     expect(parseCron('0-55/5 * * * *')).not.toBeNull();
   });
+
+  it('rejects */0 (step of zero)', () => {
+    expect(parseCron('*/0 * * * *')).toBeNull();
+  });
+
+  it('rejects multi-slash fields like 1/2/3', () => {
+    expect(parseCron('1/2/3 * * * *')).toBeNull();
+  });
 });
 
 describe('cronFieldMatches', () => {
