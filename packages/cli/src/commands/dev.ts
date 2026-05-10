@@ -456,6 +456,18 @@ function parseNodeBody(req: any): Promise<any> {
   return new Promise((resolve, reject) => {
     const method = (req.method ?? 'GET').toUpperCase();
     if (method === 'GET' || method === 'HEAD') return resolve(null);
+
+    // Pre-check Content-Length before starting to buffer
+    const contentLength = req.headers['content-length'];
+    if (contentLength != null) {
+      const declared = parseInt(contentLength, 10);
+      if (!isNaN(declared) && declared > DEV_MAX_BODY_SIZE) {
+        req.destroy();
+        reject(new Error('Content-Length exceeds limit'));
+        return;
+      }
+    }
+
     let size = 0;
     const chunks: Buffer[] = [];
     req.on('data', (chunk: Buffer) => {
