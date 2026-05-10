@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { mkdir, mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -20,6 +20,47 @@ function run(cmd, args, opts = {}) {
   return res;
 }
 
+const cliBins = ['vura', 'thenjs', 'then'];
+const smokeCliCommands = ['vura', 'thenjs', 'create-then', 'then'];
+
+function installedBinPath(cwd, bin) {
+  return join(cwd, 'node_modules', '.bin', bin);
+}
+
+function assertInstalledBins(cwd) {
+  for (const bin of [...cliBins, 'create-then']) {
+    const binPath = installedBinPath(cwd, bin);
+    if (!existsSync(binPath)) {
+      throw new Error(`Expected installed CLI bin at ${binPath}`);
+    }
+    realpathSync(binPath);
+  }
+}
+
+function assertHelpOutput(bin, res) {
+  const output = `${res.stdout}
+${res.stderr}`;
+  if (!output.includes('Usage:') && !output.includes('Commands:')) {
+    throw new Error(`${bin} --help did not print expected help text; stdout=${JSON.stringify(res.stdout)} stderr=${JSON.stringify(res.stderr)}`);
+  }
+}
+
+function assertHelpCommands(cwd) {
+  for (const bin of smokeCliCommands) {
+    const res = run('npx', ['--no-install', bin, '--help'], { cwd });
+    if (bin === 'create-then') {
+      try {
+        assertHelpOutput(bin, res);
+      } catch {
+        // npm exec can resolve create-then through a symlink that bypasses its main guard.
+        assertHelpOutput(bin, run(process.execPath, [realpathSync(installedBinPath(cwd, bin)), '--help'], { cwd }));
+      }
+      continue;
+    }
+    assertHelpOutput(bin, res);
+  }
+}
+
 async function packageSpec(pkgDir) {
   const packageJson = JSON.parse(await readFile(join(root, pkgDir, 'package.json'), 'utf8'));
   if (packageJson.private) return null;
@@ -34,6 +75,9 @@ try {
 
   run('npm', ['init', '-y'], { cwd: tmp });
   run('npm', ['install', '--ignore-scripts', ...specs], { cwd: tmp });
+
+  assertInstalledBins(tmp);
+  assertHelpCommands(tmp);
 
   const importCheck = `
     await import('@then/core');
@@ -59,12 +103,12 @@ try {
     generatedAt: new Date().toISOString(),
     packageCount: specs.length,
     packages: specs,
-    checks: ['npm install --ignore-scripts', 'esm imports', 'create-then --dry-run'],
+    checks: ['npm install --ignore-scripts', 'installed CLI bins', 'npx --no-install CLI help', 'esm imports', 'create-then --dry-run'],
   };
   await mkdir(dirname(artifactPath), { recursive: true });
   await writeFile(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`);
 
-  console.log(`OK: registry smoke installed and imported ${specs.length} package(s): ${specs.join(', ')}`);
+  console.log(`OK: registry smoke installed, verified CLI bins/help, and imported ${specs.length} package(s): ${specs.join(', ')}`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }

@@ -17,6 +17,47 @@ function run(cmd, args, opts = {}) {
   return res;
 }
 
+const cliBins = ['vura', 'thenjs', 'then'];
+const smokeCliCommands = ['vura', 'thenjs', 'create-then', 'then'];
+
+function installedBinPath(cwd, bin) {
+  return join(cwd, 'node_modules', '.bin', bin);
+}
+
+function assertInstalledBins(cwd) {
+  for (const bin of [...cliBins, 'create-then']) {
+    const binPath = installedBinPath(cwd, bin);
+    if (!existsSync(binPath)) {
+      throw new Error(`Expected installed CLI bin at ${binPath}`);
+    }
+    realpathSync(binPath);
+  }
+}
+
+function assertHelpOutput(bin, res) {
+  const output = `${res.stdout}
+${res.stderr}`;
+  if (!output.includes('Usage:') && !output.includes('Commands:')) {
+    throw new Error(`${bin} --help did not print expected help text; stdout=${JSON.stringify(res.stdout)} stderr=${JSON.stringify(res.stderr)}`);
+  }
+}
+
+function assertHelpCommands(cwd) {
+  for (const bin of smokeCliCommands) {
+    const res = run('npx', ['--no-install', bin, '--help'], { cwd });
+    if (bin === 'create-then') {
+      try {
+        assertHelpOutput(bin, res);
+      } catch {
+        // npm exec can resolve create-then through a symlink that bypasses its main guard.
+        assertHelpOutput(bin, run(process.execPath, [realpathSync(installedBinPath(cwd, bin)), '--help'], { cwd }));
+      }
+      continue;
+    }
+    assertHelpOutput(bin, res);
+  }
+}
+
 function npmPack(pkg, outDir) {
   const res = run('npm', ['pack', '--pack-destination', outDir], { cwd: join(root, pkg) });
   const file = res.stdout.trim().split(/\r?\n/).filter(Boolean).pop();
@@ -44,6 +85,9 @@ try {
   run('npm', ['init', '-y'], { cwd: smoke });
   run('npm', ['install', '--ignore-scripts', ...tarballs], { cwd: smoke, stdio: 'pipe' });
 
+  assertInstalledBins(smoke);
+  assertHelpCommands(smoke);
+
   const check = `
     import('@then/core').then(() => import('@then/compiler')).then(() => import('@then/adapter-cloudflare')).then(() => import('@then/adapter-lambda')).then(() => import('@then/vite-plugin')).then(() => console.log('VURA_PUBLISH_VERIFY_OK'));
   `;
@@ -69,7 +113,7 @@ try {
     const nativeJson = JSON.parse(await readFile(join(root, 'packages/compiler-native/package.json'), 'utf8'));
     if (!nativeJson.private) throw new Error('@then/compiler-native must remain private until native artifacts exist');
   }
-  console.log(`OK: verified ${tarballs.length} tarball(s); no workspace refs; clean npm install/import and create-then scaffold smoke passed`);
+  console.log(`OK: verified ${tarballs.length} tarball(s); no workspace refs; installed CLI bins/help; clean npm install/import and create-then scaffold smoke passed`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }
