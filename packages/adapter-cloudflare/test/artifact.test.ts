@@ -98,3 +98,86 @@ console.log(JSON.stringify({ status: response.status, body: await response.json(
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+
+it('validates schemas and stops handler execution when onRequest throws', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'vura-cf-lifecycle-'));
+  try {
+    mkdirSync(join(root, 'src', 'api'), { recursive: true });
+    writeFileSync(join(root, 'src', 'api', 'echo.ts'), `
+let handlerCalls = 0;
+export const schema = {
+  body: {
+    safeParse(input) {
+      return input && input.ok === true
+        ? { success: true, data: input }
+        : { success: false, error: { issues: [{ path: ['ok'], message: 'Expected true', code: 'invalid_literal' }] } };
+    }
+  }
+};
+export const hooks = {
+  onRequest: [async (req) => { if (req.headers['x-block'] === 'yes') throw new Error('blocked'); }],
+  onResponse: [async () => { globalThis.__onResponseSeen = true; }]
+};
+export async function POST(req, reply) { handlerCalls++; if (req.body.redirect) return reply.redirect('/target', 307); return { handlerCalls }; }
+`);
+
+    const outDir = join(root, 'dist');
+    await cloudflareAdapter({ name: 'test-worker', compatibilityDate: '2026-05-10' }).buildEnd({
+      serverEntry: join(outDir, 'server', 'entry.js'),
+      clientDir: join(outDir, 'client'),
+      manifest: manifest([route()]),
+      projectRoot: root,
+      outDir,
+    });
+
+    const result = runModuleJson(join(outDir, 'cloudflare', 'entry.js'), `
+const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+function request(body, headers = {}) { return new Request('https://example.com/api/echo', {
+  method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body),
+}); }
+const invalidResponse = await mod.default.fetch(request({ ok: false }), {}, ctx);
+const blockedResponse = await mod.default.fetch(request({ ok: true }, { 'x-block': 'yes' }), {}, ctx);
+const okResponse = await mod.default.fetch(request({ ok: true, redirect: true }), {}, ctx);
+console.log(JSON.stringify({
+  invalid: { status: invalidResponse.status, body: await invalidResponse.json() },
+  blocked: { status: blockedResponse.status, body: await blockedResponse.json() },
+  ok: { status: okResponse.status, location: okResponse.headers.get('location'), body: await okResponse.text() },
+}));
+`);
+    expect(result.invalid.status).toBe(400);
+    expect(result.invalid.body.code).toBe('VALIDATION_ERROR');
+    expect(result.blocked.status).toBe(500);
+    expect(result.ok).toEqual({ status: 307, location: '/target', body: 'Redirecting to /target' });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('runs only scheduled tasks matching the Cloudflare cron event', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'vura-cf-cron-'));
+  try {
+    mkdirSync(join(root, 'src', 'api', 'tasks'), { recursive: true });
+    writeFileSync(join(root, 'src', 'api', 'tasks', 'hourly.ts'), `export async function POST() { return 'hourly'; }`);
+    writeFileSync(join(root, 'src', 'api', 'tasks', 'daily.ts'), `export async function POST() { return 'daily'; }`);
+    const outDir = join(root, 'dist');
+    await cloudflareAdapter({ name: 'test-worker', compatibilityDate: '2026-05-10' }).buildEnd({
+      serverEntry: join(outDir, 'server', 'entry.js'),
+      clientDir: join(outDir, 'client'),
+      manifest: manifest([
+        { filePath: 'src/api/tasks/hourly.ts', urlPattern: '/api/tasks/hourly', methods: ['POST'], kind: 'task', config: { schedule: '0 * * * *' } } as ApiRoute,
+        { filePath: 'src/api/tasks/daily.ts', urlPattern: '/api/tasks/daily', methods: ['POST'], kind: 'task', config: { schedule: '0 0 * * *' } } as ApiRoute,
+      ]),
+      projectRoot: root,
+      outDir,
+    });
+    const result = runModuleJson(join(outDir, 'cloudflare', 'entry.js'), `
+const results = await mod.default.scheduled({ cron: '0 * * * *' }, {}, { waitUntil: () => {}, passThroughOnException: () => {} });
+console.log(JSON.stringify(results));
+`);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ task: 'tasks.hourly', status: 'completed', result: 'hourly' });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

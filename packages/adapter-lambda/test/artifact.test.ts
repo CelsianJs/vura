@@ -55,7 +55,7 @@ export async function POST(req: { body: unknown; parsedBody: unknown }) {
       const bundledRoutePath = join(funcDir, 'route.js');
       expect(existsSync(entryPath)).toBe(true);
       expect(existsSync(bundledRoutePath)).toBe(true);
-      expect(readFileSync(entryPath, 'utf-8')).toContain("from './route.js'");
+      expect(readFileSync(entryPath, 'utf-8')).toContain("import * as routeMod from './route.js'");
       const bundledRoute = readFileSync(bundledRoutePath, 'utf-8');
       expect(bundledRoute).not.toContain('req: {');
       expect(bundledRoute).not.toContain("from '@then/core'");
@@ -107,3 +107,60 @@ console.log(JSON.stringify(result));
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+
+it('validates schemas and stops handler execution when onRequest throws', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'vura-lambda-lifecycle-'));
+  try {
+    mkdirSync(join(root, 'src', 'api'), { recursive: true });
+    writeFileSync(join(root, 'src', 'api', 'echo.ts'), `
+let handlerCalls = 0;
+export const schema = {
+  body: {
+    safeParse(input) {
+      return input && input.ok === true
+        ? { success: true, data: input }
+        : { success: false, error: { issues: [{ path: ['ok'], message: 'Expected true', code: 'invalid_literal' }] } };
+    }
+  }
+};
+export const hooks = {
+  onRequest: [async (req) => { if (req.headers['x-block'] === 'yes') throw new Error('blocked'); }],
+  onResponse: [async () => { globalThis.__onResponseSeen = true; }]
+};
+export async function POST(req, reply) { handlerCalls++; if (req.body.redirect) return reply.redirect('/target', 307); return { handlerCalls }; }
+export function GET() { return { handlerCalls, onResponseSeen: globalThis.__onResponseSeen === true }; }
+`);
+
+    const outDir = join(root, 'dist');
+    await lambdaAdapter().buildEnd({
+      serverEntry: join(outDir, 'server', 'entry.js'),
+      clientDir: join(outDir, 'client'),
+      manifest: manifest([route({ methods: ['POST', 'GET'] })]),
+      projectRoot: root,
+      outDir,
+    });
+
+    const entryPath = join(outDir, 'lambda', 'api_echo_post', 'index.js');
+    const result = runModuleJson(entryPath, `
+function event(body, headers = {}) { return {
+  version: '2.0', routeKey: 'POST /api/echo', rawPath: '/api/echo', rawQueryString: '',
+  headers: { host: 'example.com', 'content-type': 'application/json', ...headers },
+  body: JSON.stringify(body), isBase64Encoded: false,
+  requestContext: { domainName: 'example.com', http: { method: 'POST', path: '/api/echo' } },
+}; }
+const invalid = await mod.handler(event({ ok: false }), {});
+const blocked = await mod.handler(event({ ok: true }, { 'x-block': 'yes' }), {});
+const ok = await mod.handler(event({ ok: true, redirect: true }), {});
+console.log(JSON.stringify({ invalid, blocked, ok }));
+`);
+    expect(result.invalid.statusCode).toBe(400);
+    expect(JSON.parse(result.invalid.body).code).toBe('VALIDATION_ERROR');
+    expect(result.blocked.statusCode).toBe(500);
+    expect(result.ok.statusCode).toBe(307);
+    expect(result.ok.headers.location).toBe('/target');
+    expect(result.ok.body).toBe('Redirecting to /target');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

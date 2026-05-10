@@ -419,12 +419,8 @@ confirm_changeset = true
  * No @celsian/core dependency — includes inline event conversion and req/reply shim.
  */
 function generateHandlerFile(route: ApiRoute): string {
-  const imports = route.methods
-    .map((m) => m)
-    .join(', ');
-
   return `// Auto-generated — self-contained Lambda handler
-import { ${imports} } from './route.js';
+import * as routeMod from './route.js';
 
 function eventToRequest(event) {
   const { rawPath, rawQueryString, headers, body, isBase64Encoded, requestContext } = event;
@@ -511,7 +507,64 @@ async function responseToResult(response) {
   return result;
 }
 
-const handlers = { ${route.methods.map(m => `${m}`).join(', ')} };
+function normalizeHooks(hooks) {
+  if (!hooks) return undefined;
+  return {
+    onRequest: hooks.onRequest ? (Array.isArray(hooks.onRequest) ? hooks.onRequest : [hooks.onRequest]) : undefined,
+    onError: hooks.onError ? (Array.isArray(hooks.onError) ? hooks.onError : [hooks.onError]) : undefined,
+    onResponse: hooks.onResponse ? (Array.isArray(hooks.onResponse) ? hooks.onResponse : [hooks.onResponse]) : undefined,
+  };
+}
+
+function validationIssues(target, error) {
+  const issues = (error && Array.isArray(error.issues)) ? error.issues : [{ path: [], message: error?.message || 'Invalid value' }];
+  return { target, issues: issues.map(i => ({ path: Array.isArray(i.path) ? i.path.join('.') : String(i.path || ''), message: i.message || 'Invalid value', ...(i.code ? { code: i.code } : {}) })) };
+}
+
+function validateRequest(req, schema) {
+  const errors = [];
+  if (schema.body) {
+    const r = schema.body.safeParse(req.parsedBody);
+    if (!r.success) errors.push(validationIssues('body', r.error));
+    else { req.parsedBody = r.data; req.body = r.data; }
+  }
+  if (schema.query) {
+    const r = schema.query.safeParse(req.query);
+    if (!r.success) errors.push(validationIssues('query', r.error));
+    else req.query = r.data;
+  }
+  if (schema.params) {
+    const r = schema.params.safeParse(req.params);
+    if (!r.success) errors.push(validationIssues('params', r.error));
+    else req.params = r.data;
+  }
+  if (errors.length > 0) {
+    const issueCount = errors.reduce((acc, e) => acc + e.issues.length, 0);
+    const message = 'Validation failed: ' + issueCount + ' issue' + (issueCount > 1 ? 's' : '') + ' in ' + errors.map(e => e.target).join(', ');
+    return { statusCode: 400, body: { error: message, code: 'VALIDATION_ERROR', details: errors } };
+  }
+  req.validated = { body: req.parsedBody, query: req.query, params: req.params };
+  return null;
+}
+
+async function runHooks(hooks, ...args) {
+  if (!hooks) return;
+  for (const hook of hooks) await hook(...args);
+}
+
+async function runOnError(err, req, reply, routeHooks) {
+  if (!routeHooks?.onError) return { handled: false, error: err };
+  let handled = false;
+  for (const hook of routeHooks.onError) {
+    try { await hook(err, req, reply); handled = true; }
+    catch (hookErr) { err = hookErr; }
+  }
+  return { handled, error: err };
+}
+
+const handlers = routeMod;
+const routeHooks = normalizeHooks(routeMod.hooks || { onRequest: routeMod.onRequest, onError: routeMod.onError, onResponse: routeMod.onResponse });
+const routeSchema = routeMod.schema;
 
 export async function handler(event, context) {
   // Detect EventBridge scheduled event (cron trigger)
@@ -557,9 +610,32 @@ export async function handler(event, context) {
     header(name, value) { responseHeaders[name] = value; return reply; },
     json(data) { responseBody = JSON.stringify(data); return null; },
     send(data) { responseBody = data; return null; },
+    redirect(url, status) { statusCode = status || 302; responseHeaders.location = url; responseBody = 'Redirecting to ' + url; return null; },
   };
 
-  const result = await handlerFn(req, reply);
+  if (routeSchema) {
+    const validationError = validateRequest(req, routeSchema);
+    if (validationError) return { statusCode: validationError.statusCode, headers: responseHeaders, body: JSON.stringify(validationError.body) };
+  }
+
+  const startedAt = performance.now();
+  let result;
+  let hadError = false;
+  try {
+    await runHooks(routeHooks?.onRequest, req, reply);
+    result = await handlerFn(req, reply);
+  } catch (err) {
+    hadError = true;
+    statusCode = err && err.statusCode ? err.statusCode : 500;
+    const errorResult = await runOnError(err, req, reply, routeHooks);
+    if (!errorResult.handled && responseBody === null) {
+      responseBody = JSON.stringify({ error: statusCode === 500 ? 'Internal Server Error' : (errorResult.error?.message || 'Request failed') });
+    }
+  } finally {
+    const durationMs = Math.round((performance.now() - startedAt) * 100) / 100;
+    try { await runHooks(routeHooks?.onResponse, req, reply, { statusCode, durationMs, hadError }); } catch {}
+  }
+
   if (result instanceof Response) return responseToResult(result);
   if (responseBody !== null) return { statusCode, headers: responseHeaders, body: responseBody };
   if (result && typeof result === 'object') return { statusCode, headers: responseHeaders, body: JSON.stringify(result) };

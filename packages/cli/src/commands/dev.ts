@@ -45,7 +45,22 @@ import type {
 
 interface DevOptions {
   port: number;
+  host: string;
   projectRoot: string;
+}
+
+export function parseDevOptions(args: string[], projectRoot: string = process.cwd()): DevOptions {
+  const portArg = args.find((_, i) => args[i - 1] === '--port');
+  const hostArg = args.find((_, i) => args[i - 1] === '--host');
+  return {
+    port: portArg ? parseInt(portArg, 10) : 3000,
+    host: hostArg || '127.0.0.1',
+    projectRoot,
+  };
+}
+
+export function isLanDevHost(host: string): boolean {
+  return host === '0.0.0.0' || host === '::' || (!['127.0.0.1', 'localhost', '::1'].includes(host));
 }
 
 type TaskAdminHeaders = {
@@ -113,11 +128,7 @@ async function loadEnvFiles(projectRoot: string): Promise<void> {
 }
 
 export async function devCommand(args: string[]): Promise<void> {
-  const portArg = args.find((_, i) => args[i - 1] === '--port');
-  const opts: DevOptions = {
-    port: portArg ? parseInt(portArg, 10) : 3000,
-    projectRoot: process.cwd(),
-  };
+  const opts = parseDevOptions(args);
 
   console.log('\n  then dev\n');
 
@@ -139,7 +150,7 @@ export async function devCommand(args: string[]): Promise<void> {
       root: opts.projectRoot,
       server: {
         port: opts.port,
-        host: true,
+        host: opts.host,
       },
       plugins: [
         thenPlugin({ root: opts.projectRoot }),
@@ -148,6 +159,9 @@ export async function devCommand(args: string[]): Promise<void> {
 
     await server.listen();
     server.printUrls();
+    if (isLanDevHost(opts.host)) {
+      console.warn(`  [vura] Dev server exposed on ${opts.host}. Only use --host for trusted LAN testing.`);
+    }
     console.log();
 
     // Print route table
@@ -248,12 +262,14 @@ async function startStandaloneServer(
       logger.requestEnd(reqCtx, res.statusCode);
     });
 
-    // CORS headers for dev mode
-    const corsOrigin = process.env.THEN_CORS_ORIGIN || '*';
-    res.setHeader('Access-Control-Allow-Origin', corsOrigin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    res.setHeader('Access-Control-Max-Age', '86400');
+    // CORS headers are opt-in for dev mode; no wildcard CORS by default.
+    const corsOrigin = process.env.THEN_CORS_ORIGIN;
+    if (corsOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+      res.setHeader('Access-Control-Max-Age', '86400');
+    }
 
     // Handle CORS preflight
     if (method === 'OPTIONS') {
@@ -521,11 +537,11 @@ async function startStandaloneServer(
     }
   }
 
-  server.listen(opts.port, () => {
-    console.log(`  Server listening on http://localhost:${opts.port}\n`);
-    // Warn once at startup if CORS is using the implicit wildcard default
-    if (!process.env.THEN_CORS_ORIGIN) {
-      console.warn('  [vura] CORS origin defaulting to "*" in development. Set THEN_CORS_ORIGIN for production.');
+  server.listen(opts.port, opts.host, () => {
+    console.log(`  Server listening on http://${opts.host}:${opts.port}\n`);
+    // Warn once at startup when the user explicitly exposes the dev server beyond loopback.
+    if (isLanDevHost(opts.host)) {
+      console.warn(`  [vura] Dev server exposed on ${opts.host}. Only use --host for trusted LAN testing.`);
     }
     printRouteTable(manifest);
   });
