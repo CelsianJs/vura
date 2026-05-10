@@ -121,6 +121,46 @@ export async function buildCommand(_args: string[]): Promise<void> {
     }
   }
 
+  // 3b. Bundle layout files used by server-mode pages
+  if (manifest.layouts.length > 0 && serverPages.length > 0) {
+    // Only compile layouts that are actually referenced by server-mode pages
+    const usedLayoutPaths = new Set<string>();
+    for (const page of serverPages) {
+      if (page.layouts) {
+        for (const lp of page.layouts) usedLayoutPaths.add(lp);
+      }
+    }
+
+    const layoutsToCompile = manifest.layouts.filter(l => usedLayoutPaths.has(l.filePath));
+    if (layoutsToCompile.length > 0) {
+      console.log(`  Bundling ${layoutsToCompile.length} layout files...`);
+      const serverPagesDir = join(root, 'dist', 'server', 'pages');
+      await mkdir(serverPagesDir, { recursive: true });
+
+      for (const layout of layoutsToCompile) {
+        const absPath = resolve(root, layout.filePath);
+        const outFile = layout.filePath.replace(/^src\/pages\//, '').replace(/\.tsx?$/, '.js');
+        const outPath = join(serverPagesDir, outFile);
+        await mkdir(join(outPath, '..'), { recursive: true });
+
+        await esbuild({
+          entryPoints: [absPath],
+          bundle: true,
+          format: 'esm',
+          target: 'es2022',
+          platform: 'node',
+          outfile: outPath,
+          jsx: 'automatic',
+          jsxImportSource,
+          plugins: [esmResolvePlugin],
+          external: [],
+        });
+
+        console.log(`    ⊟ layout ${layout.dirPattern || '(root)'} → dist/server/pages/${outFile}`);
+      }
+    }
+  }
+
   // 4. Build API routes + task entries
   console.log('  Building...');
   const result = await build(manifest, config, root);
