@@ -34,6 +34,43 @@ export function isLocalAdminHost(host: string): boolean {
   return host === '127.0.0.1' || host === 'localhost' || host === '::1';
 }
 
+
+export function adminApiHeaders(): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-store',
+  };
+}
+
+export function isAllowedAdminRequest(
+  headers: { host?: string | string[]; origin?: string | string[] },
+  bindHost: string,
+  port: number,
+): boolean {
+  const hostHeader = Array.isArray(headers.host) ? headers.host[0] : headers.host;
+  if (!hostHeader) return false;
+  const allowedHosts = new Set([
+    `127.0.0.1:${port}`,
+    `localhost:${port}`,
+    `[::1]:${port}`,
+  ]);
+  if (isLocalAdminHost(bindHost)) {
+    allowedHosts.add(`${bindHost}:${port}`);
+  } else {
+    allowedHosts.add(`${bindHost}:${port}`);
+  }
+  if (!allowedHosts.has(hostHeader)) return false;
+
+  const origin = Array.isArray(headers.origin) ? headers.origin[0] : headers.origin;
+  if (!origin) return true;
+  try {
+    const parsed = new URL(origin);
+    return allowedHosts.has(parsed.host) && (parsed.protocol === 'http:' || parsed.protocol === 'https:');
+  } catch {
+    return false;
+  }
+}
+
 export async function adminCommand(args: string[]): Promise<void> {
   const opts = parseAdminOptions(args);
 
@@ -42,6 +79,7 @@ export async function adminCommand(args: string[]): Promise<void> {
   }
 
   const { createServer } = await import('node:http');
+  const { randomBytes } = await import('node:crypto');
   const { readFile, writeFile, readdir, stat, access } = await import('node:fs/promises');
   const { join, basename } = await import('node:path');
 
@@ -49,16 +87,38 @@ export async function adminCommand(args: string[]): Promise<void> {
   let manifest = await buildManifest(opts.projectRoot);
   const config = await loadConfig(opts.projectRoot);
   const projectName = basename(opts.projectRoot);
+  const adminToken = randomBytes(32).toString('base64url');
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     const method = (req.method ?? 'GET').toUpperCase();
+    const isAdminApi = url.pathname.startsWith('/__admin/api/');
+    const sameOrigin = isAllowedAdminRequest(req.headers, opts.host, opts.port);
+    const apiHeaders = adminApiHeaders();
+
+    if (method === 'OPTIONS') {
+      res.writeHead(sameOrigin ? 204 : 403, {
+        ...apiHeaders,
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, X-Then-Admin-Token',
+      });
+      res.end();
+      return;
+    }
+
+    if (isAdminApi) {
+      if (!sameOrigin || req.headers['x-then-admin-token'] !== adminToken) {
+        res.writeHead(403, apiHeaders);
+        res.end(JSON.stringify({ error: 'Forbidden' }));
+        return;
+      }
+    }
 
     // ─── API Endpoints ───
 
     if (url.pathname === '/__admin/api/manifest' && method === 'GET') {
       manifest = await buildManifest(opts.projectRoot);
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, apiHeaders);
       res.end(JSON.stringify(manifest));
       return;
     }
@@ -108,7 +168,7 @@ export async function adminCommand(args: string[]): Promise<void> {
         }
       }
 
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, apiHeaders);
       res.end(JSON.stringify({
         name: pkgJson.name ?? projectName,
         version: pkgJson.version ?? '0.0.0',
@@ -156,7 +216,7 @@ export async function adminCommand(args: string[]): Promise<void> {
         return vars;
       };
 
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, apiHeaders);
       res.end(JSON.stringify({
         env: parseEnv(envContent),
         envLocal: parseEnv(envLocalContent),
@@ -173,10 +233,10 @@ export async function adminCommand(args: string[]): Promise<void> {
 
       if (body.file === '.env' || body.file === '.env.local') {
         await writeFile(join(opts.projectRoot, body.file), body.content, 'utf-8');
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(200, apiHeaders);
         res.end(JSON.stringify({ ok: true }));
       } else {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.writeHead(400, apiHeaders);
         res.end(JSON.stringify({ error: 'Invalid file' }));
       }
       return;
@@ -244,30 +304,19 @@ export async function adminCommand(args: string[]): Promise<void> {
         });
       }
 
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, apiHeaders);
       res.end(JSON.stringify(deployments));
-      return;
-    }
-
-    // CORS preflight
-    if (method === 'OPTIONS') {
-      res.writeHead(204, {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      });
-      res.end();
       return;
     }
 
     // ─── Serve Dashboard UI ───
     if (url.pathname === '/' || url.pathname === '/admin' || url.pathname.startsWith('/admin')) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(DASHBOARD_HTML);
+      res.end(renderDashboardHtml(adminToken));
       return;
     }
 
-    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.writeHead(404, apiHeaders);
     res.end(JSON.stringify({ error: 'Not found' }));
   });
 
@@ -282,6 +331,7 @@ export async function adminCommand(args: string[]): Promise<void> {
   │   then admin                            │
   │                                         │
   │   Dashboard: ${displayUrl.padEnd(22)} │
+  │   Token:     ${adminToken.slice(0, 8).padEnd(25)} │
   │   Project:   ${projectName.slice(0, 25).padEnd(25)} │
   │                                         │
   │   ${manifest.api.length} API routes · ${manifest.pages.length} pages             │
@@ -295,7 +345,8 @@ export async function adminCommand(args: string[]): Promise<void> {
 
 // ─── Dashboard HTML ───
 
-const DASHBOARD_HTML = `<!DOCTYPE html>
+function renderDashboardHtml(adminToken: string): string {
+return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -915,16 +966,27 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
 
 <script>
 const API = '/__admin/api';
+const ADMIN_TOKEN = '__THEN_ADMIN_TOKEN__';
 let state = { project: null, manifest: null, deployments: null, env: null };
 let currentPage = 'overview';
 
 // ─── Data Fetching ───
+function adminFetch(path, options = {}) {
+  return fetch(API + path, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      'X-Then-Admin-Token': ADMIN_TOKEN,
+    },
+  });
+}
+
 async function fetchAll() {
   const [project, manifest, deployments, env] = await Promise.all([
-    fetch(API + '/project').then(r => r.json()),
-    fetch(API + '/manifest').then(r => r.json()),
-    fetch(API + '/deployments').then(r => r.json()),
-    fetch(API + '/env').then(r => r.json()),
+    adminFetch('/project').then(r => r.json()),
+    adminFetch('/manifest').then(r => r.json()),
+    adminFetch('/deployments').then(r => r.json()),
+    adminFetch('/env').then(r => r.json()),
   ]);
   state = { project, manifest, deployments, env };
   document.getElementById('projectName').textContent = project.name;
@@ -1180,13 +1242,13 @@ function collectEnvVars(containerId) {
 
 async function saveEnvFile(file, containerId) {
   const content = collectEnvVars(containerId);
-  await fetch(API + '/env', {
+  await adminFetch('/env', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: apiHeaders,
     body: JSON.stringify({ file, content }),
   });
   showToast('Saved ' + file);
-  const envData = await fetch(API + '/env').then(r => r.json());
+  const envData = await adminFetch('/env').then(r => r.json());
   state.env = envData;
 }
 
@@ -1317,4 +1379,5 @@ fetchAll();
 setInterval(fetchAll, 30000);
 </script>
 </body>
-</html>`;
+</html>`.replace('__THEN_ADMIN_TOKEN__', adminToken);
+}
