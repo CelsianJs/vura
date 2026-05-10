@@ -13,6 +13,7 @@ import type {
   RouteHooks,
 } from '../src/hooks.js';
 import { createLogger } from '../src/logger.js';
+import { HttpError } from '../src/errors.js';
 import type { ThenRequest, ThenReply } from '../src/handler.js';
 
 // ─── Test Helpers ───
@@ -470,6 +471,26 @@ describe('executeWithHooks', () => {
 
     const result = await executeWithHooks(registry, req, reply, handler);
     expect(result.statusCode).toBe(500);
+  });
+
+  it('extracts statusCode from HttpError for onResponse info', async () => {
+    let capturedStatusCode = 0;
+    registry.onError(async (error, _req, reply) => {
+      if (error instanceof HttpError) {
+        reply.status(error.statusCode).json({ error: error.message });
+      }
+    });
+    registry.onResponse(async (_req, _reply, info) => {
+      capturedStatusCode = info.statusCode;
+    });
+
+    const handler = () => { throw new HttpError(403, 'FORBIDDEN', 'Not allowed'); };
+    const req = createRequest();
+    const reply = createReply();
+
+    const result = await executeWithHooks(registry, req, reply, handler);
+    expect(result.statusCode).toBe(403);
+    expect(capturedStatusCode).toBe(403);
   });
 
   it('converts non-Error throws to Error objects', async () => {

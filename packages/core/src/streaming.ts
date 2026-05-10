@@ -10,8 +10,8 @@
  */
 
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
-import { extname } from 'node:path';
+import { stat, realpath } from 'node:fs/promises';
+import { extname, resolve, normalize } from 'node:path';
 import { Readable } from 'node:stream';
 
 // ─── Types ───
@@ -30,6 +30,12 @@ export interface FileStreamOptions {
   headers?: Record<string, string>;
   /** Download filename (triggers Content-Disposition: attachment) */
   download?: string;
+  /**
+   * Root directory for path traversal protection.
+   * When set, the resolved filePath must be within this directory.
+   * Strongly recommended when serving user-requested files.
+   */
+  root?: string;
 }
 
 /**
@@ -121,7 +127,16 @@ export async function streamResponse(
 
     readable.on('data', (chunk: Buffer | string) => {
       if (!res.writableEnded) {
-        res.write(chunk);
+        const canContinue = res.write(chunk);
+        // Handle backpressure: pause the source until the destination drains
+        if (!canContinue) {
+          readable.pause();
+          res.on('drain', () => {
+            if (!readable.destroyed) {
+              readable.resume();
+            }
+          });
+        }
       }
     });
 
@@ -381,6 +396,31 @@ export async function streamFile(
   filePath: string,
   options: FileStreamOptions = {},
 ): Promise<void> {
+  // Path traversal protection: resolve and jail the path
+  const resolvedPath = resolve(normalize(filePath));
+
+  if (options.root) {
+    const resolvedRoot = resolve(normalize(options.root));
+    let realFilePath: string;
+    try {
+      realFilePath = await realpath(resolvedPath);
+    } catch (err: any) {
+      if (err.code === 'ENOENT') {
+        res.writeHead(404, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'File not found' }));
+        return;
+      }
+      throw err;
+    }
+    const realRoot = await realpath(resolvedRoot);
+    if (!realFilePath.startsWith(realRoot + '/') && realFilePath !== realRoot) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return;
+    }
+    filePath = realFilePath;
+  }
+
   // Get file info
   let fileStats;
   try {
@@ -415,7 +455,11 @@ export async function streamFile(
   }
 
   if (options.download) {
-    headers['content-disposition'] = `attachment; filename="${options.download}"`;
+    // Sanitize filename to prevent header injection
+    const safeName = options.download
+      .replace(/["\\\r\n]/g, '_')
+      .replace(/[^\x20-\x7E]/g, '_');
+    headers['content-disposition'] = `attachment; filename="${safeName}"`;
   }
 
   if (options.headers) {

@@ -15,6 +15,7 @@
 
 import type { ThenRequest, ThenReply } from './handler.js';
 import type { Logger, ChildLogger } from './logger.js';
+import { HttpError } from './errors.js';
 
 // ─── Types ───
 
@@ -291,6 +292,9 @@ export async function executeWithHooks(
     hadError = true;
     const error = err instanceof Error ? err : new Error(String(err));
 
+    // Extract status code from HttpError, default to 500
+    statusCode = error instanceof HttpError ? error.statusCode : 500;
+
     // 3. onError hooks
     const errorResult = await registry.runOnError(
       error,
@@ -300,7 +304,7 @@ export async function executeWithHooks(
     );
 
     if (!errorResult.handled) {
-      statusCode = 500;
+      // statusCode already set from error above
     }
   } finally {
     // 4. onResponse hooks (always run)

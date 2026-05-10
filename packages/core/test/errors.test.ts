@@ -77,6 +77,29 @@ describe('HttpError', () => {
     expect(json.details).toBeUndefined();
     expect(json.stack).toBeUndefined();
   });
+
+  it('sanitizes 5xx error messages in prod mode', () => {
+    const err = new HttpError(500, 'INTERNAL_ERROR', 'Connection to db-primary.internal:5432 failed');
+    const json = err.toJSON(false);
+
+    expect(json.error).toBe('Internal Server Error');
+    expect(json.error).not.toContain('db-primary');
+    expect(json.code).toBe('INTERNAL_ERROR');
+  });
+
+  it('preserves 5xx error messages in dev mode', () => {
+    const err = new HttpError(500, 'INTERNAL_ERROR', 'Connection to db-primary.internal:5432 failed');
+    const json = err.toJSON(true);
+
+    expect(json.error).toBe('Connection to db-primary.internal:5432 failed');
+  });
+
+  it('preserves 4xx error messages in prod mode', () => {
+    const err = new HttpError(422, 'VALIDATION_ERROR', 'Email format invalid');
+    const json = err.toJSON(false);
+
+    expect(json.error).toBe('Email format invalid');
+  });
 });
 
 describe('error factories', () => {

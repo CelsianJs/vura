@@ -1,6 +1,6 @@
 {
   "private": true,
-  "name": "then-monorepo",
+  "name": "vura",
   "workspaces": [
     "packages/*",
     "examples/*"

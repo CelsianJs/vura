@@ -478,4 +478,82 @@ describe('streamFile', () => {
 
     expect(res._headers['x-file-version']).toBe('2');
   });
+
+  describe('path traversal protection', () => {
+    it('blocks path traversal when root is set', async () => {
+      // Create a file outside the root
+      const outsideFile = createTempFile('secret.txt', 'top-secret-data');
+      const subDir = join(TEST_DIR, 'public');
+      mkdirSync(subDir, { recursive: true });
+      const safeFile = join(subDir, 'safe.txt');
+      writeFileSync(safeFile, 'safe content');
+
+      const req = createMockRequest();
+      const res = createMockResponse();
+
+      // Try to escape the root using ../
+      await streamFile(req, res, join(subDir, '../secret.txt'), { root: subDir });
+
+      expect(res._status).toBe(403);
+    });
+
+    it('allows files within root', async () => {
+      const subDir = join(TEST_DIR, 'public');
+      mkdirSync(subDir, { recursive: true });
+      const safeFile = join(subDir, 'ok.txt');
+      writeFileSync(safeFile, 'allowed content');
+
+      const req = createMockRequest();
+      const res = createMockResponse();
+
+      await streamFile(req, res, safeFile, { root: subDir });
+
+      expect(res._status).toBe(200);
+      expect(res._chunks.join('')).toContain('allowed content');
+    });
+
+    it('returns 404 for missing files when root is set', async () => {
+      const subDir = join(TEST_DIR, 'public');
+      mkdirSync(subDir, { recursive: true });
+
+      const req = createMockRequest();
+      const res = createMockResponse();
+
+      await streamFile(req, res, join(subDir, 'nonexistent.txt'), { root: subDir });
+
+      expect(res._status).toBe(404);
+    });
+  });
+
+  describe('filename sanitization', () => {
+    it('sanitizes quotes in download filename', async () => {
+      const filePath = createTempFile('report.csv', 'data');
+      const req = createMockRequest();
+      const res = createMockResponse();
+
+      await streamFile(req, res, filePath, { download: 'file"name.csv' });
+
+      expect(res._headers['content-disposition']).toBe('attachment; filename="file_name.csv"');
+    });
+
+    it('sanitizes newlines in download filename', async () => {
+      const filePath = createTempFile('report.csv', 'data');
+      const req = createMockRequest();
+      const res = createMockResponse();
+
+      await streamFile(req, res, filePath, { download: 'file\r\nname.csv' });
+
+      expect(res._headers['content-disposition']).toBe('attachment; filename="file__name.csv"');
+    });
+
+    it('sanitizes backslashes in download filename', async () => {
+      const filePath = createTempFile('report.csv', 'data');
+      const req = createMockRequest();
+      const res = createMockResponse();
+
+      await streamFile(req, res, filePath, { download: 'file\\name.csv' });
+
+      expect(res._headers['content-disposition']).toBe('attachment; filename="file_name.csv"');
+    });
+  });
 });

@@ -80,10 +80,19 @@ export class HttpError extends Error {
 
   /**
    * Convert to a response body suitable for JSON serialization.
+   *
+   * In production mode, 5xx errors use a generic message to avoid
+   * leaking internal details (DB hosts, stack traces, etc.).
+   * 4xx errors keep their message since those are client-facing by design.
    */
   toJSON(isDev: boolean = false): Record<string, unknown> {
+    // In production, sanitize 5xx error messages to prevent info leaks
+    const message = (!isDev && this.statusCode >= 500)
+      ? 'Internal Server Error'
+      : this.message;
+
     const body: Record<string, unknown> = {
-      error: this.message,
+      error: message,
       code: this.code,
     };
 
