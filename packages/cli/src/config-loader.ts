@@ -1,10 +1,10 @@
 /**
- * Load then.config.ts from the project root.
+ * Load then.config.js from the project root.
  *
  * Supports:
- *   - then.config.ts (TypeScript)
  *   - then.config.js (JavaScript)
  *   - then.config.mjs (ESM)
+ *   - then.config.ts (TypeScript, only when the current runtime can import it)
  *
  * Falls back to default config if no file exists.
  */
@@ -14,7 +14,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { ThenConfig } from '@then/core';
 
-const CONFIG_FILES = ['then.config.ts', 'then.config.js', 'then.config.mjs'];
+const CONFIG_FILES = ['then.config.js', 'then.config.mjs', 'then.config.ts'];
 
 export async function loadConfig(projectRoot: string): Promise<ThenConfig> {
   const root = resolve(projectRoot);

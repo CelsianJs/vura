@@ -7,6 +7,7 @@ import {
   parseAdminOptions,
   renderDashboardHtml,
 } from '../src/commands/admin.js';
+import { deployCommand } from '../src/commands/deploy.js';
 
 describe('CLI admin options', () => {
   it('binds to loopback by default', () => {
@@ -46,6 +47,7 @@ describe('CLI admin dashboard rendering', () => {
     expect(html).toContain("'X-Then-Admin-Token': ADMIN_TOKEN");
     expect(html).toContain("headers: { 'Content-Type': 'application/json' }");
     expect(html).toContain('if (!response.ok)');
+    expect(html).toContain('function quoteEnvValue(value)');
     expect(html).not.toContain('headers: apiHeaders');
   });
 
@@ -83,6 +85,31 @@ describe('CLI admin API browser boundary', () => {
       'Content-Type': 'application/json',
       'Cache-Control': 'no-store',
     });
+    expect(adminApiHeaders('text/html; charset=utf-8')).toEqual({
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+    });
     expect(adminApiHeaders()).not.toHaveProperty('Access-Control-Allow-Origin');
+  });
+});
+
+describe('CLI deploy command', () => {
+  it('fails closed instead of pretending managed deploy is available in OSS', async () => {
+    const error = console.error;
+    const messages: string[] = [];
+    console.error = (message?: unknown) => { messages.push(String(message)); };
+    const previousExitCode = process.exitCode;
+    process.exitCode = undefined;
+
+    try {
+      await deployCommand([]);
+      expect(process.exitCode).toBe(1);
+      expect(messages.join('\n')).toContain('not available in the open-source CLI yet');
+      expect(messages.join('\n')).not.toContain('thenjs.dev');
+      expect(messages.join('\n')).not.toContain('celsian.dev');
+    } finally {
+      console.error = error;
+      process.exitCode = previousExitCode;
+    }
   });
 });

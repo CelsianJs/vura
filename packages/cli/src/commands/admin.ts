@@ -42,9 +42,9 @@ export function assertSafeAdminBindHost(host: string): void {
   }
 }
 
-export function adminApiHeaders(): Record<string, string> {
+export function adminApiHeaders(contentType = 'application/json'): Record<string, string> {
   return {
-    'Content-Type': 'application/json',
+    'Content-Type': contentType,
     'Cache-Control': 'no-store',
   };
 }
@@ -229,17 +229,28 @@ export async function adminCommand(args: string[]): Promise<void> {
     }
 
     if (url.pathname === '/__admin/api/env' && method === 'POST') {
-      const chunks: Buffer[] = [];
-      for await (const chunk of req) chunks.push(chunk as Buffer);
-      const body = JSON.parse(Buffer.concat(chunks).toString());
+      try {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(chunk as Buffer);
+        const body = JSON.parse(Buffer.concat(chunks).toString());
 
-      if (body.file === '.env' || body.file === '.env.local') {
+        if (body.file !== '.env' && body.file !== '.env.local') {
+          res.writeHead(400, apiHeaders);
+          res.end(JSON.stringify({ error: 'Invalid file' }));
+          return;
+        }
+        if (typeof body.content !== 'string') {
+          res.writeHead(400, apiHeaders);
+          res.end(JSON.stringify({ error: 'Invalid env content' }));
+          return;
+        }
+
         await writeFile(join(opts.projectRoot, body.file), body.content, 'utf-8');
         res.writeHead(200, apiHeaders);
         res.end(JSON.stringify({ ok: true }));
-      } else {
+      } catch (err) {
         res.writeHead(400, apiHeaders);
-        res.end(JSON.stringify({ error: 'Invalid file' }));
+        res.end(JSON.stringify({ error: err instanceof SyntaxError ? 'Invalid JSON body' : 'Failed to save env file' }));
       }
       return;
     }
@@ -313,7 +324,7 @@ export async function adminCommand(args: string[]): Promise<void> {
 
     // ─── Serve Dashboard UI ───
     if (url.pathname === '/' || url.pathname === '/admin' || url.pathname.startsWith('/admin')) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.writeHead(200, adminApiHeaders('text/html; charset=utf-8'));
       res.end(renderDashboardHtml(adminToken));
       return;
     }
@@ -1234,13 +1245,18 @@ function renderEnv() {
   \`;
 }
 
+function quoteEnvValue(value) {
+  if (!/[\s#"'\\n\\r]/.test(value)) return value;
+  return '"' + value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r') + '"';
+}
+
 function collectEnvVars(containerId) {
   const rows = document.querySelectorAll('#' + containerId + ' .env-row');
   const lines = [];
   rows.forEach(row => {
     const key = row.querySelector('.env-key').value.trim();
     const value = row.querySelector('.env-value').value;
-    if (key) lines.push(key + '=' + value);
+    if (key) lines.push(key + '=' + quoteEnvValue(value));
   });
   return lines.join('\\n') + '\\n';
 }

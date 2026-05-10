@@ -1,7 +1,7 @@
 /**
  * ThenJS Configuration
  *
- * then.config.ts defines the project's deployment target, page defaults, and API settings.
+ * then.config.js defines the project's deployment target, page defaults, and API settings.
  */
 
 import type { RouteKind, PageMode } from './manifest.js';
@@ -57,7 +57,7 @@ export interface ThenConfig {
  *
  * @example
  * ```ts
- * // then.config.ts
+ * // then.config.js
  * import { defineConfig } from '@then/core';
  * import { lambdaAdapter } from '@then/adapter-lambda';
  *

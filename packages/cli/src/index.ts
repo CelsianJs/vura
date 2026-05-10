@@ -44,7 +44,7 @@ function printHelp(): void {
   Commands:
     dev         Start local development server
     build       Build the project for deployment
-    deploy      Deploy to configured provider
+    deploy      Explain managed deployment availability (not in OSS CLI yet)
     admin       Launch the admin dashboard
     manifest    Print the route manifest (debug)
 

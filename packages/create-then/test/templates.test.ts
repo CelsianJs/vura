@@ -20,4 +20,16 @@ describe('create-then templates', () => {
 
     expect(starterText).not.toContain('CelsianJS');
   });
+
+  it('does not advertise unavailable deploy or dead public docs links', () => {
+    const files = getFiles('demo-app');
+    const packageJson = JSON.parse(files['package.json']);
+    const starterText = Object.values(files).join('\n');
+
+    expect(packageJson.scripts).not.toHaveProperty('deploy');
+    expect(files).toHaveProperty('then.config.js');
+    expect(files).not.toHaveProperty('then.config.ts');
+    expect(starterText).not.toContain('thenjs.dev');
+    expect(starterText).not.toContain('celsian.dev');
+  });
 });

@@ -77,7 +77,6 @@ export function getFiles(projectName: string): Record<string, string> {
         scripts: {
           dev: 'vura dev',
           build: 'vura build',
-          deploy: 'vura deploy',
         },
         dependencies: {
           'what-framework': WHAT_FRAMEWORK_VERSION,
@@ -89,7 +88,7 @@ export function getFiles(projectName: string): Record<string, string> {
       2
     ) + '\n',
 
-    'then.config.ts': `import { defineConfig } from '@then/core';
+    'then.config.js': `import { defineConfig } from '@then/core';
 
 export default defineConfig({});
 `,
@@ -307,7 +306,7 @@ ${bold('Options:')}
   console.log(bold('  Next steps:\n'));
   console.log(`    cd ${projectName}`);
   console.log(`    ${pm === 'npm' ? 'npm run' : pm} dev\n`);
-  console.log(dim('  Docs: https://thenjs.dev'));
+  console.log(dim('  Docs: https://github.com/zvndev/vura#readme'));
   console.log();
 }
 

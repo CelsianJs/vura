@@ -25,11 +25,14 @@ Example scripts:
 {
   "scripts": {
     "dev": "vura dev",
-    "build": "vura build",
-    "deploy": "vura deploy"
+    "build": "vura build"
   }
 }
 ```
+
+`vura deploy` is reserved for the managed Vura Platform and intentionally
+fails closed in the open-source CLI. Use `vura build` plus the adapter output
+for self-hosted deployments until managed deployment access is available.
 
 ## Packages
 
