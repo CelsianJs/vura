@@ -90,3 +90,19 @@ Verification:
 
 Not run:
 - `pnpm verify:registry` is intentionally post-publish only and remains blocked locally until npm `@then/*` namespace publishing authority or package naming is resolved.
+
+## 2026-05-10 — Registry smoke artifact hardening follow-up
+
+Product/gold-standard re-review confirmed the post-publish registry smoke direction and found one artifact-path hardening gap. Addressed locally:
+
+- Root `packageManager` now pins `pnpm@10.11.0` to match CI/release setup.
+- Release workflow upload now fails if `artifacts/registry-smoke.json` is missing.
+
+Verification:
+- `node --check scripts/verify-registry-install.mjs` passed
+- `pnpm lint` passed
+- `pnpm verify:publish` passed: 8 tarballs, no workspace refs, clean install/import + create-then scaffold smoke
+- `git diff --check` passed
+
+Still blocked:
+- Real `pnpm verify:registry` / publish remains blocked by npm `@then/*` namespace authority or an intentional rename decision.

@@ -33,5 +33,6 @@
     "what-core": "^0.8.1",
     "what-framework": "^0.8.1"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "packageManager": "pnpm@10.11.0"
 }
