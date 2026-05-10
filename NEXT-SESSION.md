@@ -2,10 +2,10 @@
 
 ## Current State
 - **Branch**: `audit-hardening`
-- **Tests**: 360 passing (`pnpm test`, 20 files)
+- **Tests**: 364 passing (`pnpm test`, 24 files)
 - **Build**: `pnpm build` passing
 - **Pack check**: `@then/vite-plugin` must contain `dist/index.js` + `dist/index.d.ts` before publish (`npx pnpm@10.23.0 --filter @then/vite-plugin pack --pack-destination /tmp/vura-pack-check`)
-- **PM Score**: 8.5/10 after OSS release-blocker fixes
+- **Gold-standard score**: 45/50 after OSS release-blocker fixes; package tarballs are locally publish-ready but npm scope authorization blocks actual publish
 
 ## What Was Done
 - Fixed production hooks: _executeWithHooks had dead code path (error always swallowed)
@@ -20,20 +20,21 @@
 - Missing route sources now fail builds with route path + absolute source context instead of being skipped
 - Hardened task admin auth so production requires `THEN_TASK_SECRET`; localhost no-secret bypass is limited to explicit dev/test
 
-## Release Checklist (Do Not Publish From Agent Lane)
-- [ ] Confirm `pnpm build` passes
-- [ ] Confirm `pnpm test` passes (current baseline: 360 tests)
-- [ ] Confirm `git diff --check` passes
-- [ ] Run `npx pnpm@10.23.0 --filter @then/vite-plugin pack --pack-destination /tmp/vura-pack-check` and inspect tarball contents
-- [ ] Review generated package metadata for all publishable packages
-- [ ] Publish only after human approval and release tag/changelog are ready
+## Release Checklist / Current Blocker
+- [x] `pnpm build` passes
+- [x] `pnpm test` passes (current baseline: 364 tests)
+- [x] `pnpm verify:publish` passes: 8 tarballs, no `workspace:` refs, clean npm install/import smoke, `@then/compiler-native` private
+- [x] `pnpm -r publish --dry-run --no-git-checks --access public` passes for 8 public JS packages and excludes `@then/compiler-native`
+- [x] `CHANGELOG.md` and `.github/workflows/release.yml` added
+- [ ] **Actual publish blocked:** `pnpm -r publish --no-git-checks --access public` failed on `@then/compiler@0.1.0` with npm `E404` / no permission for the `@then` scope. No Vura packages were published.
+- [ ] Resolve package namespace before retry: obtain/admin the `@then` npm org, or intentionally rename packages to an owned scope (for example `@vura/*`) and rerun full `pnpm verify:publish` + dry-run.
 
 ## What Remains
 
 ### Should Fix (from PM reviews)
-1. Broaden package pack checks to every publishable `@then/*` package.
-2. Add release CI that runs pack checks and generated-artifact runtime smoke tests.
-3. Decide whether Cloudflare route support should expose more `@then/core` runtime APIs or keep the current safe route-runtime shim surface.
+1. Resolve npm namespace authorization for `@then/*` or rename packages to an owned scope.
+2. After namespace resolution, rerun `pnpm build && pnpm test && pnpm verify:publish && pnpm -r publish --dry-run --no-git-checks --access public`.
+3. Decide whether Cloudflare route support should expose more runtime APIs or keep the current safe route-runtime shim surface.
 
 ### Strategic Decisions (for Kirby)
 - **Should Vura integrate CelsianJS as its server layer?** Currently generates its own HTTP server. Using CelsianJS would get security headers, compression, CORS, JWT, etc. for free.
