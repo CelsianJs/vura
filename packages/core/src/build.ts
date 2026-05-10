@@ -27,6 +27,35 @@ import { join, dirname, relative } from 'node:path';
 import type { RouteManifest, ApiRoute, PageRoute } from './manifest.js';
 import type { ThenConfig, AdapterBuildContext } from './config.js';
 
+// ─── Inline .env Loader (embedded in generated server code) ───
+
+const DOTENV_CODE = [
+  '// Load .env files: .env.local > .env.{NODE_ENV} > .env',
+  '// Later files do not override earlier ones or existing env vars',
+  '(function _loadEnv() {',
+  "  const fs = require('node:fs');",
+  "  const path = require('node:path');",
+  "  const dir = path.dirname(new URL(import.meta.url).pathname);",
+  "  const nodeEnv = process.env.NODE_ENV || 'production';",
+  "  const files = ['.env.local', '.env.' + nodeEnv, '.env'];",
+  '  for (const f of files) {',
+  '    try {',
+  "      const content = fs.readFileSync(path.resolve(dir, '..', f), 'utf-8');",
+  "      for (const line of content.split('\\n')) {",
+  '        const t = line.trim();',
+  "        if (!t || t.startsWith('#')) continue;",
+  "        const eq = t.indexOf('=');",
+  '        if (eq === -1) continue;',
+  '        const key = t.slice(0, eq).trim();',
+  '        let val = t.slice(eq + 1).trim();',
+  '        if ((val.startsWith(\'"\') && val.endsWith(\'"\')) || (val.startsWith("\'") && val.endsWith("\'"))) val = val.slice(1, -1);',
+  '        if (process.env[key] === undefined) process.env[key] = val;',
+  '      }',
+  '    } catch (_) {}',
+  '  }',
+  '})();',
+].join('\n');
+
 // ─── Inline Logger Code (embedded in generated server code) ───
 
 const LOGGER_CODE = [
@@ -842,6 +871,10 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
   const hasTasks = taskRoutes.length > 0;
 
   lines.push("import { createServer } from 'node:http';");
+
+  // Load .env files before anything else reads process.env
+  lines.push('');
+  lines.push(DOTENV_CODE);
 
   // Pre-compute var names so each route/page gets a stable name
   const routeVarNames = new Map<string, string>();

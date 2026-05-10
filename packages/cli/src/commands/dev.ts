@@ -47,6 +47,44 @@ interface DevOptions {
   projectRoot: string;
 }
 
+/**
+ * Load .env files into process.env without overriding existing values.
+ * Priority order: .env.local > .env.{NODE_ENV} > .env
+ * (earlier files take precedence — later files don't override)
+ */
+async function loadEnvFiles(projectRoot: string): Promise<void> {
+  const { readFile: rf } = await import('node:fs/promises');
+  const { join: pjoin } = await import('node:path');
+
+  const nodeEnv = process.env.NODE_ENV || 'development';
+  const envFiles = ['.env.local', `.env.${nodeEnv}`, '.env'];
+
+  for (const envFile of envFiles) {
+    try {
+      const content = await rf(pjoin(projectRoot, envFile), 'utf-8');
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIndex = trimmed.indexOf('=');
+        if (eqIndex === -1) continue;
+        const key = trimmed.slice(0, eqIndex).trim();
+        let value = trimmed.slice(eqIndex + 1).trim();
+        // Strip surrounding quotes
+        if ((value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'"))) {
+          value = value.slice(1, -1);
+        }
+        // Don't override existing env vars (earlier files take precedence)
+        if (process.env[key] === undefined) {
+          process.env[key] = value;
+        }
+      }
+    } catch {
+      // File doesn't exist — skip silently
+    }
+  }
+}
+
 export async function devCommand(args: string[]): Promise<void> {
   const portArg = args.find((_, i) => args[i - 1] === '--port');
   const opts: DevOptions = {
@@ -55,6 +93,9 @@ export async function devCommand(args: string[]): Promise<void> {
   };
 
   console.log('\n  then dev\n');
+
+  // Load .env files (.env.local > .env.{NODE_ENV} > .env)
+  await loadEnvFiles(opts.projectRoot);
 
   // Scan routes for initial info
   const manifest = await buildManifest(opts.projectRoot);
