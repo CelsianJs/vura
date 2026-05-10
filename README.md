@@ -51,6 +51,7 @@ Before publishing, run:
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm assert:release-private
 pnpm lint
 pnpm build
 pnpm test

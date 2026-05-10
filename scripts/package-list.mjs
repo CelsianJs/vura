@@ -5,6 +5,5 @@ export const publishPackages = [
   'packages/create-then',
   'packages/adapter-cloudflare',
   'packages/adapter-lambda',
-  'packages/adapter-vura',
   'packages/vite-plugin',
 ];

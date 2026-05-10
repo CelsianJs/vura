@@ -45,7 +45,7 @@ try {
   run('npm', ['install', '--ignore-scripts', ...tarballs], { cwd: smoke, stdio: 'pipe' });
 
   const check = `
-    import('@then/core').then(() => import('@then/compiler')).then(() => import('@then/adapter-cloudflare')).then(() => import('@then/adapter-lambda')).then(() => import('@then/adapter-vura')).then(() => import('@then/vite-plugin')).then(() => console.log('VURA_PUBLISH_VERIFY_OK'));
+    import('@then/core').then(() => import('@then/compiler')).then(() => import('@then/adapter-cloudflare')).then(() => import('@then/adapter-lambda')).then(() => import('@then/vite-plugin')).then(() => console.log('VURA_PUBLISH_VERIFY_OK'));
   `;
   const node = run(process.execPath, ['--input-type=module', '-e', check], { cwd: smoke });
   if (!node.stdout.includes('VURA_PUBLISH_VERIFY_OK')) throw new Error('publish smoke import did not complete');

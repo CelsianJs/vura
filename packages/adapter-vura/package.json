@@ -22,9 +22,6 @@
   "dependencies": {
     "@then/core": "0.1.0"
   },
-  "publishConfig": {
-    "access": "public"
-  },
   "license": "MIT",
   "description": "Vura Platform deployment adapter for Vura applications",
   "repository": {
@@ -41,5 +38,6 @@
     "adapter",
     "platform",
     "serverless"
-  ]
+  ],
+  "private": true
 }

@@ -120,3 +120,19 @@ Verification:
 - `pnpm lint` passed
 - `pnpm verify:publish` passed
 - `git diff --check` passed
+
+## 2026-05-10 — Adapter-vura publish guard follow-up
+
+Product review and verifier follow-up found `@then/adapter-vura` was still in the public package publish set while Vura Platform live smoke remains blocked. Addressed locally:
+
+- Marked `packages/adapter-vura` private and removed it from `scripts/package-list.mjs` until Vura Platform live smoke passes.
+- Extended `pnpm assert:release-private` to fail if adapter-vura becomes public or re-enters the publish list prematurely.
+- Updated local release checks to run `pnpm assert:release-private` before publish verification.
+
+Verification:
+- `pnpm assert:release-private` passed
+- `pnpm lint` passed
+- `pnpm build` passed
+- `pnpm test` passed: 27 files / 381 tests
+- `pnpm verify:publish` passed: 7 tarballs, no workspace refs, clean install/import + create-then scaffold smoke
+- `git diff --check` passed

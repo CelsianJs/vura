@@ -19,6 +19,7 @@ function findExamplePackageJsons(dir) {
 }
 
 const compilerNative = JSON.parse(readFileSync('packages/compiler-native/package.json', 'utf8'));
+const adapterVura = JSON.parse(readFileSync('packages/adapter-vura/package.json', 'utf8'));
 const failures = [];
 
 if (compilerNative.private !== true) {
@@ -27,6 +28,14 @@ if (compilerNative.private !== true) {
 
 if (publishPackages.includes('packages/compiler-native')) {
   failures.push('scripts/package-list.mjs must not include packages/compiler-native in JS package publish list');
+}
+
+if (adapterVura.private !== true) {
+  failures.push('@then/adapter-vura must remain private until Vura Platform live smoke passes');
+}
+
+if (publishPackages.includes('packages/adapter-vura')) {
+  failures.push('scripts/package-list.mjs must not include packages/adapter-vura until Vura Platform live smoke passes');
 }
 
 for (const packageJsonPath of findExamplePackageJsons('examples')) {

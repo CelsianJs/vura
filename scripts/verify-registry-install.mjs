@@ -40,7 +40,6 @@ try {
     await import('@then/compiler');
     await import('@then/adapter-cloudflare');
     await import('@then/adapter-lambda');
-    await import('@then/adapter-vura');
     await import('@then/vite-plugin');
     console.log('VURA_REGISTRY_IMPORT_OK');
   `;
