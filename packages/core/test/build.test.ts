@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateServerEntry, generateFunctionEntry } from '../src/build.js';
 import type { RouteManifest, ApiRoute, PageRoute } from '../src/manifest.js';
-import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { writeFileSync, mkdtempSync, rmSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -199,6 +199,123 @@ describe('generateServerEntry integration', () => {
     // No external framework dependency
     expect(code).not.toContain('@celsian/core');
     expect(code).not.toContain('@then/core');
+  });
+});
+
+describe('production server error handling matches dev server', () => {
+  const manifest: RouteManifest = {
+    api: [
+      {
+        filePath: 'src/api/hello.ts',
+        urlPattern: '/api/hello',
+        methods: ['GET'],
+        kind: 'serverless',
+        config: {},
+      },
+    ],
+    pages: [],
+    layouts: [],
+    timestamp: new Date().toISOString(),
+  };
+
+  it('_executeWithHooks re-throws errors when no onError hooks handle them', () => {
+    const code = generateServerEntry(manifest, '/project');
+
+    // The old buggy code had: `if (!_hookHadError) throw err;`
+    // which was dead code because _hookHadError was always true at that point.
+    // The fix uses _runOnError with a `handled` flag and re-throws if unhandled.
+    expect(code).toContain('_runOnError');
+    expect(code).toContain('if (!errorResult.handled)');
+    expect(code).toContain('throw errorResult.error || err');
+
+    // The old dead code pattern should no longer exist
+    expect(code).not.toContain('if (!_hookHadError) throw err');
+  });
+
+  it('_runOnError returns handled:false when no error hooks exist', () => {
+    const code = generateServerEntry(manifest, '/project');
+
+    // _runOnError should return { handled: false } when allHooks is empty
+    expect(code).toContain('if (allHooks.length === 0) return { handled: false }');
+  });
+
+  it('_runOnError tracks handled state from individual hooks', () => {
+    const code = generateServerEntry(manifest, '/project');
+
+    // Should track `handled` flag per-hook, like the dev server does
+    expect(code).toContain('let handled = false');
+    expect(code).toContain('handled = true');
+    expect(code).toContain('return { handled, error: err }');
+  });
+
+  it('runs global + route-level onRequest hooks in order', () => {
+    const code = generateServerEntry(manifest, '/project');
+
+    // _executeWithHooks should call global hooks first, then route-level
+    expect(code).toContain('_globalHooks.onRequest');
+    expect(code).toContain('routeHooks && routeHooks.onRequest');
+  });
+
+  it('runs global + route-level onResponse hooks with error silencing', () => {
+    const code = generateServerEntry(manifest, '/project');
+
+    expect(code).toContain('_globalHooks.onResponse');
+    expect(code).toContain('routeHooks && routeHooks.onResponse');
+    // Both should be silenced on error
+    expect(code).toContain('/* onResponse errors are silenced */');
+  });
+
+  it('declares _globalHooks with empty arrays when no hooks file exists', () => {
+    const code = generateServerEntry(manifest, '/project');
+
+    // Without a hooks file, should get empty global hooks
+    expect(code).toContain('No global hooks file found');
+    expect(code).toContain('const _globalHooks = { onRequest: null, onError: null, onResponse: null }');
+  });
+
+  it('imports global hooks file when provided', () => {
+    const code = generateServerEntry(manifest, '/project', 'src/api/_hooks.ts');
+
+    expect(code).toContain("import * as _globalHooksMod from");
+    expect(code).toContain('_globalHooksMod.onRequest');
+    expect(code).toContain('_globalHooksMod.onError');
+    expect(code).toContain('_globalHooksMod.onResponse');
+    // Should NOT have the empty fallback comment
+    expect(code).not.toContain('No global hooks file found');
+  });
+
+  it('generated code with global hooks is syntactically valid', () => {
+    const code = generateServerEntry(manifest, '/project', 'src/api/_hooks.ts');
+
+    const strippedCode = code
+      .replace(/^import\s.*$/gm, '// [import stripped]')
+      .replace(/^export\s.*$/gm, '// [export stripped]')
+      .replace(/import\.meta\.\w+/g, '"__stripped_import_meta__"');
+
+    let parseError: Error | null = null;
+    try {
+      new Function(strippedCode);
+    } catch (err) {
+      parseError = err as Error;
+    }
+    expect(parseError, `Generated code has syntax error: ${parseError?.message}`).toBeNull();
+  });
+
+  it('generated code without global hooks is syntactically valid', () => {
+    const code = generateServerEntry(manifest, '/project');
+
+    const strippedCode = code
+      .replace(/^import\s.*$/gm, '// [import stripped]')
+      .replace(/^export\s.*$/gm, '// [export stripped]')
+      .replace(/import\.meta\.\w+/g, '"__stripped_import_meta__"');
+
+    let parseError: Error | null = null;
+    try {
+      new Function(strippedCode);
+    } catch (err) {
+      parseError = err as Error;
+    }
+    expect(parseError, `Generated code has syntax error: ${parseError?.message}`).toBeNull();
   });
 });
 

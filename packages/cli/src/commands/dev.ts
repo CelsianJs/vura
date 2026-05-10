@@ -488,6 +488,10 @@ async function startStandaloneServer(
 
   server.listen(opts.port, () => {
     console.log(`  Server listening on http://localhost:${opts.port}\n`);
+    // Warn once at startup if CORS is using the implicit wildcard default
+    if (!process.env.THEN_CORS_ORIGIN) {
+      console.warn('  [vura] CORS origin defaulting to "*" in development. Set THEN_CORS_ORIGIN for production.');
+    }
     printRouteTable(manifest);
   });
 

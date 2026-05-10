@@ -23,9 +23,39 @@
  */
 
 import { writeFile, mkdir, readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import type { RouteManifest, ApiRoute, PageRoute } from './manifest.js';
 import type { ThenConfig, AdapterBuildContext } from './config.js';
+
+// ─── Global Hooks File Convention ───
+// The production server supports global hooks via a conventional file:
+//   src/api/_hooks.ts  (or .js, .mjs)
+// This file should export hook arrays:
+//   export const onRequest = [(req, reply) => { ... }];
+//   export const onError = [(error, req, reply) => { ... }];
+//   export const onResponse = [(req, reply, info) => { ... }];
+
+const GLOBAL_HOOKS_FILENAMES = [
+  'src/api/_hooks.ts',
+  'src/api/_hooks.js',
+  'src/api/_hooks.mjs',
+  'src/hooks.ts',
+  'src/hooks.js',
+  'src/hooks.mjs',
+];
+
+/**
+ * Find the global hooks file in the project, if one exists.
+ */
+function findGlobalHooksFile(projectRoot: string): string | null {
+  for (const filename of GLOBAL_HOOKS_FILENAMES) {
+    if (existsSync(join(projectRoot, filename))) {
+      return filename;
+    }
+  }
+  return null;
+}
 
 // ─── Inline .env Loader (embedded in generated server code) ───
 
@@ -33,14 +63,12 @@ const DOTENV_CODE = [
   '// Load .env files: .env.local > .env.{NODE_ENV} > .env',
   '// Later files do not override earlier ones or existing env vars',
   '(function _loadEnv() {',
-  "  const fs = require('node:fs');",
-  "  const path = require('node:path');",
-  "  const dir = path.dirname(new URL(import.meta.url).pathname);",
+  "  const dir = _dirname(_fileURLToPath(import.meta.url));",
   "  const nodeEnv = process.env.NODE_ENV || 'production';",
   "  const files = ['.env.local', '.env.' + nodeEnv, '.env'];",
   '  for (const f of files) {',
   '    try {',
-  "      const content = fs.readFileSync(path.resolve(dir, '..', f), 'utf-8');",
+  "      const content = _readFileSync(_resolve(dir, '..', f), 'utf-8');",
   "      for (const line of content.split('\\n')) {",
   '        const t = line.trim();',
   "        if (!t || t.startsWith('#')) continue;",
@@ -79,7 +107,7 @@ const LOGGER_CODE = [
   '}',
   '',
   'function _generateRequestId() {',
-  '  try { return require("node:crypto").randomUUID(); }',
+  '  try { return _randomUUID(); }',
   '  catch { return Math.random().toString(36).slice(2) + Date.now().toString(36); }',
   '}',
 ].join('\n');
@@ -262,7 +290,9 @@ const ISR_CACHE_CODE = [
   '// ISR cache: LRU Map of url → { html, timestamp, revalidateMs }',
   'const _isrCache = new Map();',
   'const _isrRevalidating = new Set();',
-  'const ISR_MAX_ENTRIES = 1000;',
+  '// Max ISR cache entries — override via THEN_ISR_MAX_ENTRIES env var (default: 1000)',
+  'const _parsedIsrMaxEntries = parseInt(process.env.THEN_ISR_MAX_ENTRIES || "1000", 10);',
+  'const ISR_MAX_ENTRIES = (_parsedIsrMaxEntries > 0 && !isNaN(_parsedIsrMaxEntries)) ? _parsedIsrMaxEntries : 1000;',
   '// TTL multiplier: entries are hard-expired after revalidateMs * ISR_TTL_FACTOR',
   'const ISR_TTL_FACTOR = Math.max(parseFloat(process.env.THEN_ISR_TTL_FACTOR || "3") || 3, 1);',
   '// Background cleanup interval (default: 60 seconds)',
@@ -487,27 +517,32 @@ const STATIC_FILE_CODE = [
   "  '.wasm': 'application/wasm',",
   "};",
   "",
-  "const _fs = require('node:fs');",
-  "const _pathMod = require('node:path');",
-  "const _publicDir = _pathMod.resolve(_pathMod.dirname(new URL(import.meta.url).pathname), '..', 'public');",
+  "const _publicDir = _resolve(_dirname(_fileURLToPath(import.meta.url)), '..', 'public');",
+  "// Resolve the real path of the public dir once at startup (defeats symlink base attacks)",
+  "let _realPublicDir = _publicDir;",
+  "try { _realPublicDir = _realpathSync(_publicDir); } catch (_) {}",
   "",
   "function _getMimeType(fp) {",
-  "  const ext = _pathMod.extname(fp).toLowerCase();",
+  "  const ext = _extname(fp).toLowerCase();",
   "  return _mimeTypes[ext] || 'application/octet-stream';",
   "}",
   "",
   "function _tryServeStatic(pathname, method, nodeRes) {",
   "  if (method !== 'GET' && method !== 'HEAD') return false;",
-  "  const safePath = pathname.replace(/\\.\\./g, '');",
-  "  const filePath = _pathMod.normalize(_pathMod.resolve(_publicDir, '.' + safePath));",
-  "  if (!filePath.startsWith(_publicDir + _pathMod.sep) && filePath !== _publicDir) return false;",
+  "  // Decode percent-encoded characters first, then normalize to catch %2e%2e and other tricks",
+  "  let decoded;",
+  "  try { decoded = decodeURIComponent(pathname); } catch (_) { return false; }",
+  "  const filePath = _normalize(_resolve(_publicDir, '.' + decoded));",
   "  try {",
-  "    const st = _fs.statSync(filePath);",
+  "    // Use realpath to resolve symlinks and verify the file is within the public dir",
+  "    const realFilePath = _realpathSync(filePath);",
+  "    if (!realFilePath.startsWith(_realPublicDir + _sep) && realFilePath !== _realPublicDir) return false;",
+  "    const st = _statSync(realFilePath);",
   "    if (!st.isFile()) return false;",
-  "    const ct = _getMimeType(filePath);",
+  "    const ct = _getMimeType(realFilePath);",
   "    nodeRes.writeHead(200, { 'content-type': ct, 'content-length': st.size.toString(), 'cache-control': 'public, max-age=31536000, immutable' });",
   "    if (method === 'HEAD') { nodeRes.end(); return true; }",
-  "    const stream = _fs.createReadStream(filePath);",
+  "    const stream = _createReadStream(realFilePath);",
   "    stream.pipe(nodeRes);",
   "    stream.on('error', () => { if (!nodeRes.writableEnded) nodeRes.end(); });",
   "    return true;",
@@ -555,12 +590,35 @@ const HOOKS_CODE = [
   '  for (const fn of hookArr) { await fn(...args); }',
   '}',
   '',
+  '// Run onError hooks and return whether the error was handled.',
+  '// Mirrors dev server HookRegistry.runOnError behavior.',
+  'async function _runOnError(err, req, reply, globalHooks, routeHooks) {',
+  '  const allHooks = [];',
+  '  if (globalHooks) allHooks.push(...globalHooks);',
+  '  if (routeHooks) allHooks.push(...routeHooks);',
+  '  if (allHooks.length === 0) return { handled: false };',
+  '  let handled = false;',
+  '  for (const fn of allHooks) {',
+  '    try {',
+  '      await fn(err, req, reply);',
+  '      handled = true;',
+  '    } catch (hookErr) {',
+  '      // Error hook itself threw — this becomes the new error',
+  '      err = hookErr;',
+  '    }',
+  '  }',
+  '  return { handled, error: err };',
+  '}',
+  '',
   'async function _executeWithHooks(req, reply, handlerFn, routeHooks) {',
   '  const _hookStart = performance.now();',
   '  let _hookStatus = 200;',
   '  let _hookHadError = false;',
   '  try {',
-  '    // onRequest hooks',
+  '    // onRequest hooks (global + route-level)',
+  '    if (_globalHooks.onRequest) {',
+  '      await _runHooks(_globalHooks.onRequest, req, reply);',
+  '    }',
   '    if (routeHooks && routeHooks.onRequest) {',
   '      await _runHooks(routeHooks.onRequest, req, reply);',
   '    }',
@@ -569,17 +627,25 @@ const HOOKS_CODE = [
   '  } catch (err) {',
   '    _hookHadError = true;',
   '    _hookStatus = (err && err.statusCode) ? err.statusCode : 500;',
-  '    // onError hooks',
-  '    if (routeHooks && routeHooks.onError) {',
-  '      try { await _runHooks(routeHooks.onError, err, req, reply); }',
-  '      catch (hookErr) { err = hookErr; }',
+  '    // onError hooks (global + route-level)',
+  '    const errorResult = await _runOnError(',
+  '      err, req, reply,',
+  '      _globalHooks.onError,',
+  '      routeHooks && routeHooks.onError,',
+  '    );',
+  '    if (!errorResult.handled) {',
+  '      throw errorResult.error || err;',
   '    }',
-  '    if (!_hookHadError) throw err; // re-propagate if no error hooks handled it',
   '  } finally {',
-  '    // onResponse hooks',
+  '    // onResponse hooks (global + route-level)',
   '    const _hookDur = Math.round((performance.now() - _hookStart) * 100) / 100;',
+  '    const _responseInfo = { statusCode: _hookStatus, durationMs: _hookDur, hadError: _hookHadError };',
+  '    if (_globalHooks.onResponse) {',
+  '      try { await _runHooks(_globalHooks.onResponse, req, reply, _responseInfo); }',
+  '      catch (_) { /* onResponse errors are silenced */ }',
+  '    }',
   '    if (routeHooks && routeHooks.onResponse) {',
-  '      try { await _runHooks(routeHooks.onResponse, req, reply, { statusCode: _hookStatus, durationMs: _hookDur, hadError: _hookHadError }); }',
+  '      try { await _runHooks(routeHooks.onResponse, req, reply, _responseInfo); }',
   '      catch (_) { /* onResponse errors are silenced */ }',
   '    }',
   '  }',
@@ -928,8 +994,11 @@ const RENDER_PAGE_CODE = [
  * Generate a self-contained server entry for hot deployment.
  * Uses Node's built-in http module — no @celsian/core dependency required.
  * Runs on Fly/Railway/VPS/etc.
+ *
+ * Global hooks are supported via a conventional file (src/api/_hooks.ts or src/hooks.ts).
+ * Pass the relative path as `globalHooksFile` to import it in the generated server.
  */
-export function generateServerEntry(manifest: RouteManifest, projectRoot: string): string {
+export function generateServerEntry(manifest: RouteManifest, projectRoot: string, globalHooksFile?: string | null): string {
   // Reset used var names for each server entry generation
   _usedVarNames.clear();
 
@@ -940,6 +1009,10 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
   const hasTasks = taskRoutes.length > 0;
 
   lines.push("import { createServer } from 'node:http';");
+  lines.push("import { readFileSync as _readFileSync, realpathSync as _realpathSync, statSync as _statSync, createReadStream as _createReadStream } from 'node:fs';");
+  lines.push("import { resolve as _resolve, dirname as _dirname, extname as _extname, normalize as _normalize, sep as _sep } from 'node:path';");
+  lines.push("import { fileURLToPath as _fileURLToPath } from 'node:url';");
+  lines.push("import { randomUUID as _randomUUID } from 'node:crypto';");
 
   // Load .env files before anything else reads process.env
   lines.push('');
@@ -987,6 +1060,12 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
   for (const [layoutPath, varName] of layoutVarNames) {
     const importPath = `./${relative('dist/server', join('dist/server/pages', layoutPath.replace(/^src\/pages\//, '')))}`.replace(/\.([mc])?tsx?$/, '.$1js').replace(/\\/g, '/');
     lines.push(`import * as ${varName} from '${importPath}';`);
+  }
+
+  // Import global hooks file if present (convention: src/api/_hooks.ts or src/hooks.ts)
+  if (globalHooksFile) {
+    const hooksImportPath = `./${relative('dist/server', join(projectRoot, globalHooksFile))}`.replace(/\.([mc])?tsx?$/, '.$1js').replace(/\\/g, '/');
+    lines.push(`import * as _globalHooksMod from '${hooksImportPath}';`);
   }
 
   // API routes table
@@ -1042,6 +1121,21 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
   // Inline validation and hook execution (always needed for API routes)
   lines.push('');
   lines.push(VALIDATION_CODE);
+
+  // Global hooks object — populated from the hooks convention file if present
+  lines.push('');
+  if (globalHooksFile) {
+    lines.push('// Global hooks loaded from ' + globalHooksFile);
+    lines.push('const _globalHooks = {');
+    lines.push('  onRequest: Array.isArray(_globalHooksMod.onRequest) ? _globalHooksMod.onRequest : (_globalHooksMod.onRequest ? [_globalHooksMod.onRequest] : null),');
+    lines.push('  onError: Array.isArray(_globalHooksMod.onError) ? _globalHooksMod.onError : (_globalHooksMod.onError ? [_globalHooksMod.onError] : null),');
+    lines.push('  onResponse: Array.isArray(_globalHooksMod.onResponse) ? _globalHooksMod.onResponse : (_globalHooksMod.onResponse ? [_globalHooksMod.onResponse] : null),');
+    lines.push('};');
+  } else {
+    lines.push('// No global hooks file found — using empty hooks');
+    lines.push('const _globalHooks = { onRequest: null, onError: null, onResponse: null };');
+  }
+
   lines.push('');
   lines.push(HOOKS_CODE);
 
@@ -1231,8 +1325,12 @@ export async function build(
   await mkdir(serverDir, { recursive: true });
   await mkdir(functionsDir, { recursive: true });
 
-  // 1. Generate server entry
-  const serverEntryCode = generateServerEntry(manifest, projectRoot);
+  // 1. Generate server entry (with global hooks detection)
+  const globalHooksFile = findGlobalHooksFile(projectRoot);
+  if (globalHooksFile) {
+    console.log(`  [then] Global hooks file found: ${globalHooksFile}`);
+  }
+  const serverEntryCode = generateServerEntry(manifest, projectRoot, globalHooksFile);
   const serverEntryPath = join(serverDir, 'entry.js');
   await writeFile(serverEntryPath, serverEntryCode);
 
