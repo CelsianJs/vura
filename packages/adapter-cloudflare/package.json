@@ -11,15 +11,36 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -b",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "pnpm run build"
   },
   "dependencies": {
-    "@then/core": "workspace:*"
+    "@then/core": "0.1.0",
+    "esbuild": "^0.27.3"
   },
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "license": "MIT",
+  "description": "Cloudflare Workers deployment adapter for Vura applications",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zvndev/vura.git"
+  },
+  "homepage": "https://github.com/zvndev/vura#readme",
+  "bugs": {
+    "url": "https://github.com/zvndev/vura/issues"
+  },
+  "keywords": [
+    "vura",
+    "cloudflare-workers",
+    "serverless",
+    "adapter",
+    "deployment"
+  ]
 }

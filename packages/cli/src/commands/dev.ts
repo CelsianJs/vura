@@ -48,6 +48,32 @@ interface DevOptions {
   projectRoot: string;
 }
 
+type TaskAdminHeaders = {
+  authorization?: string | string[];
+};
+
+function normalizeSocketRemoteAddress(remoteAddress: string | undefined): string {
+  const addr = remoteAddress || '';
+  return addr.startsWith('::ffff:') ? addr.slice(7) : addr;
+}
+
+export function isTaskAdminRequestAuthorized(
+  headers: TaskAdminHeaders,
+  remoteAddress: string | undefined,
+  env: { THEN_TASK_SECRET?: string; NODE_ENV?: string } = process.env,
+): boolean {
+  const taskSecret = (env.THEN_TASK_SECRET || '').trim();
+  const authHeader = headers.authorization;
+  const authorization = Array.isArray(authHeader) ? authHeader[0] : authHeader;
+  if (taskSecret && authorization === `Bearer ${taskSecret}`) return true;
+
+  const nodeEnv = (env.NODE_ENV || '').toLowerCase();
+  const isExplicitNonProduction = nodeEnv === 'development' || nodeEnv === 'dev' || nodeEnv === 'test';
+  const normalizedRemoteAddr = normalizeSocketRemoteAddress(remoteAddress);
+  const isLocal = normalizedRemoteAddr === '127.0.0.1' || normalizedRemoteAddr === '::1';
+  return !taskSecret && isExplicitNonProduction && isLocal;
+}
+
 /**
  * Load .env files into process.env without overriding existing values.
  * Priority order: .env.local > .env.{NODE_ENV} > .env
@@ -277,6 +303,14 @@ async function startStandaloneServer(
     }
 
     // Task management endpoints
+    if (url.pathname.startsWith('/__tasks')) {
+      if (!isTaskAdminRequestAuthorized(req.headers, req.socket?.remoteAddress)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Forbidden' }));
+        return;
+      }
+    }
+
     if (url.pathname === '/__tasks' && method === 'GET') {
       const taskRoutes = manifest.api.filter(r => r.kind === 'task');
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -346,6 +380,7 @@ async function startStandaloneServer(
         headers: req.headers,
         params: match.params,
         query: Object.fromEntries(url.searchParams.entries()),
+        body,
         parsedBody: body,
       };
 

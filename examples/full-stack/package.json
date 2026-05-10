@@ -3,7 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "then dev",
-    "build": "then build"
+    "dev": "vura dev",
+    "build": "vura build"
+  },
+  "devDependencies": {
+    "@then/cli": "workspace:*",
+    "@then/core": "workspace:*",
+    "what-framework": "^0.8.1"
   }
 }

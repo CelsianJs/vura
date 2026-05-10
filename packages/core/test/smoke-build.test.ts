@@ -19,22 +19,50 @@ import {
   rmSync,
   existsSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fork, type ChildProcess } from 'node:child_process';
+
+const nativeImport = new Function('specifier', 'return import(specifier)') as <T = any>(specifier: string) => Promise<T>;
 
 // ─── Test project scaffold ───
 
 function createTestProject(): string {
   const root = mkdtempSync(join(tmpdir(), 'vura-smoke-'));
 
+  // Minimal dependency fixture for route modules that import zod. Real
+  // projects resolve this from their installed dependencies; the smoke temp
+  // project needs a tiny local package so the build can prove route bundling.
+  const zodDir = join(root, 'node_modules', 'zod');
+  mkdirSync(zodDir, { recursive: true });
+  writeFileSync(join(zodDir, 'package.json'), JSON.stringify({ type: 'module', exports: './index.js' }));
+  writeFileSync(
+    join(zodDir, 'index.js'),
+    `export const z = {
+  object() {
+    return {
+      safeParse(value) {
+        return value && typeof value.text === 'string'
+          ? { success: true, data: value }
+          : { success: false, error: { issues: [{ path: ['text'], message: 'Required', code: 'invalid_type' }] } };
+      },
+    };
+  },
+  string() { return {}; },
+};
+`,
+  );
+
   // src/api/hello.ts — simple GET handler
   const apiDir = join(root, 'src', 'api');
   mkdirSync(apiDir, { recursive: true });
   writeFileSync(
     join(apiDir, 'hello.ts'),
-    `export async function GET(req: any, reply: any) {
-  return reply.json({ message: 'hello' });
+    `import { HttpError } from '@then/core';
+
+export async function GET(req: any, reply: any) {
+  const marker = new HttpError(418, 'INTERNAL_ERROR', 'teapot');
+  return reply.json({ message: 'hello', marker: marker.name });
 }
 `,
   );
@@ -62,6 +90,16 @@ export async function POST(req: any, reply: any) {
     reply.header('x-vura-smoke', 'true');
   },
 ];
+`,
+  );
+
+  writeFileSync(
+    join(apiDir, 'jobs.ts'),
+    `export const route = { kind: 'task', schedule: '*/5 * * * *' };
+
+export async function POST(ctx: { input: { text?: string } }) {
+  return { upper: ctx.input.text?.toUpperCase() };
+}
 `,
   );
 
@@ -115,6 +153,13 @@ describe('smoke-build: end-to-end build pipeline', () => {
           kind: 'serverless',
           config: {},
         },
+        {
+          filePath: 'src/api/jobs.ts',
+          urlPattern: '/api/jobs',
+          methods: ['POST'],
+          kind: 'task',
+          config: { schedule: '*/5 * * * *' },
+        },
       ],
       pages: [
         {
@@ -155,11 +200,32 @@ describe('smoke-build: end-to-end build pipeline', () => {
     }
   });
 
+
+  it('bundles @then/core imports into serverless route artifacts', async () => {
+    const helloFunction = buildResult.functions.find(fn => fn.route.urlPattern === '/api/hello');
+    expect(helloFunction).toBeDefined();
+    const routeArtifact = readFileSync(join(dirname(helloFunction!.entryPath), 'route.js'), 'utf-8');
+    expect(routeArtifact).not.toContain("from '@then/core'");
+    expect(routeArtifact).not.toContain('from "@then/core"');
+    const mod = await nativeImport(helloFunction!.entryPath);
+    const response = await mod.default.fetch(new Request('https://example.com/api/hello'));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ message: 'hello', marker: 'HttpError' });
+  });
+
+  it('writes task entries for task routes', () => {
+    expect(buildResult.taskEntries.length).toBe(1);
+    for (const task of buildResult.taskEntries) {
+      expect(existsSync(task.entryPath)).toBe(true);
+      expect(existsSync(join(dirname(task.entryPath), 'route.js'))).toBe(true);
+    }
+  });
+
   it('writes manifest.json', () => {
     const manifestPath = join(projectRoot, 'dist', 'manifest.json');
     expect(existsSync(manifestPath)).toBe(true);
     const written = JSON.parse(readFileSync(manifestPath, 'utf-8'));
-    expect(written.api).toHaveLength(2);
+    expect(written.api).toHaveLength(3);
     expect(written.pages).toHaveLength(1);
   });
 
@@ -360,6 +426,45 @@ describe('smoke-build: end-to-end build pipeline', () => {
       expect(code).toContain('async fetch(request)');
     }
   });
+
+  it('serverless function entries import bundled route.js artifacts, not raw TypeScript', async () => {
+    for (const fn of buildResult.functions) {
+      const code = readFileSync(fn.entryPath, 'utf-8');
+      const routeCode = readFileSync(join(dirname(fn.entryPath), 'route.js'), 'utf-8');
+      expect(code).toContain("from './route.js'");
+      expect(code).not.toMatch(/from ['\"].*\.tsx?['\"]/);
+      expect(routeCode).not.toContain('req: any');
+    }
+
+    const echo = buildResult.functions.find((fn) => fn.route.urlPattern === '/api/echo')!;
+    const mod = await nativeImport(echo.entryPath);
+    const response = await mod.default.fetch(new Request('https://example.com/api/echo', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'hello' }),
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ echo: { text: 'hello' } });
+  });
+
+  it('task entries import bundled route.js artifacts, not raw TypeScript', async () => {
+    const task = buildResult.taskEntries[0]!;
+    const code = readFileSync(task.entryPath, 'utf-8');
+    const routeCode = readFileSync(join(dirname(task.entryPath), 'route.js'), 'utf-8');
+    expect(code).toContain("from './route.js'");
+    expect(code).not.toMatch(/from ['\"].*\.tsx?['\"]/);
+    expect(routeCode).not.toContain('ctx: {');
+
+    const mod = await nativeImport(task.entryPath);
+    const response = await mod.default.fetch(new Request('https://example.com/api/jobs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ taskId: 'task-1', input: { text: 'hello' } }),
+    }));
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload).toMatchObject({ taskId: 'task-1', status: 'completed', result: { upper: 'HELLO' } });
+  });
 });
 
 // ─── Build manifest integration: verify the scanner picks up our files ──
@@ -435,8 +540,10 @@ describe('smoke-build: live server integration', () => {
     const serverDir = join(projectRoot, 'dist', 'server');
     mkdirSync(serverDir, { recursive: true });
 
-    // Write a stub route module that the generated entry will import
-    const stubRoute = join(projectRoot, 'src', 'api', 'hello.js');
+    // Write a stub route module where the generated entry imports bundled API
+    // modules from.
+    const stubRoute = join(projectRoot, 'dist', 'server', 'api', 'hello.js');
+    mkdirSync(join(projectRoot, 'dist', 'server', 'api'), { recursive: true });
     writeFileSync(
       stubRoute,
       `export async function GET(req, reply) {

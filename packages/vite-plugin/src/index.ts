@@ -41,6 +41,32 @@ export interface ThenPluginOptions {
   root?: string;
 }
 
+type TaskAdminHeaders = {
+  authorization?: string | string[];
+};
+
+function normalizeSocketRemoteAddress(remoteAddress: string | undefined): string {
+  const addr = remoteAddress || '';
+  return addr.startsWith('::ffff:') ? addr.slice(7) : addr;
+}
+
+export function isTaskAdminRequestAuthorized(
+  headers: TaskAdminHeaders,
+  remoteAddress: string | undefined,
+  env: { THEN_TASK_SECRET?: string; NODE_ENV?: string } = process.env,
+): boolean {
+  const taskSecret = (env.THEN_TASK_SECRET || '').trim();
+  const authHeader = headers.authorization;
+  const authorization = Array.isArray(authHeader) ? authHeader[0] : authHeader;
+  if (taskSecret && authorization === `Bearer ${taskSecret}`) return true;
+
+  const nodeEnv = (env.NODE_ENV || '').toLowerCase();
+  const isExplicitNonProduction = nodeEnv === 'development' || nodeEnv === 'dev' || nodeEnv === 'test';
+  const normalizedRemoteAddr = normalizeSocketRemoteAddress(remoteAddress);
+  const isLocal = normalizedRemoteAddr === '127.0.0.1' || normalizedRemoteAddr === '::1';
+  return !taskSecret && isExplicitNonProduction && isLocal;
+}
+
 export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
   let manifest: RouteManifest;
   let projectRoot: string;
@@ -90,6 +116,13 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
           return next();
         }
 
+        if (!isTaskAdminRequestAuthorized(req.headers, req.socket?.remoteAddress)) {
+          res.statusCode = 403;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Forbidden' }));
+          return;
+        }
+
         const taskRoutes = manifest.api.filter(r => r.kind === 'task');
 
         if (url.pathname === '/__tasks' && method === 'GET') {
@@ -129,9 +162,12 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             }
 
             const body = await parseNodeBody(req);
+            const input = body && typeof body === 'object' && 'input' in body
+              ? (body as { input?: unknown }).input
+              : undefined;
             const result = await handlerFn({
               taskId: String(Date.now()),
-              input: body?.input,
+              input,
               attempt: 1,
             });
 
@@ -189,6 +225,7 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             headers: req.headers as Record<string, string>,
             params: matched.params,
             query: Object.fromEntries(url.searchParams.entries()),
+            body,
             parsedBody: body,
           };
 

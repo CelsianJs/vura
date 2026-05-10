@@ -3,12 +3,45 @@
   "version": "0.1.0",
   "type": "module",
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   },
   "dependencies": {
-    "@then/core": "workspace:*"
+    "@then/core": "0.1.0"
   },
   "peerDependencies": {
     "vite": "^5.0.0 || ^6.0.0"
-  }
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "prepack": "pnpm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "description": "Vite integration for Vura routes and pages",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zvndev/vura.git"
+  },
+  "homepage": "https://github.com/zvndev/vura#readme",
+  "bugs": {
+    "url": "https://github.com/zvndev/vura/issues"
+  },
+  "keywords": [
+    "vura",
+    "vite",
+    "vite-plugin",
+    "full-stack",
+    "typescript"
+  ]
 }

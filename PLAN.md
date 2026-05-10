@@ -125,7 +125,7 @@ export default function HomePage() {
 ### Phase 3 — Production Readiness
 - [ ] **Build cache** — incremental builds, shared artifact cache
 - [ ] **Edge middleware** — user-defined middleware (auth, redirects)
-- [ ] **SSR streaming** — progressive HTML rendering
+- [ ] **Chunked server HTML** — full HTML emitted in chunks for server pages marked `stream`; not progressive SSR
 - [ ] **API versioning** — route-level version management
 
 ---

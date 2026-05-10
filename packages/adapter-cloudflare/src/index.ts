@@ -12,9 +12,55 @@
  */
 
 import { writeFile, mkdir } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ThenAdapter, AdapterBuildContext } from '@then/core';
 import type { RouteManifest, ApiRoute } from '@then/core';
+
+
+const require = createRequire(import.meta.url);
+
+function resolveCorePackageDir(): string {
+  try {
+    return dirname(require.resolve('@then/core'));
+  } catch {
+    const localCore = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules', '@then', 'core');
+    return join(localCore, existsSync(join(localCore, 'src')) ? 'src' : 'dist');
+  }
+}
+
+const CORE_PACKAGE_DIR = resolveCorePackageDir();
+
+function coreModuleExt(moduleName: string): string {
+  return existsSync(join(CORE_PACKAGE_DIR, `${moduleName}.ts`)) ? 'ts' : 'js';
+}
+
+function thenCoreRuntimeShimPlugin() {
+  return {
+    name: 'then-core-runtime-shim',
+    setup(build: any) {
+      build.onResolve({ filter: /^@then\/core\/(jsx-runtime|jsx-dev-runtime)$/ }, () => ({
+        path: join(CORE_PACKAGE_DIR, `jsx-runtime.${coreModuleExt('jsx-runtime')}`),
+      }));
+      build.onResolve({ filter: /^@then\/core$/ }, () => ({
+        path: '@then/core',
+        namespace: 'then-core-runtime-shim',
+      }));
+      build.onLoad({ filter: /.*/, namespace: 'then-core-runtime-shim' }, () => ({
+        loader: 'js',
+        resolveDir: CORE_PACKAGE_DIR,
+        contents: `
+export { defineConfig } from './config.${coreModuleExt('config')}';
+export { HttpError, ErrorCode, badRequest, unauthorized, forbidden, notFound, methodNotAllowed, conflict, rateLimited, internalError, serviceUnavailable, formatErrorResponse, sendErrorResponse, renderErrorPage, setGlobalErrorHandler, getGlobalErrorHandler, reportError, getErrorMode } from './errors.${coreModuleExt('errors')}';
+export { defineSchema, validate, withValidation, validateRequest } from './validation.${coreModuleExt('validation')}';
+export { HookRegistry, createHookRegistry, getHookRegistry, setDefaultHookRegistry, executeWithHooks } from './hooks.${coreModuleExt('hooks')}';
+`,
+      }));
+    },
+  };
+}
 
 // ─── Types ───
 
@@ -166,10 +212,7 @@ export function generateWorkerEntry(
 
   for (const route of routes) {
     const varName = routeToVarName(route);
-    const relPath = relative(workerDir, join(projectRoot, route.filePath))
-      .replace(/\.tsx?$/, '.js')
-      .replace(/\\/g, '/');
-    const importPath = relPath.startsWith('.') ? relPath : `./${relPath}`;
+    const importPath = `./routes/${routeModuleFileName(route)}`;
     imports.push(`import * as ${varName} from '${importPath}';`);
 
     routeTable.push(`  { pattern: '${route.urlPattern}', methods: [${route.methods.map(m => `'${m}'`).join(', ')}], handlers: ${varName} },`);
@@ -180,10 +223,7 @@ export function generateWorkerEntry(
   const taskTable: string[] = [];
   for (const route of taskRoutes) {
     const varName = routeToVarName(route);
-    const relPath = relative(workerDir, join(projectRoot, route.filePath))
-      .replace(/\.tsx?$/, '.js')
-      .replace(/\\/g, '/');
-    const importPath = relPath.startsWith('.') ? relPath : `./${relPath}`;
+    const importPath = `./routes/${routeModuleFileName(route)}`;
     taskImports.push(`import * as ${varName} from '${importPath}';`);
     const taskName = route.urlPattern.replace(/^\/api\//, '').replace(/\//g, '.');
     const schedule = route.config.schedule ? `'${route.config.schedule}'` : 'null';
@@ -263,6 +303,7 @@ export default {
       headers: Object.fromEntries(request.headers.entries()),
       params: match.params,
       query: Object.fromEntries(url.searchParams.entries()),
+      body,
       parsedBody: body,
       __cf_env: env,
       __cf_ctx: ctx,
@@ -397,6 +438,9 @@ export function cloudflareAdapter(options: CloudflareAdapterOptions): ThenAdapte
         // Generate worker entry (include task routes for scheduled handler)
         const entry = generateWorkerEntry(routes, projectRoot, workerDir, taskRoutes);
         await writeFile(join(workerDir, 'entry.js'), entry);
+        for (const route of [...routes, ...taskRoutes]) {
+          await bundleRouteModule(route, projectRoot, join(workerDir, 'routes', routeModuleFileName(route)));
+        }
       }
     },
   };
@@ -437,6 +481,39 @@ function routeToVarName(route: ApiRoute): string {
     .replace(/^\//, '')
     .replace(/[/:*\-]/g, '_')
     .replace(/_+/g, '_');
+}
+
+function routeModuleFileName(route: ApiRoute): string {
+  return route.filePath
+    .replace(/\.[cm]?tsx?$/, '')
+    .replace(/[^a-zA-Z0-9_/-]/g, '_')
+    .replace(/[/-]+/g, '_')
+    .replace(/^_+|_+$/g, '') + '.js';
+}
+
+async function bundleRouteModule(route: ApiRoute, projectRoot: string, outfile: string): Promise<void> {
+  const absPath = join(projectRoot, route.filePath);
+  if (!existsSync(absPath)) {
+    throw new Error(`Route source not found for ${route.filePath}: ${absPath}`);
+  }
+
+  const { build: esbuild } = await import('esbuild');
+  await mkdir(dirname(outfile), { recursive: true });
+  await esbuild({
+    entryPoints: [absPath],
+    bundle: true,
+    format: 'esm',
+    target: 'es2022',
+    platform: 'neutral',
+    outfile,
+    nodePaths: [
+      join(projectRoot, 'node_modules'),
+      join(process.cwd(), 'node_modules'),
+      join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules'),
+    ],
+    plugins: [thenCoreRuntimeShimPlugin()],
+    external: ['what-framework', 'what-framework/*'],
+  });
 }
 
 function toDateString(date: Date): string {

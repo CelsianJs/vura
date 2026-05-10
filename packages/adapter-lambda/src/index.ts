@@ -5,10 +5,56 @@
  * Produces a SAM template, per-function handler files, and samconfig.toml.
  */
 
-import { writeFile, mkdir, copyFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { writeFile, mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ThenAdapter, AdapterBuildContext } from '@then/core';
 import type { ApiRoute, HttpMethod } from '@then/core';
+
+
+const require = createRequire(import.meta.url);
+
+function resolveCorePackageDir(): string {
+  try {
+    return dirname(require.resolve('@then/core'));
+  } catch {
+    const localCore = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules', '@then', 'core');
+    return join(localCore, existsSync(join(localCore, 'src')) ? 'src' : 'dist');
+  }
+}
+
+const CORE_PACKAGE_DIR = resolveCorePackageDir();
+
+function coreModuleExt(moduleName: string): string {
+  return existsSync(join(CORE_PACKAGE_DIR, `${moduleName}.ts`)) ? 'ts' : 'js';
+}
+
+function thenCoreRuntimeShimPlugin() {
+  return {
+    name: 'then-core-runtime-shim',
+    setup(build: any) {
+      build.onResolve({ filter: /^@then\/core\/(jsx-runtime|jsx-dev-runtime)$/ }, () => ({
+        path: join(CORE_PACKAGE_DIR, `jsx-runtime.${coreModuleExt('jsx-runtime')}`),
+      }));
+      build.onResolve({ filter: /^@then\/core$/ }, () => ({
+        path: '@then/core',
+        namespace: 'then-core-runtime-shim',
+      }));
+      build.onLoad({ filter: /.*/, namespace: 'then-core-runtime-shim' }, () => ({
+        loader: 'js',
+        resolveDir: CORE_PACKAGE_DIR,
+        contents: `
+export { defineConfig } from './config.${coreModuleExt('config')}';
+export { HttpError, ErrorCode, badRequest, unauthorized, forbidden, notFound, methodNotAllowed, conflict, rateLimited, internalError, serviceUnavailable, formatErrorResponse, sendErrorResponse, renderErrorPage, setGlobalErrorHandler, getGlobalErrorHandler, reportError, getErrorMode } from './errors.${coreModuleExt('errors')}';
+export { defineSchema, validate, withValidation, validateRequest } from './validation.${coreModuleExt('validation')}';
+export { HookRegistry, createHookRegistry, getHookRegistry, setDefaultHookRegistry, executeWithHooks } from './hooks.${coreModuleExt('hooks')}';
+`,
+      }));
+    },
+  };
+}
 
 // ─── Public Types ───
 
@@ -498,6 +544,7 @@ export async function handler(event, context) {
     headers: Object.fromEntries(request.headers.entries()),
     params: event.pathParameters || {},
     query: event.queryStringParameters || {},
+    body,
     parsedBody: body,
     __lambda_context: context,
   };
@@ -575,15 +622,10 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
           const funcDir = join(lambdaDir, `${routeDirName}_${method.toLowerCase()}`);
           await mkdir(funcDir, { recursive: true });
 
-          // Write the handler file and copy the route source
+          // Write the handler file and bundled route module.
           const handlerCode = generateHandlerFile(route);
           await writeFile(join(funcDir, 'index.js'), handlerCode);
-          const routeSrc = join(ctx.projectRoot, route.filePath);
-          const routeDest = join(funcDir, 'route.js');
-          try { await copyFile(routeSrc.replace(/\.ts$/, '.js'), routeDest); } catch {
-            // If compiled .js doesn't exist, copy the .ts and hope for transpilation
-            try { await copyFile(routeSrc, routeDest); } catch {}
-          }
+          await bundleRouteModule(route, ctx.projectRoot, join(funcDir, 'route.js'));
 
           samFunctions.push({
             name: funcName,
@@ -612,11 +654,7 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
 
         const handlerCode = generateHandlerFile(route);
         await writeFile(join(funcDir, 'index.js'), handlerCode);
-        const routeSrc = join(ctx.projectRoot, route.filePath);
-        const routeDest = join(funcDir, 'route.js');
-        try { await copyFile(routeSrc.replace(/\.ts$/, '.js'), routeDest); } catch {
-          try { await copyFile(routeSrc, routeDest); } catch {}
-        }
+        await bundleRouteModule(route, ctx.projectRoot, join(funcDir, 'route.js'));
 
         const funcName = 'Task' + route.urlPattern
           .replace(/^\/api\//, '')
@@ -651,6 +689,31 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
 }
 
 // ─── Utilities ───
+
+async function bundleRouteModule(route: ApiRoute, projectRoot: string, outfile: string): Promise<void> {
+  const absPath = join(projectRoot, route.filePath);
+  if (!existsSync(absPath)) {
+    throw new Error(`Route source not found for ${route.filePath}: ${absPath}`);
+  }
+
+  const { build: esbuild } = await import('esbuild');
+  await mkdir(dirname(outfile), { recursive: true });
+  await esbuild({
+    entryPoints: [absPath],
+    bundle: true,
+    format: 'esm',
+    target: 'es2022',
+    platform: 'node',
+    outfile,
+    nodePaths: [
+      join(projectRoot, 'node_modules'),
+      join(process.cwd(), 'node_modules'),
+      join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules'),
+    ],
+    plugins: [thenCoreRuntimeShimPlugin()],
+    external: ['what-framework', 'what-framework/*'],
+  });
+}
 
 /**
  * Convert a standard 5-field cron expression to AWS 6-field format.

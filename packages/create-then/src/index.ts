@@ -71,9 +71,9 @@ function getFiles(projectName: string): Record<string, string> {
         private: true,
         type: 'module',
         scripts: {
-          dev: 'then dev',
-          build: 'then build',
-          deploy: 'then deploy',
+          dev: 'vura dev',
+          build: 'vura build',
+          deploy: 'vura deploy',
         },
         dependencies: {
           'what-framework': 'latest',

@@ -25,8 +25,43 @@
 import { writeFile, mkdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { RouteManifest, ApiRoute, PageRoute } from './manifest.js';
 import type { ThenConfig, AdapterBuildContext } from './config.js';
+
+
+const CORE_PACKAGE_DIR = dirname(fileURLToPath(import.meta.url));
+
+function coreModuleFile(moduleName: string): string {
+  const tsPath = join(CORE_PACKAGE_DIR, `${moduleName}.ts`);
+  if (existsSync(tsPath)) return tsPath;
+  return join(CORE_PACKAGE_DIR, `${moduleName}.js`);
+}
+
+function thenCoreSelfResolvePlugin() {
+  return {
+    name: 'then-core-self-resolve',
+    setup(build: any) {
+      build.onResolve({ filter: /^@then\/core\/(jsx-runtime|jsx-dev-runtime)$/ }, (args: any) => ({
+        path: coreModuleFile('jsx-runtime'),
+      }));
+      build.onResolve({ filter: /^@then\/core$/ }, () => ({
+        path: '@then/core',
+        namespace: 'then-core-runtime-shim',
+      }));
+      build.onLoad({ filter: /.*/, namespace: 'then-core-runtime-shim' }, () => ({
+        loader: 'js',
+        resolveDir: CORE_PACKAGE_DIR,
+        contents: `
+export { defineConfig } from './config.${existsSync(join(CORE_PACKAGE_DIR, 'config.ts')) ? 'ts' : 'js'}';
+export { HttpError, ErrorCode, badRequest, unauthorized, forbidden, notFound, methodNotAllowed, conflict, rateLimited, internalError, serviceUnavailable, formatErrorResponse, sendErrorResponse, renderErrorPage, setGlobalErrorHandler, getGlobalErrorHandler, reportError, getErrorMode } from './errors.${existsSync(join(CORE_PACKAGE_DIR, 'errors.ts')) ? 'ts' : 'js'}';
+export { defineSchema, validate, withValidation, validateRequest } from './validation.${existsSync(join(CORE_PACKAGE_DIR, 'validation.ts')) ? 'ts' : 'js'}';
+export { HookRegistry, createHookRegistry, getHookRegistry, setDefaultHookRegistry, executeWithHooks } from './hooks.${existsSync(join(CORE_PACKAGE_DIR, 'hooks.ts')) ? 'ts' : 'js'}';
+`,
+      }));
+    },
+  };
+}
 
 // ─── Global Hooks File Convention ───
 // The production server supports global hooks via a conventional file:
@@ -501,7 +536,7 @@ const TASK_RUNNER_CODE = [
 // ─── Inline Static File Serving Code (embedded in generated server code) ───
 
 const STATIC_FILE_CODE = [
-  '// Static file serving for public/ directory',
+  '// Static file serving for public/ and generated dist/static directories',
   "const _mimeTypes = {",
   "  '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',",
   "  '.mjs': 'application/javascript', '.json': 'application/json',",
@@ -517,36 +552,66 @@ const STATIC_FILE_CODE = [
   "  '.wasm': 'application/wasm',",
   "};",
   "",
-  "const _publicDir = _resolve(_dirname(_fileURLToPath(import.meta.url)), '..', 'public');",
-  "// Resolve the real path of the public dir once at startup (defeats symlink base attacks)",
+  "const _distDir = _resolve(_dirname(_fileURLToPath(import.meta.url)), '..');",
+  "const _publicDir = _resolve(_distDir, 'public');",
+  "const _staticDir = _resolve(_distDir, 'static');",
+  "// Resolve real base dirs once at startup (defeats symlink base attacks)",
   "let _realPublicDir = _publicDir;",
+  "let _realStaticDir = _staticDir;",
   "try { _realPublicDir = _realpathSync(_publicDir); } catch (_) {}",
+  "try { _realStaticDir = _realpathSync(_staticDir); } catch (_) {}",
   "",
   "function _getMimeType(fp) {",
   "  const ext = _extname(fp).toLowerCase();",
   "  return _mimeTypes[ext] || 'application/octet-stream';",
   "}",
   "",
-  "function _tryServeStatic(pathname, method, nodeRes) {",
-  "  if (method !== 'GET' && method !== 'HEAD') return false;",
+  "function _sendStaticFile(realFilePath, method, nodeRes, cacheControl) {",
+  "  const st = _statSync(realFilePath);",
+  "  if (!st.isFile()) return false;",
+  "  const ct = _getMimeType(realFilePath);",
+  "  nodeRes.writeHead(200, { 'content-type': ct, 'content-length': st.size.toString(), 'cache-control': cacheControl });",
+  "  if (method === 'HEAD') { nodeRes.end(); return true; }",
+  "  const stream = _createReadStream(realFilePath);",
+  "  stream.pipe(nodeRes);",
+  "  stream.on('error', () => { if (!nodeRes.writableEnded) nodeRes.end(); });",
+  "  return true;",
+  "}",
+  "",
+  "function _tryResolveStaticFile(baseDir, realBaseDir, pathname, allowIndexFallback) {",
   "  // Decode percent-encoded characters first, then normalize to catch %2e%2e and other tricks",
   "  let decoded;",
-  "  try { decoded = decodeURIComponent(pathname); } catch (_) { return false; }",
-  "  const filePath = _normalize(_resolve(_publicDir, '.' + decoded));",
-  "  try {",
-  "    // Use realpath to resolve symlinks and verify the file is within the public dir",
-  "    const realFilePath = _realpathSync(filePath);",
-  "    if (!realFilePath.startsWith(_realPublicDir + _sep) && realFilePath !== _realPublicDir) return false;",
-  "    const st = _statSync(realFilePath);",
-  "    if (!st.isFile()) return false;",
-  "    const ct = _getMimeType(realFilePath);",
-  "    nodeRes.writeHead(200, { 'content-type': ct, 'content-length': st.size.toString(), 'cache-control': 'public, max-age=31536000, immutable' });",
-  "    if (method === 'HEAD') { nodeRes.end(); return true; }",
-  "    const stream = _createReadStream(realFilePath);",
-  "    stream.pipe(nodeRes);",
-  "    stream.on('error', () => { if (!nodeRes.writableEnded) nodeRes.end(); });",
-  "    return true;",
-  "  } catch (_) { return false; }",
+  "  try { decoded = decodeURIComponent(pathname); } catch (_) { return null; }",
+  "  const candidates = [_normalize(_resolve(baseDir, '.' + decoded))];",
+  "  if (allowIndexFallback) {",
+  "    const hasExt = _extname(decoded) !== '';",
+  "    if (decoded.endsWith('/')) candidates.push(_normalize(_resolve(baseDir, '.' + decoded, 'index.html')));",
+  "    else if (!hasExt) candidates.push(_normalize(_resolve(baseDir, '.' + decoded, 'index.html')));",
+  "  }",
+  "  for (const filePath of candidates) {",
+  "    try {",
+  "      const realFilePath = _realpathSync(filePath);",
+  "      if (!realFilePath.startsWith(realBaseDir + _sep) && realFilePath !== realBaseDir) continue;",
+  "      if (_statSync(realFilePath).isFile()) return realFilePath;",
+  "    } catch (_) {}",
+  "  }",
+  "  return null;",
+  "}",
+  "",
+  "function _tryServePublicStatic(pathname, method, nodeRes) {",
+  "  if (method !== 'GET' && method !== 'HEAD') return false;",
+  "  const realFilePath = _tryResolveStaticFile(_publicDir, _realPublicDir, pathname, false);",
+  "  return realFilePath ? _sendStaticFile(realFilePath, method, nodeRes, 'public, max-age=31536000, immutable') : false;",
+  "}",
+  "",
+  "function _tryServeGeneratedStatic(pathname, method, nodeRes) {",
+  "  if (method !== 'GET' && method !== 'HEAD') return false;",
+  "  const realFilePath = _tryResolveStaticFile(_staticDir, _realStaticDir, pathname, true);",
+  "  return realFilePath ? _sendStaticFile(realFilePath, method, nodeRes, 'public, max-age=0, must-revalidate') : false;",
+  "}",
+  "",
+  "function _tryServeStatic(pathname, method, nodeRes) {",
+  "  return _tryServePublicStatic(pathname, method, nodeRes);",
   "}",
 ].join('\n');
 
@@ -559,7 +624,7 @@ const VALIDATION_CODE = [
   '  if (schema.body) {',
   '    const r = schema.body.safeParse(req.parsedBody);',
   '    if (!r.success) errors.push({ target: "body", issues: r.error.issues.map(i => ({ path: i.path.join("."), message: i.message, ...(i.code ? { code: i.code } : {}) })) });',
-  '    else req.parsedBody = r.data;',
+  '    else { req.parsedBody = r.data; req.body = r.data; }',
   '  }',
   '  if (schema.query) {',
   '    const r = schema.query.safeParse(req.query);',
@@ -666,6 +731,29 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
   lines.push('// CORS configuration (reads THEN_CORS_ORIGIN env var, defaults to no CORS)');
   lines.push("const _corsOrigin = process.env.THEN_CORS_ORIGIN || '';");
   lines.push('');
+  lines.push('function _normalizeSocketRemoteAddress(remoteAddress) {');
+  lines.push('  const addr = remoteAddress || "";');
+  lines.push("  return addr.startsWith('::ffff:') ? addr.slice(7) : addr;");
+  lines.push('}');
+  lines.push('');
+  lines.push('function _isSocketLocal(remoteAddress) {');
+  lines.push('  const addr = _normalizeSocketRemoteAddress(remoteAddress);');
+  lines.push("  return addr === '127.0.0.1' || addr === '::1';");
+  lines.push('}');
+  lines.push('');
+  lines.push('function _isExplicitNonProduction() {');
+  lines.push("  const env = (process.env.NODE_ENV || '').toLowerCase();");
+  lines.push("  return env === 'development' || env === 'dev' || env === 'test';");
+  lines.push('}');
+  lines.push('');
+  lines.push('function _isTaskAdminAuthorized(nodeReq) {');
+  lines.push('  const taskSecret = (process.env.THEN_TASK_SECRET || "").trim();');
+  lines.push("  const authHeader = nodeReq.headers['authorization'];");
+  lines.push('  const authorization = Array.isArray(authHeader) ? authHeader[0] : authHeader;');
+  lines.push("  if (taskSecret && authorization === 'Bearer ' + taskSecret) return true;");
+  lines.push("  return !taskSecret && _isExplicitNonProduction() && _isSocketLocal(nodeReq.socket?.remoteAddress);");
+  lines.push('}');
+  lines.push('');
   lines.push('const server = createServer(async (nodeReq, nodeRes) => {');
   lines.push('  // Reject new requests during shutdown');
   lines.push('  if (_isShuttingDown) {');
@@ -716,10 +804,7 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
   if (hasTasks) {
     lines.push('');
     lines.push("  if (url.pathname.startsWith('/__tasks')) {");
-    lines.push('    const taskSecret = process.env.THEN_TASK_SECRET;');
-    lines.push('    const remoteAddr = nodeReq.socket?.remoteAddress || "";');
-    lines.push("    const isLocal = remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1';");
-    lines.push("    if (taskSecret && nodeReq.headers['authorization'] !== 'Bearer ' + taskSecret && !isLocal) {");
+    lines.push('    if (!_isTaskAdminAuthorized(nodeReq)) {');
     lines.push("      nodeRes.writeHead(403, { 'content-type': 'application/json' });");
     lines.push('      nodeRes.end(JSON.stringify({ error: "Forbidden" }));');
     lines.push('      return;');
@@ -778,6 +863,7 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
   lines.push('        headers: nodeReq.headers,');
   lines.push('        params: match.params,');
   lines.push('        query: Object.fromEntries(url.searchParams.entries()),');
+  lines.push('        body,');
   lines.push('        parsedBody: body,');
   lines.push('      };');
   lines.push('');
@@ -858,7 +944,7 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
     lines.push('          }');
     lines.push('        }');
     lines.push('');
-    lines.push('        // Streaming SSR');
+    lines.push('        // Chunked full HTML response (not progressive SSR)');
     lines.push('        if (page.config.stream) {');
     lines.push("          nodeRes.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'transfer-encoding': 'chunked' });");
     lines.push('          const html = await renderPage(page, params, url);');
@@ -892,6 +978,12 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
     lines.push('    }');
     lines.push('  }');
   }
+
+  // Generated static/client page fallback (dist/static). This runs after API and server-mode pages
+  // so static HTML does not shadow API behavior.
+  lines.push('');
+  lines.push('  // Serve generated static pages from dist/static with index.html fallback');
+  lines.push('  if (_tryServeGeneratedStatic(url.pathname, method, nodeRes)) return;');
 
   // 404 fallback
   lines.push('');
@@ -1045,7 +1137,7 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
   // Import API route handlers
   for (const route of manifest.api) {
     const varName = routeVarNames.get(route.filePath)!;
-    const importPath = `./${relative('dist/server', join(projectRoot, route.filePath))}`.replace(/\.([mc])?tsx?$/, '.$1js').replace(/\\/g, '/');
+    const importPath = `./${relative('dist/server', join('dist/server/api', route.filePath.replace(/^src\/api\//, '')))}`.replace(/\.([mc])?tsx?$/, '.$1js').replace(/\\/g, '/');
     lines.push(`import * as ${varName} from '${importPath}';`);
   }
 
@@ -1064,7 +1156,7 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
 
   // Import global hooks file if present (convention: src/api/_hooks.ts or src/hooks.ts)
   if (globalHooksFile) {
-    const hooksImportPath = `./${relative('dist/server', join(projectRoot, globalHooksFile))}`.replace(/\.([mc])?tsx?$/, '.$1js').replace(/\\/g, '/');
+    const hooksImportPath = `./${relative('dist/server', join('dist/server/api', globalHooksFile.replace(/^src\/api\//, '').replace(/^src\//, '')))}`.replace(/\.([mc])?tsx?$/, '.$1js').replace(/\\/g, '/');
     lines.push(`import * as _globalHooksMod from '${hooksImportPath}';`);
   }
 
@@ -1181,10 +1273,9 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
  * No external dependencies — includes inline req/reply shim.
  */
 export function generateFunctionEntry(route: ApiRoute, projectRoot: string): string {
-  const importPath = `./${relative('dist/functions', join(projectRoot, route.filePath))}`.replace(/\.([mc])?tsx?$/, '.$1js').replace(/\\/g, '/');
   const varName = routeToVarName(route);
 
-  return `import * as ${varName} from '${importPath}';
+  return `import * as ${varName} from './route.js';
 
 const handlers = { ${route.methods.map(m => `${m}: ${varName}.${m}`).join(', ')} };
 
@@ -1214,6 +1305,7 @@ export default {
       headers: Object.fromEntries(request.headers.entries()),
       params: {},
       query: Object.fromEntries(url.searchParams.entries()),
+      body,
       parsedBody: body,
     };
 
@@ -1245,11 +1337,10 @@ export default {
  * Wraps the handler with timeout enforcement and retry metadata.
  */
 export function generateTaskEntry(route: ApiRoute, projectRoot: string): string {
-  const importPath = `./${relative('dist/functions', join(projectRoot, route.filePath))}`.replace(/\.([mc])?tsx?$/, '.$1js').replace(/\\/g, '/');
   const varName = routeToVarName(route);
   const timeoutMs = (route.config.timeout as number) || 30000;
 
-  return `import * as ${varName} from '${importPath}';
+  return `import * as ${varName} from './route.js';
 
 const handler = ${varName}.POST;
 const TIMEOUT_MS = ${timeoutMs};
@@ -1325,6 +1416,12 @@ export async function build(
   await mkdir(serverDir, { recursive: true });
   await mkdir(functionsDir, { recursive: true });
 
+  // Bundle API modules for the generated hot server. The generated server is
+  // plain ESM and imports `dist/server/api/**/*.js`, so TypeScript source
+  // routes must be transpiled even when callers use the core build API
+  // directly instead of going through the CLI.
+  await bundleServerApiModules(manifest, projectRoot, serverDir);
+
   // 1. Generate server entry (with global hooks detection)
   const globalHooksFile = findGlobalHooksFile(projectRoot);
   if (globalHooksFile) {
@@ -1346,6 +1443,7 @@ export async function build(
     const entryCode = generateFunctionEntry(route, projectRoot);
     const entryPath = join(funcDir, 'index.js');
     await writeFile(entryPath, entryCode);
+    await bundleRouteModule(route, projectRoot, join(funcDir, 'route.js'), 'neutral');
 
     functions.push({ route, entryPath });
   }
@@ -1362,6 +1460,7 @@ export async function build(
     const entryCode = generateTaskEntry(route, projectRoot);
     const entryPath = join(funcDir, 'index.js');
     await writeFile(entryPath, entryCode);
+    await bundleRouteModule(route, projectRoot, join(funcDir, 'route.js'), 'neutral');
 
     taskEntries.push({ route, entryPath });
   }
@@ -1385,6 +1484,60 @@ export async function build(
   }
 
   return { serverEntry: serverEntryPath, functions, taskEntries, manifest };
+}
+
+
+async function bundleRouteModule(
+  route: Pick<ApiRoute, 'filePath'>,
+  projectRoot: string,
+  outfile: string,
+  platform: 'node' | 'neutral' = 'node',
+): Promise<void> {
+  const absPath = join(projectRoot, route.filePath);
+  if (!existsSync(absPath)) {
+    throw new Error(`Route source not found for ${route.filePath}: ${absPath}`);
+  }
+
+  const { build: esbuild } = await import('esbuild');
+  await mkdir(dirname(outfile), { recursive: true });
+  await esbuild({
+    entryPoints: [absPath],
+    bundle: true,
+    format: 'esm',
+    target: 'es2022',
+    platform,
+    outfile,
+    nodePaths: [join(projectRoot, 'node_modules'), join(process.cwd(), 'node_modules')],
+    plugins: [thenCoreSelfResolvePlugin()],
+    external: ['what-framework', 'what-framework/*'],
+  });
+}
+
+async function bundleServerApiModules(
+  manifest: RouteManifest,
+  projectRoot: string,
+  serverDir: string,
+): Promise<void> {
+  if (manifest.api.length === 0) return;
+
+  const apiOutDir = join(serverDir, 'api');
+  await mkdir(apiOutDir, { recursive: true });
+
+  const modulePaths = new Set(manifest.api.map(route => route.filePath));
+  const globalHooksFile = findGlobalHooksFile(projectRoot);
+  if (globalHooksFile) modulePaths.add(globalHooksFile);
+
+  for (const filePath of modulePaths) {
+    const absPath = join(projectRoot, filePath);
+    if (!existsSync(absPath)) continue;
+
+    const relativeApiPath = filePath.replace(/^src\/api\//, '').replace(/^src\//, '');
+    const outFile = relativeApiPath.replace(/\.([mc])?tsx?$/, '.$1js');
+    const outPath = join(apiOutDir, outFile);
+    await mkdir(dirname(outPath), { recursive: true });
+
+    await bundleRouteModule({ filePath }, projectRoot, outPath, 'node');
+  }
 }
 
 // ─── Helpers ───

@@ -357,3 +357,30 @@ describe('generateFunctionEntry', () => {
     expect(entry).toContain('POST:');
   });
 });
+
+describe('build route artifact bundling failures', () => {
+  it('fails with route context when a manifest route source is missing', async () => {
+    const { build } = await import('../src/build.js');
+    const root = mkdtempSync(join(tmpdir(), 'then-missing-route-'));
+    try {
+      const manifest: RouteManifest = {
+        api: [{
+          filePath: 'src/api/missing.ts',
+          urlPattern: '/api/missing',
+          methods: ['GET'],
+          kind: 'serverless',
+          config: {},
+        }],
+        pages: [],
+        layouts: [],
+        timestamp: new Date().toISOString(),
+      };
+
+      await expect(build(manifest, {}, root)).rejects.toThrow(
+        /Route source not found for src\/api\/missing\.ts:/,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

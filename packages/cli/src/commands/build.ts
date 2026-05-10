@@ -12,6 +12,7 @@
  */
 
 import { buildManifest, build, renderStaticPages } from '@then/core';
+import { createRequire } from 'node:module';
 import { loadConfig } from '../config-loader.js';
 
 export async function buildCommand(_args: string[]): Promise<void> {
@@ -43,11 +44,15 @@ export async function buildCommand(_args: string[]): Promise<void> {
   const { pathToFileURL } = await import('node:url');
   const { existsSync } = await import('node:fs');
 
-  // Determine JSX import source: prefer what-framework, fall back to @then/core
+  const cliRequire = createRequire(import.meta.url);
+  const projectRequire = createRequire(join(root, 'package.json'));
+
+  // Determine JSX import source from the user's project, not from the CLI's own
+  // dependency graph. Use ESM resolution because What Framework exposes
+  // jsx-runtime under import conditions, not CommonJS require conditions.
   let jsxImportSource = '@then/core';
   try {
-    // @ts-ignore — optional dependency
-    await import('what-framework/jsx-runtime');
+    await import('what-framework' + '/jsx-runtime');
     jsxImportSource = 'what-framework';
     console.log('  Using What Framework JSX runtime');
   } catch {
@@ -72,6 +77,14 @@ export async function buildCommand(_args: string[]): Promise<void> {
   const esmResolvePlugin = {
     name: 'esm-resolve',
     setup(build: any) {
+      build.onResolve({ filter: /^@then\/core\/(jsx-runtime|jsx-dev-runtime)$/ }, (args: any) => {
+        try {
+          return { path: projectRequire.resolve(args.path) };
+        } catch {
+          return { path: cliRequire.resolve(args.path) };
+        }
+      });
+
       build.onResolve({ filter: /^what-(framework|core)\// }, (args: any) => {
         const parts = args.path.split('/');
         const pkg = parts[0];
@@ -212,13 +225,22 @@ export async function buildCommand(_args: string[]): Promise<void> {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
 
-  // 6. Copy public/ directory to dist/public/ for production static serving
+  // 6. Copy public assets to dist/public/ for production static serving.
+  // Prefer the framework-standard root public/ directory, but support the
+  // historical starter/runbook layout src/public/ when root public/ is absent.
   const publicDir = join(root, 'public');
-  if (existsSync(publicDir)) {
+  const legacySrcPublicDir = join(root, 'src', 'public');
+  const publicSourceDir = existsSync(publicDir)
+    ? publicDir
+    : existsSync(legacySrcPublicDir)
+      ? legacySrcPublicDir
+      : null;
+  if (publicSourceDir) {
     const { cp } = await import('node:fs/promises');
     const distPublicDir = join(root, 'dist', 'public');
-    await cp(publicDir, distPublicDir, { recursive: true });
-    console.log('  Copied public/ → dist/public/');
+    await cp(publicSourceDir, distPublicDir, { recursive: true });
+    const label = publicSourceDir === publicDir ? 'public/' : 'src/public/';
+    console.log(`  Copied ${label} → dist/public/`);
   }
 
   if (config.adapter) {

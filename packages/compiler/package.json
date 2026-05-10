@@ -1,21 +1,42 @@
 {
   "name": "@then/compiler",
   "version": "0.1.0",
-  "description": "Pure JS compiler fallback for ThenJS — route scanning and JSX transforms",
+  "description": "Pure JS compiler fallback for ThenJS \u2014 route scanning and JSX transforms",
   "type": "module",
-  "main": "src/index.js",
-  "types": "src/index.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./src/index.js",
-      "types": "./src/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": [
-    "src"
+    "dist"
   ],
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "build": "tsc -b",
+    "prepack": "pnpm run build"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zvndev/vura.git"
+  },
+  "homepage": "https://github.com/zvndev/vura#readme",
+  "bugs": {
+    "url": "https://github.com/zvndev/vura/issues"
+  },
+  "keywords": [
+    "vura",
+    "compiler",
+    "jsx",
+    "routes",
+    "typescript"
+  ]
 }

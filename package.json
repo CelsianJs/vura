@@ -6,9 +6,10 @@
     "examples/*"
   ],
   "scripts": {
-    "build": "tsc -b packages/core packages/cli packages/vite-plugin packages/adapter-lambda packages/adapter-cloudflare",
+    "build": "tsc -b packages/core packages/cli packages/vite-plugin packages/adapter-lambda packages/adapter-cloudflare packages/adapter-vura packages/compiler packages/create-then",
     "test": "vitest run",
-    "dev": "node packages/cli/dist/bin.js dev"
+    "dev": "node packages/cli/dist/bin.js dev",
+    "verify:publish": "node scripts/verify-publish.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.4.0",
@@ -24,7 +25,8 @@
     ]
   },
   "dependencies": {
-    "what-core": "file:/Users/macbookpro-kirby/Desktop/Coding/ZVN/what-fw/packages/core",
-    "what-framework": "file:/Users/macbookpro-kirby/Desktop/Coding/ZVN/what-fw/packages/what"
-  }
+    "what-core": "^0.8.1",
+    "what-framework": "^0.8.1"
+  },
+  "license": "MIT"
 }

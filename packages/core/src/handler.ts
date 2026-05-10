@@ -23,6 +23,8 @@ export interface ThenRequest {
   query: Record<string, string>;
   /** Parsed request body (JSON or form data) */
   parsedBody: unknown;
+  /** Alias for parsedBody, kept for CelsianJS-style handler ergonomics */
+  body?: unknown;
   /** Validated data — populated when a route schema is defined and validation passes */
   validated?: {
     body: unknown;

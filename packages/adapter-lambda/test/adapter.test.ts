@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   lambdaAdapter,
   createLambdaHandler,
@@ -364,12 +367,19 @@ describe('lambdaAdapter', () => {
   });
 
   function makeBuildContext(manifest: RouteManifest): AdapterBuildContext {
+    const root = mkdtempSync(join(tmpdir(), 'vura-lambda-unit-'));
+    for (const route of manifest.api) {
+      const fullPath = join(root, route.filePath);
+      mkdirSync(join(fullPath, '..'), { recursive: true });
+      writeFileSync(fullPath, `export async function ${route.methods[0] ?? 'GET'}() { return { ok: true }; }\n`);
+    }
+    mkdirSync(join(root, 'dist', 'lambda'), { recursive: true });
     return {
-      serverEntry: '/project/dist/server/entry.js',
-      clientDir: '/project/dist/client',
+      serverEntry: join(root, 'dist', 'server', 'entry.js'),
+      clientDir: join(root, 'dist', 'client'),
       manifest,
-      projectRoot: '/project',
-      outDir: '/project/dist',
+      projectRoot: root,
+      outDir: join(root, 'dist'),
     };
   }
 
@@ -383,8 +393,7 @@ describe('lambdaAdapter', () => {
 
     await adapter.buildEnd(makeBuildContext(manifest));
 
-    const templatePath = '/project/dist/template.yaml';
-    const template = writtenFiles.get(templatePath);
+    const template = Array.from(writtenFiles.entries()).find(([p]) => p.endsWith('template.yaml'))?.[1];
 
     expect(template).toBeDefined();
     expect(template).toContain('AWS::Serverless-2016-10-31');
@@ -405,7 +414,7 @@ describe('lambdaAdapter', () => {
 
     await adapter.buildEnd(makeBuildContext(manifest));
 
-    const template = writtenFiles.get('/project/dist/template.yaml')!;
+    const template = Array.from(writtenFiles.entries()).find(([p]) => p.endsWith('template.yaml'))?.[1]!;
     expect(template).toContain('MemorySize: 512');
     expect(template).toContain('Timeout: 15');
   });
@@ -417,7 +426,7 @@ describe('lambdaAdapter', () => {
 
     await adapter.buildEnd(makeBuildContext(manifest));
 
-    const template = writtenFiles.get('/project/dist/template.yaml')!;
+    const template = Array.from(writtenFiles.entries()).find(([p]) => p.endsWith('template.yaml'))?.[1]!;
     expect(template).toContain('MemorySize: 256');
     expect(template).toContain('Timeout: 30');
   });
@@ -429,7 +438,7 @@ describe('lambdaAdapter', () => {
 
     await adapter.buildEnd(makeBuildContext(manifest));
 
-    const samconfig = writtenFiles.get('/project/dist/samconfig.toml')!;
+    const samconfig = Array.from(writtenFiles.entries()).find(([p]) => p.endsWith('samconfig.toml'))?.[1]!;
     expect(samconfig).toContain('stack_name = "my-app"');
     expect(samconfig).toContain('region = "eu-west-1"');
   });
@@ -445,7 +454,7 @@ describe('lambdaAdapter', () => {
 
     await adapter.buildEnd(makeBuildContext(manifest));
 
-    const template = writtenFiles.get('/project/dist/template.yaml')!;
+    const template = Array.from(writtenFiles.entries()).find(([p]) => p.endsWith('template.yaml'))?.[1]!;
     expect(template).toContain('/api/serverless');
     expect(template).not.toContain('/api/hot');
     expect(template).not.toContain('/api/task');
@@ -464,7 +473,7 @@ describe('lambdaAdapter', () => {
 
     await adapter.buildEnd(makeBuildContext(manifest));
 
-    const template = writtenFiles.get('/project/dist/template.yaml')!;
+    const template = Array.from(writtenFiles.entries()).find(([p]) => p.endsWith('template.yaml'))?.[1]!;
 
     // Should have 3 separate function resources
     const functionCount = (template.match(/Type: AWS::Serverless::Function/g) || []).length;
@@ -489,7 +498,7 @@ describe('lambdaAdapter', () => {
 
     await adapter.buildEnd(makeBuildContext(manifest));
 
-    const template = writtenFiles.get('/project/dist/template.yaml')!;
+    const template = Array.from(writtenFiles.entries()).find(([p]) => p.endsWith('template.yaml'))?.[1]!;
     expect(template).toContain('/api/users/{id}');
     expect(template).not.toContain('/api/users/:id');
   });

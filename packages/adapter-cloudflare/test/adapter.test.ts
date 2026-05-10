@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   generateWranglerToml,
   generateWorkerEntry,
@@ -7,11 +10,31 @@ import {
 } from '../src/index.js';
 import type { ApiRoute, RouteManifest } from '@then/core';
 
+const nativeImport = new Function('specifier', 'return import(specifier)') as <T = any>(specifier: string) => Promise<T>;
+
 // Mock fs so adapter.buildEnd doesn't write to disk
 vi.mock('node:fs/promises', () => ({
   writeFile: vi.fn(async () => {}),
   mkdir: vi.fn(async () => undefined),
 }));
+
+
+function makeRealAdapterContext(manifest: RouteManifest): AdapterBuildContext {
+  const root = mkdtempSync(join(tmpdir(), 'vura-cf-unit-'));
+  for (const route of manifest.api) {
+    const fullPath = join(root, route.filePath);
+    mkdirSync(join(fullPath, '..'), { recursive: true });
+    writeFileSync(fullPath, `export async function ${route.methods[0] ?? 'GET'}() { return { ok: true }; }\n`);
+  }
+  mkdirSync(join(root, 'dist', 'cloudflare', 'routes'), { recursive: true });
+  return {
+    serverEntry: join(root, 'dist', 'server', 'entry.js'),
+    clientDir: join(root, 'dist', 'client'),
+    manifest,
+    projectRoot: root,
+    outDir: join(root, 'dist'),
+  };
+}
 
 // ─── Test Data ───
 
@@ -170,7 +193,56 @@ describe('generateWorkerEntry', () => {
     const entry = generateWorkerEntry(routes, '/project', '/project/dist/cloudflare');
 
     expect(entry).toContain('import * as route_api_hello');
-    expect(entry).toContain("from '../../src/api/hello.js'");
+    expect(entry).toContain("from './routes/src_api_hello.js'");
+  });
+
+  it('exposes both body and parsedBody to generated route handlers', () => {
+    const entry = generateWorkerEntry(
+      [makeRoute({ filePath: 'src/api/echo.ts', urlPattern: '/api/echo', methods: ['POST'] })],
+      '/project',
+      '/project/dist/cloudflare',
+    );
+
+    expect(entry).toContain('body,');
+    expect(entry).toContain('parsedBody: body');
+  });
+
+  it('generated worker entry imports executable JS route artifacts', async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'vura-cf-entry-'));
+    try {
+      const workerDir = join(tempRoot, 'dist', 'cloudflare');
+      mkdirSync(join(workerDir, 'routes'), { recursive: true });
+      writeFileSync(
+        join(workerDir, 'routes', 'src_api_echo.js'),
+        `export async function POST(req) {
+  return { body: req.body, parsedBody: req.parsedBody };
+}
+`,
+      );
+      const entry = generateWorkerEntry(
+        [makeRoute({ filePath: 'src/api/echo.ts', urlPattern: '/api/echo', methods: ['POST'] })],
+        tempRoot,
+        workerDir,
+      );
+      expect(entry).toContain("from './routes/src_api_echo.js'");
+      expect(entry).not.toMatch(/from ['\"].*\.tsx?['\"]/);
+      const entryPath = join(workerDir, 'entry.mjs');
+      writeFileSync(entryPath, entry);
+
+      const mod = await nativeImport(entryPath);
+      const response = await mod.default.fetch(new Request('https://example.com/api/echo', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'hello' }),
+      }), {}, { waitUntil: () => {}, passThroughOnException: () => {} });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        body: { text: 'hello' },
+        parsedBody: { text: 'hello' },
+      });
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 });
 
@@ -283,13 +355,8 @@ describe('cloudflareAdapter', () => {
       makeRoute({ kind: 'task', urlPattern: '/api/cron', filePath: 'src/api/cron.ts' }),
     ]);
 
-    await adapter.buildEnd({
-      serverEntry: '/project/dist/server/entry.js',
-      clientDir: '/project/dist/client',
-      manifest,
-      projectRoot: '/project',
-      outDir: '/project/dist',
-    });
+    const ctx = makeRealAdapterContext(manifest);
+    await adapter.buildEnd(ctx);
 
     const { writeFile } = await import('node:fs/promises');
     const writeCalls = vi.mocked(writeFile).mock.calls;
@@ -313,20 +380,15 @@ describe('cloudflareAdapter', () => {
       compatibilityDate: '2024-12-01',
     });
 
-    await adapter.buildEnd({
-      serverEntry: '/project/dist/server/entry.js',
-      clientDir: '/project/dist/client',
-      manifest: makeManifest([makeRoute()]),
-      projectRoot: '/project',
-      outDir: '/project/dist',
-    });
+    const ctx = makeRealAdapterContext(makeManifest([makeRoute()]));
+    await adapter.buildEnd(ctx);
 
     const { writeFile } = await import('node:fs/promises');
     const writeCalls = vi.mocked(writeFile).mock.calls;
 
     const paths = writeCalls.map(([path]) => path as string);
-    expect(paths).toContain('/project/dist/cloudflare/wrangler.toml');
-    expect(paths).toContain('/project/dist/cloudflare/entry.js');
+    expect(paths).toContain(join(ctx.outDir, 'cloudflare', 'wrangler.toml'));
+    expect(paths).toContain(join(ctx.outDir, 'cloudflare', 'entry.js'));
   });
 
   it('generates KV/D1 bindings in wrangler.toml', async () => {
@@ -337,13 +399,8 @@ describe('cloudflareAdapter', () => {
       d1: [{ binding: 'DB', database_name: 'mydb', database_id: 'db-456' }],
     });
 
-    await adapter.buildEnd({
-      serverEntry: '/project/dist/server/entry.js',
-      clientDir: '/project/dist/client',
-      manifest: makeManifest([makeRoute()]),
-      projectRoot: '/project',
-      outDir: '/project/dist',
-    });
+    const ctx = makeRealAdapterContext(makeManifest([makeRoute()]));
+    await adapter.buildEnd(ctx);
 
     const { writeFile } = await import('node:fs/promises');
     const writeCalls = vi.mocked(writeFile).mock.calls;

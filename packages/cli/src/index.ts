@@ -39,7 +39,7 @@ export async function run(args: string[]): Promise<void> {
 
 function printHelp(): void {
   console.log(`
-  then — ThenJS CLI
+  vura / thenjs — Vura CLI
 
   Commands:
     dev         Start local development server
