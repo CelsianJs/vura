@@ -8,6 +8,18 @@
  * 4. Task entries (one per task route, for serverless task execution)
  *
  * The adapter then takes these artifacts and generates platform-specific config.
+ *
+ * NOTE ON CODE DUPLICATION:
+ * This file contains inline string constants (RENDER_TO_STRING_CODE, MATCH_ROUTE_CODE,
+ * PARSE_BODY_CODE, etc.) that duplicate logic also found in:
+ *   - packages/core/src/static-render.ts (builtinRenderToString, wrapDocument, escapeHtml)
+ *   - packages/core/src/match.ts (compilePattern, matchRoute)
+ *   - packages/core/src/body-parser.ts (parseNodeBody)
+ *
+ * This duplication is INTENTIONAL. The generated server entry must be fully self-contained
+ * with zero @then/core dependency — it runs on bare Fly/Railway/VPS/Lambda where only
+ * the dist/ bundle is deployed. The dev server and Vite plugin import from @then/core
+ * directly (no duplication there), but build output must inline everything.
  */
 
 import { writeFile, mkdir, readFile } from 'node:fs/promises';

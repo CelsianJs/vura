@@ -30,6 +30,7 @@ function makeManifest(routes: ApiRoute[] = []): RouteManifest {
   return {
     api: routes,
     pages: [],
+    layouts: [],
     timestamp: new Date().toISOString(),
   };
 }
