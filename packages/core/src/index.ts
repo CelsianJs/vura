@@ -95,3 +95,78 @@ export type {
   LoggerConfig,
   RequestLogContext,
 } from './logger.js';
+
+export {
+  defineSchema,
+  validate,
+  withValidation,
+  validateRequest,
+} from './validation.js';
+
+export type {
+  ZodLikeSchema,
+  RouteSchema,
+  ValidatedData,
+  ValidationError,
+  ValidationResult,
+} from './validation.js';
+
+export {
+  HookRegistry,
+  createHookRegistry,
+  getHookRegistry,
+  setDefaultHookRegistry,
+  executeWithHooks,
+} from './hooks.js';
+
+export type {
+  OnRequestHook,
+  OnErrorHook,
+  OnResponseHook,
+  ResponseInfo,
+  RouteHooks,
+} from './hooks.js';
+
+export {
+  HttpError,
+  ErrorCode,
+  badRequest,
+  unauthorized,
+  forbidden,
+  notFound,
+  methodNotAllowed,
+  conflict,
+  rateLimited,
+  internalError,
+  serviceUnavailable,
+  formatErrorResponse,
+  sendErrorResponse,
+  renderErrorPage,
+  setGlobalErrorHandler,
+  getGlobalErrorHandler,
+  reportError,
+  getErrorMode,
+} from './errors.js';
+
+export type {
+  ErrorCodeValue,
+  ErrorMode,
+  ErrorBoundaryResult,
+  ErrorPageHandler,
+  GlobalErrorHandler,
+} from './errors.js';
+
+export {
+  streamResponse,
+  createSSEChannel,
+  streamFile,
+  getMimeType,
+  parseRangeHeader,
+} from './streaming.js';
+
+export type {
+  FileStreamOptions,
+  SSEChannel,
+  StreamableResponse,
+  StreamableRequest,
+} from './streaming.js';
