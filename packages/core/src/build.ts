@@ -439,6 +439,78 @@ const TASK_RUNNER_CODE = [
   '}',
 ].join('\n');
 
+// ─── Inline Validation Code (embedded in generated server code) ───
+
+const VALIDATION_CODE = [
+  '// Request validation (Zod-compatible .safeParse() interface)',
+  'function _validateRequest(req, schema) {',
+  '  const errors = [];',
+  '  if (schema.body) {',
+  '    const r = schema.body.safeParse(req.parsedBody);',
+  '    if (!r.success) errors.push({ target: "body", issues: r.error.issues.map(i => ({ path: i.path.join("."), message: i.message, ...(i.code ? { code: i.code } : {}) })) });',
+  '    else req.parsedBody = r.data;',
+  '  }',
+  '  if (schema.query) {',
+  '    const r = schema.query.safeParse(req.query);',
+  '    if (!r.success) errors.push({ target: "query", issues: r.error.issues.map(i => ({ path: i.path.join("."), message: i.message, ...(i.code ? { code: i.code } : {}) })) });',
+  '    else req.query = r.data;',
+  '  }',
+  '  if (schema.params) {',
+  '    const r = schema.params.safeParse(req.params);',
+  '    if (!r.success) errors.push({ target: "params", issues: r.error.issues.map(i => ({ path: i.path.join("."), message: i.message, ...(i.code ? { code: i.code } : {}) })) });',
+  '    else req.params = r.data;',
+  '  }',
+  '  if (errors.length > 0) {',
+  '    const issueCount = errors.reduce((a, e) => a + e.issues.length, 0);',
+  '    const targets = errors.map(e => e.target);',
+  '    return { statusCode: 400, body: { error: "Validation failed: " + issueCount + " issue(s) in " + targets.join(", "), code: "VALIDATION_ERROR", details: errors } };',
+  '  }',
+  '  req.validated = { body: req.parsedBody, query: req.query, params: req.params };',
+  '  return null;',
+  '}',
+].join('\n');
+
+// ─── Inline Hook Execution Code (embedded in generated server code) ───
+
+const HOOKS_CODE = [
+  '// Lifecycle hook execution (inlined for self-contained server)',
+  'async function _runHooks(hookArr, ...args) {',
+  '  if (!hookArr) return;',
+  '  for (const fn of hookArr) { await fn(...args); }',
+  '}',
+  '',
+  'async function _executeWithHooks(req, reply, handlerFn, routeHooks) {',
+  '  const _hookStart = performance.now();',
+  '  let _hookStatus = 200;',
+  '  let _hookHadError = false;',
+  '  try {',
+  '    // onRequest hooks',
+  '    if (routeHooks && routeHooks.onRequest) {',
+  '      await _runHooks(routeHooks.onRequest, req, reply);',
+  '    }',
+  '    // Handler',
+  '    await handlerFn(req, reply);',
+  '  } catch (err) {',
+  '    _hookHadError = true;',
+  '    _hookStatus = (err && err.statusCode) ? err.statusCode : 500;',
+  '    // onError hooks',
+  '    if (routeHooks && routeHooks.onError) {',
+  '      try { await _runHooks(routeHooks.onError, err, req, reply); }',
+  '      catch (hookErr) { err = hookErr; }',
+  '    }',
+  '    if (!_hookHadError) throw err; // re-propagate if no error hooks handled it',
+  '  } finally {',
+  '    // onResponse hooks',
+  '    const _hookDur = Math.round((performance.now() - _hookStart) * 100) / 100;',
+  '    if (routeHooks && routeHooks.onResponse) {',
+  '      try { await _runHooks(routeHooks.onResponse, req, reply, { statusCode: _hookStatus, durationMs: _hookDur, hadError: _hookHadError }); }',
+  '      catch (_) { /* onResponse errors are silenced */ }',
+  '    }',
+  '  }',
+  '  return { statusCode: _hookStatus, hadError: _hookHadError };',
+  '}',
+].join('\n');
+
 // ─── Server Code (rewritten to include pages + tasks) ───
 
 function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
@@ -524,7 +596,7 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
     lines.push('  }');
   }
 
-  // API route matching
+  // API route matching (with hooks + validation)
   lines.push('');
   lines.push('  const match = matchRoute(url.pathname, method);');
   lines.push('  if (match) {');
@@ -546,6 +618,17 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
   lines.push('        parsedBody: body,');
   lines.push('      };');
   lines.push('');
+  lines.push('      // Validate request if route module exports a schema');
+  lines.push('      const routeSchema = match.route.handlers.schema;');
+  lines.push('      if (routeSchema) {');
+  lines.push('        const valErr = _validateRequest(req, routeSchema);');
+  lines.push('        if (valErr) {');
+  lines.push("          nodeRes.writeHead(valErr.statusCode, { 'content-type': 'application/json' });");
+  lines.push('          nodeRes.end(JSON.stringify(valErr.body));');
+  lines.push('          return;');
+  lines.push('        }');
+  lines.push('      }');
+  lines.push('');
   lines.push('      let statusCode = 200;');
   lines.push("      const headers = { 'content-type': 'application/json' };");
   lines.push('      const reply = {');
@@ -555,21 +638,29 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
   lines.push('        send(data) { nodeRes.writeHead(statusCode, headers); nodeRes.end(data); return null; },');
   lines.push('      };');
   lines.push('');
-  lines.push('      const result = await handlerFn(req, reply);');
-  lines.push('      if (!nodeRes.writableEnded) {');
-  lines.push("        if (result && typeof result === 'object') {");
-  lines.push('          nodeRes.writeHead(statusCode, headers);');
-  lines.push('          nodeRes.end(JSON.stringify(result));');
-  lines.push('        } else {');
-  lines.push('          nodeRes.writeHead(204);');
-  lines.push('          nodeRes.end();');
-  lines.push('        }');
+  lines.push('      // Extract route-level hooks if the module exports them');
+  lines.push('      const routeHooks = match.route.handlers.hooks;');
+  lines.push('');
+  lines.push('      // Execute with hook lifecycle (onRequest -> handler -> onResponse, onError on failure)');
+  lines.push('      const hookResult = await _executeWithHooks(req, reply, handlerFn, routeHooks);');
+  lines.push('');
+  lines.push('      // If hooks/handler errored and response was not sent, send structured error');
+  lines.push('      if (hookResult.hadError && !nodeRes.writableEnded) {');
+  lines.push("        const errStatus = hookResult.statusCode || 500;");
+  lines.push("        nodeRes.writeHead(errStatus, { 'content-type': 'application/json' });");
+  lines.push('        nodeRes.end(JSON.stringify({ error: "Internal Server Error", code: "HANDLER_ERROR" }));');
+  lines.push('      }');
+  lines.push('');
+  lines.push('      // If handler returned a value and response not yet sent, auto-send');
+  lines.push('      if (!nodeRes.writableEnded && !hookResult.hadError) {');
+  lines.push('        nodeRes.writeHead(204);');
+  lines.push('        nodeRes.end();');
   lines.push('      }');
   lines.push('    } catch (err) {');
-  lines.push("      console.error('[ThenJS] Error in ' + method + ' ' + url.pathname + ':', err);");
+  lines.push("      _log('error', 'Error in ' + method + ' ' + url.pathname, { error: err.message || String(err) });");
   lines.push('      if (!nodeRes.writableEnded) {');
   lines.push("        nodeRes.writeHead(500, { 'content-type': 'application/json' });");
-  lines.push('        nodeRes.end(JSON.stringify({ error: "Internal Server Error" }));');
+  lines.push('        nodeRes.end(JSON.stringify({ error: "Internal Server Error", code: "HANDLER_ERROR" }));');
   lines.push('      }');
   lines.push('    }');
   lines.push('    return;');
@@ -841,6 +932,12 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
   lines.push(MATCH_ROUTE_CODE);
   lines.push('');
   lines.push(PARSE_BODY_CODE);
+
+  // Inline validation and hook execution (always needed for API routes)
+  lines.push('');
+  lines.push(VALIDATION_CODE);
+  lines.push('');
+  lines.push(HOOKS_CODE);
 
   if (hasPages) {
     lines.push('');
