@@ -15,6 +15,34 @@ import { join, dirname, relative } from 'node:path';
 import type { RouteManifest, ApiRoute, PageRoute } from './manifest.js';
 import type { ThenConfig, AdapterBuildContext } from './config.js';
 
+// ─── Inline Logger Code (embedded in generated server code) ───
+
+const LOGGER_CODE = [
+  '// Structured logger',
+  "const _logLevel = { debug: 0, info: 1, warn: 2, error: 3 };",
+  "const _minLogLevel = _logLevel[process.env.THEN_LOG_LEVEL || 'info'] || 1;",
+  "const _logFormat = process.env.THEN_LOG_FORMAT || (process.env.NODE_ENV === 'production' ? 'json' : 'pretty');",
+  '',
+  'function _log(level, msg, data) {',
+  '  if (_logLevel[level] < _minLogLevel) return;',
+  "  const entry = { level, msg, timestamp: new Date().toISOString(), ...data };",
+  "  if (_logFormat === 'json') {",
+  '    process.stdout.write(JSON.stringify(entry) + "\\n");',
+  '  } else {',
+  '    const colors = { debug: "\\x1b[36m", info: "\\x1b[32m", warn: "\\x1b[33m", error: "\\x1b[31m" };',
+  '    const reset = "\\x1b[0m"; const dim = "\\x1b[2m";',
+  '    const { level: _l, msg: _m, timestamp: _t, ...rest } = entry;',
+  '    const extra = Object.keys(rest).length > 0 ? " " + dim + JSON.stringify(rest) + reset : "";',
+  '    process.stdout.write(dim + entry.timestamp.slice(11, 23) + reset + " " + colors[level] + level.toUpperCase().padEnd(5) + reset + " " + msg + extra + "\\n");',
+  '  }',
+  '}',
+  '',
+  'function _generateRequestId() {',
+  '  try { return require("node:crypto").randomUUID(); }',
+  '  catch { return Math.random().toString(36).slice(2) + Date.now().toString(36); }',
+  '}',
+].join('\n');
+
 // ─── Generated Code Fragments ───
 // These are strings of JavaScript that get emitted into generated entry files.
 // Using regular strings (not template literals) to avoid escaping issues.
@@ -340,6 +368,14 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
   lines.push('const server = createServer(async (nodeReq, nodeRes) => {');
   lines.push('  const url = new URL(nodeReq.url || "/", "http://" + (nodeReq.headers.host || "localhost"));');
   lines.push("  const method = (nodeReq.method || 'GET').toUpperCase();");
+  lines.push('  const _reqId = _generateRequestId();');
+  lines.push('  const _reqStart = performance.now();');
+  lines.push("  _log('info', 'request start', { requestId: _reqId, method, path: url.pathname });");
+  lines.push('  nodeRes.on("finish", () => {');
+  lines.push('    const _dur = Math.round((performance.now() - _reqStart) * 100) / 100;');
+  lines.push("    const _lvl = nodeRes.statusCode >= 500 ? 'error' : nodeRes.statusCode >= 400 ? 'warn' : 'info';");
+  lines.push("    _log(_lvl, 'request end', { requestId: _reqId, method, path: url.pathname, status: nodeRes.statusCode, durationMs: _dur });");
+  lines.push('  });');
   lines.push('');
   lines.push("  if (url.pathname === '/__health') {");
   lines.push("    nodeRes.writeHead(200, { 'content-type': 'application/json' });");
@@ -629,6 +665,8 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
   }
 
   // Inline utilities
+  lines.push('');
+  lines.push(LOGGER_CODE);
   lines.push('');
   lines.push(MATCH_ROUTE_CODE);
   lines.push('');

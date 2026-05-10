@@ -13,7 +13,7 @@
  *   then dev --port 8080  — Start on custom port
  */
 
-import { buildManifest, matchRoute } from '@then/core';
+import { buildManifest, matchRoute, getLogger } from '@then/core';
 import type { PageRoute, ThenRequest, ThenReply } from '@then/core';
 
 interface DevOptions {
@@ -131,9 +131,21 @@ async function startStandaloneServer(
     return import(pathToFileURL(outPath).href);
   }
 
+  const logger = getLogger();
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     const method = (req.method ?? 'GET').toUpperCase();
+    const reqCtx = logger.requestStart(method, url.pathname);
+    const log = logger.child(reqCtx.requestId);
+
+    // Track response to log at end
+    const origEnd = res.end.bind(res);
+    res.end = function (...args: any[]) {
+      const result = origEnd(...args);
+      logger.requestEnd(reqCtx, res.statusCode);
+      return result;
+    } as typeof res.end;
 
     // Health check
     if (url.pathname === '/__health') {
@@ -234,7 +246,7 @@ async function startStandaloneServer(
 
         await handlerFn(cReq, cReply);
       } catch (err: any) {
-        console.error(`  [then] Error in ${method} ${url.pathname}:`, err);
+        log.error(`handler error in ${method} ${url.pathname}`, { error: err.message });
         if (!res.writableEnded) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Internal Server Error', message: err.message }));
@@ -278,7 +290,7 @@ async function startStandaloneServer(
             return;
           }
         } catch (err: any) {
-          console.error(`  [then] Page render error ${url.pathname}:`, err);
+          log.error(`page render error ${url.pathname}`, { error: err.message });
           if (!res.writableEnded) {
             res.writeHead(500, { 'Content-Type': 'text/html' });
             res.end(`<h1>500 — Server Error</h1><pre>${devEscapeHtml(err.message)}</pre>`);

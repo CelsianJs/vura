@@ -79,3 +79,19 @@ export type {
   TaskDefinition,
   CronFields,
 } from './tasks.js';
+
+export {
+  Logger,
+  ChildLogger,
+  getLogger,
+  createLogger,
+  setDefaultLogger,
+} from './logger.js';
+
+export type {
+  LogLevel,
+  LogFormat,
+  LogEntry,
+  LoggerConfig,
+  RequestLogContext,
+} from './logger.js';
