@@ -597,6 +597,9 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
   lines.push('let _inFlightRequests = 0;');
   lines.push('let _isShuttingDown = false;');
   lines.push('');
+  lines.push('// CORS configuration (reads THEN_CORS_ORIGIN env var, defaults to no CORS)');
+  lines.push("const _corsOrigin = process.env.THEN_CORS_ORIGIN || '';");
+  lines.push('');
   lines.push('const server = createServer(async (nodeReq, nodeRes) => {');
   lines.push('  // Reject new requests during shutdown');
   lines.push('  if (_isShuttingDown) {');
@@ -618,6 +621,21 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
   lines.push("    const _lvl = nodeRes.statusCode >= 500 ? 'error' : nodeRes.statusCode >= 400 ? 'warn' : 'info';");
   lines.push("    _log(_lvl, 'request end', { requestId: _reqId, method, path: url.pathname, status: nodeRes.statusCode, durationMs: _dur });");
   lines.push('  });');
+  lines.push('');
+  lines.push('  // Apply CORS headers if THEN_CORS_ORIGIN is set');
+  lines.push('  if (_corsOrigin) {');
+  lines.push("    nodeRes.setHeader('access-control-allow-origin', _corsOrigin);");
+  lines.push("    nodeRes.setHeader('access-control-allow-methods', 'GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS');");
+  lines.push("    nodeRes.setHeader('access-control-allow-headers', 'Content-Type, Authorization, X-Requested-With');");
+  lines.push("    nodeRes.setHeader('access-control-max-age', '86400');");
+  lines.push('  }');
+  lines.push('');
+  lines.push('  // Handle CORS preflight');
+  lines.push("  if (_corsOrigin && method === 'OPTIONS') {");
+  lines.push('    nodeRes.writeHead(204);');
+  lines.push('    nodeRes.end();');
+  lines.push('    return;');
+  lines.push('  }');
   lines.push('');
   lines.push("  if (url.pathname === '/__health') {");
   lines.push("    nodeRes.writeHead(200, { 'content-type': 'application/json' });");
@@ -715,6 +733,7 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
   lines.push('        header(name, value) { headers[name] = value; return reply; },');
   lines.push('        json(data) { nodeRes.writeHead(statusCode, headers); nodeRes.end(JSON.stringify(data)); return null; },');
   lines.push('        send(data) { nodeRes.writeHead(statusCode, headers); nodeRes.end(data); return null; },');
+  lines.push("        redirect(url, status) { nodeRes.writeHead(status || 302, { 'location': url }); nodeRes.end('Redirecting to ' + url); return null; },");
   lines.push('      };');
   lines.push('');
   lines.push('      // Extract route-level hooks if the module exports them');
@@ -1112,6 +1131,7 @@ export default {
       header(name, value) { responseHeaders[name] = value; return reply; },
       json(data) { responseBody = JSON.stringify(data); return null; },
       send(data) { responseBody = data; return null; },
+      redirect(url, status) { statusCode = status || 302; responseHeaders['location'] = url; responseBody = 'Redirecting to ' + url; return null; },
     };
 
     const result = await handlerFn(req, reply);
