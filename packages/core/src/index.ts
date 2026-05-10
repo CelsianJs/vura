@@ -39,6 +39,7 @@ export {
   renderStaticPages,
   wrapDocument,
   builtinRenderToString,
+  escapeHtml,
 } from './static-render.js';
 
 export type {
@@ -47,13 +48,25 @@ export type {
 } from './static-render.js';
 
 export {
+  parseNodeBody,
+} from './body-parser.js';
+
+export type {
+  BodyParserOptions,
+} from './body-parser.js';
+
+export {
   compileRoutes,
   matchRoute,
+  compilePageRoutes,
+  matchPageRoute,
 } from './match.js';
 
 export type {
   CompiledRoute,
   RouteMatch,
+  CompiledPageRoute,
+  PageRouteMatch,
 } from './match.js';
 
 export type {

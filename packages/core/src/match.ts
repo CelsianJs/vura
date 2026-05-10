@@ -4,9 +4,12 @@
  * Compiles URL patterns (e.g. /api/users/:id) into regexes and matches
  * incoming requests against them. Handles :params, * wildcards, and
  * proper escaping of regex-special characters.
+ *
+ * Supports both API routes and page routes to avoid duplication
+ * across dev.ts, vite-plugin, and build.ts.
  */
 
-import type { ApiRoute } from './manifest.js';
+import type { ApiRoute, PageRoute } from './manifest.js';
 
 // ─── Types ───
 
@@ -18,6 +21,17 @@ export interface CompiledRoute {
 
 export interface RouteMatch {
   route: ApiRoute;
+  params: Record<string, string>;
+}
+
+export interface CompiledPageRoute {
+  page: PageRoute;
+  regex: RegExp;
+  paramNames: string[];
+}
+
+export interface PageRouteMatch {
+  page: PageRoute;
   params: Record<string, string>;
 }
 
@@ -96,6 +110,45 @@ export function matchRoute(
         try { params[paramNames[i]] = decodeURIComponent(match[i + 1]); } catch { params[paramNames[i]] = match[i + 1]; }
       }
       return { route, params };
+    }
+  }
+
+  return null;
+}
+
+// ─── Page Route Matching ───
+
+/**
+ * Compile page routes into regex-based matchers.
+ * Shared by dev.ts and vite-plugin — single source of truth.
+ */
+export function compilePageRoutes(pages: PageRoute[]): CompiledPageRoute[] {
+  return pages.map((page) => {
+    const { regex, paramNames } = compilePattern(page.urlPattern);
+    return { page, regex, paramNames };
+  });
+}
+
+/**
+ * Match a pathname against compiled page routes.
+ */
+export function matchPageRoute(
+  pages: PageRoute[] | CompiledPageRoute[],
+  pathname: string,
+): PageRouteMatch | null {
+  const compiled: CompiledPageRoute[] =
+    pages.length > 0 && 'regex' in pages[0]
+      ? (pages as CompiledPageRoute[])
+      : compilePageRoutes(pages as PageRoute[]);
+
+  for (const { page, regex, paramNames } of compiled) {
+    const match = pathname.match(regex);
+    if (match) {
+      const params: Record<string, string> = {};
+      for (let i = 0; i < paramNames.length; i++) {
+        try { params[paramNames[i]] = decodeURIComponent(match[i + 1]); } catch { params[paramNames[i]] = match[i + 1]; }
+      }
+      return { page, params };
     }
   }
 

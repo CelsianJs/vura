@@ -9,8 +9,31 @@
  * 5. Scans file-based routes on startup
  */
 
-import { buildManifest, matchRoute } from '@then/core';
-import type { RouteManifest, PageRoute, ThenRequest, ThenReply } from '@then/core';
+import {
+  buildManifest,
+  matchRoute,
+  matchPageRoute as coreMatchPageRoute,
+  builtinRenderToString,
+  wrapDocument,
+  escapeHtml,
+  parseNodeBody,
+  executeWithHooks,
+  createHookRegistry,
+  validateRequest,
+  sendErrorResponse,
+  reportError,
+  formatErrorResponse,
+  HttpError,
+  getLogger,
+} from '@then/core';
+import type {
+  RouteManifest,
+  PageRoute,
+  ThenRequest,
+  ThenReply,
+  HookRegistry,
+  RouteHooks,
+} from '@then/core';
 import type { Plugin, ViteDevServer } from 'vite';
 
 export interface ThenPluginOptions {
@@ -34,6 +57,11 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
       // Scan routes on startup
       manifest = await buildManifest(projectRoot);
       console.log(`  [then] Scanned ${manifest.api.length} API routes, ${manifest.pages.length} pages`);
+
+      // Hook registry for the Vite dev server
+      const logger = getLogger();
+      const hookRegistry = createHookRegistry();
+      hookRegistry.setLogger(logger);
 
       // Watch src/api/ and src/pages/ for changes
       const apiDir = `${projectRoot}/src/api`;
@@ -100,7 +128,7 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
               return;
             }
 
-            const body = await readBody(req);
+            const body = await parseNodeBody(req);
             const result = await handlerFn({
               taskId: String(Date.now()),
               input: body?.input,
@@ -151,8 +179,8 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             return;
           }
 
-          // Parse body if needed
-          const body = await readBody(req);
+          // Parse body if needed (uses shared body parser from @then/core)
+          const body = await parseNodeBody(req);
 
           // Create CelsianJS-compatible req/reply
           const cReq: ThenRequest = {
@@ -188,35 +216,59 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             },
           };
 
-          const result = await handlerFn(cReq, cReply);
-
-          // If handler returned a Response object (Web Standard)
-          if (result instanceof Response) {
-            res.statusCode = result.status;
-            result.headers.forEach((v, k) => res.setHeader(k, v));
-            const text = await result.text();
-            res.end(text);
-            return;
+          // Validate request if route exports a schema
+          if (mod.schema) {
+            const validationError = validateRequest(cReq, mod.schema);
+            if (validationError) {
+              res.statusCode = validationError.statusCode;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify(validationError.body));
+              return;
+            }
           }
 
-          // If handler returned a plain object (auto-wrap as JSON)
-          if (result && typeof result === 'object' && !res.writableEnded) {
-            res.statusCode = statusCode;
+          // Extract route-level hooks if the module exports them
+          const routeHooks: RouteHooks | undefined = mod.hooks;
+
+          // Execute handler with full hook lifecycle
+          const hookResult = await executeWithHooks(hookRegistry, cReq, cReply, async () => {
+            const result = await handlerFn(cReq, cReply);
+
+            // If handler returned a Response object (Web Standard)
+            if (result instanceof Response) {
+              res.statusCode = result.status;
+              result.headers.forEach((v: string, k: string) => res.setHeader(k, v));
+              const text = await result.text();
+              res.end(text);
+              return;
+            }
+
+            // If handler returned a plain object (auto-wrap as JSON)
+            if (result && typeof result === 'object' && !res.writableEnded) {
+              res.statusCode = statusCode;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify(result));
+              return;
+            }
+          }, routeHooks);
+
+          // If hooks/handler errored and response wasn't sent, send structured error
+          if (hookResult.hadError && !res.writableEnded) {
+            const error = new HttpError(hookResult.statusCode, 'HANDLER_ERROR', 'Internal Server Error');
+            const { statusCode: errStatus, body: errBody } = formatErrorResponse(error, 'development');
+            reportError(error, { method, path: url.pathname }, logger);
+            res.statusCode = errStatus;
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify(result));
-            return;
+            res.end(JSON.stringify(errBody));
           }
-
-          // reply.json() / reply.send() already ended the response
         } catch (err: any) {
-          console.error(`  [then] Error in ${method} ${url.pathname}:`, err);
+          const error = err instanceof Error ? err : new Error(String(err));
+          reportError(error, { method, path: url.pathname }, logger);
           if (!res.writableEnded) {
-            res.statusCode = 500;
+            const { statusCode: errStatus, body: errBody } = formatErrorResponse(error, 'development');
+            res.statusCode = errStatus;
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({
-              error: 'Internal Server Error',
-              message: err.message,
-            }));
+            res.end(JSON.stringify(errBody));
           }
         }
       });
@@ -234,9 +286,9 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
         // Skip file requests (has extension)
         if (/\.\w+$/.test(url.pathname)) return next();
 
-        // Find matching server-mode page
+        // Find matching server-mode page (uses shared matchPageRoute from @then/core)
         const serverPages = manifest.pages.filter(p => p.mode === 'server' || p.mode === 'hybrid');
-        const matched = matchPageRoute(serverPages, url.pathname);
+        const matched = coreMatchPageRoute(serverPages, url.pathname);
         if (!matched) return next();
 
         try {
@@ -259,11 +311,11 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             });
           }
 
-          // Render with built-in renderer
+          // Render with shared renderer from @then/core
           const vnode = Component({ ...serverData, params: matched.params });
           const bodyHtml = builtinRenderToString(vnode);
 
-          const html = wrapDocumentDev(bodyHtml, {
+          const html = wrapDocument(bodyHtml, {
             title: pageConfig.title ?? 'ThenJS App',
             meta: pageConfig.meta ?? [],
             styles: pageConfig.styles ?? [],
@@ -275,7 +327,8 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
           res.setHeader('Content-Type', 'text/html; charset=utf-8');
           res.end(html);
         } catch (err: any) {
-          console.error(`  [then] Page render error ${url.pathname}:`, err);
+          const error = err instanceof Error ? err : new Error(String(err));
+          reportError(error, { method: 'GET', path: url.pathname }, logger);
           if (!res.writableEnded) {
             res.statusCode = 500;
             res.setHeader('Content-Type', 'text/html');
@@ -287,160 +340,10 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
   };
 }
 
-// ─── Page Route Matching ───
-
-function matchPageRoute(
-  pages: PageRoute[],
-  pathname: string,
-): { page: PageRoute; params: Record<string, string> } | null {
-  for (const page of pages) {
-    const paramNames: string[] = [];
-    let regexStr = '';
-    let i = 0;
-    const pattern = page.urlPattern;
-
-    while (i < pattern.length) {
-      if (pattern[i] === ':' && i > 0 && pattern[i - 1] === '/') {
-        let name = '';
-        i++;
-        while (i < pattern.length && /[a-zA-Z0-9_]/.test(pattern[i])) {
-          name += pattern[i];
-          i++;
-        }
-        paramNames.push(name);
-        regexStr += '([^/]+)';
-      } else if (pattern[i] === '*') {
-        paramNames.push('*');
-        regexStr += '(.*)';
-        i++;
-      } else {
-        const ch = pattern[i];
-        if ('.+?^${}()|[]\\'.includes(ch)) {
-          regexStr += '\\' + ch;
-        } else {
-          regexStr += ch;
-        }
-        i++;
-      }
-    }
-
-    const match = pathname.match(new RegExp(`^${regexStr}$`));
-    if (match) {
-      const params: Record<string, string> = {};
-      paramNames.forEach((name, idx) => {
-        try { params[name] = decodeURIComponent(match[idx + 1]); } catch { params[name] = match[idx + 1]; }
-      });
-      return { page, params };
-    }
-  }
-  return null;
-}
-
-// ─── Built-in SSR Renderer (for dev) ───
-
-function builtinRenderToString(vnode: any): string {
-  if (vnode == null || typeof vnode === 'boolean') return '';
-  if (typeof vnode === 'string') return escapeHtml(vnode);
-  if (typeof vnode === 'number') return String(vnode);
-  if (typeof vnode === 'function' && !vnode.type && !vnode.tag) return builtinRenderToString(vnode());
-  if (Array.isArray(vnode)) return vnode.map(builtinRenderToString).join('');
-
-  // Support both What Framework vnodes ({ tag }) and standard ({ type })
-  const type = vnode.type ?? vnode.tag;
-  const { props = {}, children } = vnode;
-  if (typeof type === 'function') return builtinRenderToString(type({ ...props, children }));
-  if (typeof type === 'string') {
-    const attrs = renderAttributes(props);
-    const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
-    if (VOID.has(type)) return `<${type}${attrs}>`;
-    let childHtml = '';
-    if (props.dangerouslySetInnerHTML) childHtml = props.dangerouslySetInnerHTML.__html ?? '';
-    else if (children != null) {
-      childHtml = Array.isArray(children) ? children.map(builtinRenderToString).join('') : builtinRenderToString(children);
-    }
-    return `<${type}${attrs}>${childHtml}</${type}>`;
-  }
-  if ((!type || typeof type === 'symbol') && children) {
-    return Array.isArray(children) ? children.map(builtinRenderToString).join('') : builtinRenderToString(children);
-  }
-  return '';
-}
-
-function renderAttributes(props: Record<string, any>): string {
-  let result = '';
-  for (const [key, value] of Object.entries(props)) {
-    if (key === 'children' || key === 'dangerouslySetInnerHTML') continue;
-    if (key.startsWith('on') && key.length > 2) continue;
-    if (value == null || value === false) continue;
-    const attrName = key === 'className' ? 'class' : key === 'htmlFor' ? 'for' : key;
-    if (value === true) { result += ` ${attrName}`; }
-    else if (key === 'style' && typeof value === 'object') {
-      const css = Object.entries(value).map(([p, v]) => `${p.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`)}: ${v}`).join('; ');
-      result += ` style="${escapeHtml(css)}"`;
-    } else {
-      result += ` ${attrName}="${escapeHtml(String(value))}"`;
-    }
-  }
-  return result;
-}
-
-function escapeHtml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-function wrapDocumentDev(bodyHtml: string, opts: { title: string; meta: any[]; styles: string[]; scripts: string[]; head: string }): string {
-  const metaTags = opts.meta.map((m: any) => `<meta ${Object.entries(m).map(([k, v]) => `${k}="${escapeHtml(String(v))}"`).join(' ')}>`).join('\n    ');
-  const styleTags = opts.styles.map((s: string) => s.startsWith('http') ? `<link rel="stylesheet" href="${s}">` : `<style>${s}</style>`).join('\n    ');
-  const scriptTags = opts.scripts.map((s: string) => `<script type="module" src="${s}"></script>`).join('\n    ');
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${escapeHtml(opts.title)}</title>
-    ${metaTags}
-    ${styleTags}
-    ${opts.head}
-</head>
-<body>
-    <div id="app">${bodyHtml}</div>
-    ${scriptTags}
-</body>
-</html>`;
-}
-
-// ─── Body Parser ───
-
-const PLUGIN_MAX_BODY_SIZE = 1024 * 1024; // 1MB
-
-function readBody(req: any): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const method = (req.method ?? 'GET').toUpperCase();
-    if (method === 'GET' || method === 'HEAD') {
-      return resolve(null);
-    }
-
-    let size = 0;
-    const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > PLUGIN_MAX_BODY_SIZE) { req.destroy(); reject(new Error('Body too large')); return; }
-      chunks.push(chunk);
-    });
-    req.on('end', () => {
-      const data = Buffer.concat(chunks).toString();
-      if (!data) return resolve(null);
-      const ct = req.headers['content-type'] ?? '';
-      if (ct.includes('application/json')) {
-        try { resolve(JSON.parse(data)); } catch { resolve(null); }
-      } else if (ct.includes('application/x-www-form-urlencoded')) {
-        resolve(Object.fromEntries(new URLSearchParams(data)));
-      } else {
-        resolve(data);
-      }
-    });
-    req.on('error', () => resolve(null));
-  });
-}
+// All rendering, matching, parsing, and escaping utilities are now imported
+// from @then/core — no local copies needed. See:
+//   builtinRenderToString, wrapDocument, escapeHtml — from static-render.ts
+//   coreMatchPageRoute (matchPageRoute) — from match.ts
+//   parseNodeBody — from body-parser.ts
 
 export default thenPlugin;

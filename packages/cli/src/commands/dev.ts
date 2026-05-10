@@ -13,8 +13,34 @@
  *   then dev --port 8080  — Start on custom port
  */
 
-import { buildManifest, matchRoute, compileRoutes, getLogger } from '@then/core';
-import type { PageRoute, ThenRequest, ThenReply, CompiledRoute } from '@then/core';
+import {
+  buildManifest,
+  matchRoute,
+  compileRoutes,
+  compilePageRoutes,
+  matchPageRoute,
+  getLogger,
+  builtinRenderToString,
+  wrapDocument,
+  escapeHtml,
+  parseNodeBody,
+  executeWithHooks,
+  createHookRegistry,
+  validateRequest,
+  sendErrorResponse,
+  reportError,
+  formatErrorResponse,
+  HttpError,
+} from '@then/core';
+import type {
+  PageRoute,
+  ThenRequest,
+  ThenReply,
+  CompiledRoute,
+  CompiledPageRoute,
+  HookRegistry,
+  RouteHooks,
+} from '@then/core';
 
 interface DevOptions {
   port: number;
@@ -133,6 +159,10 @@ async function startStandaloneServer(
 
   const logger = getLogger();
 
+  // Hook registry for the dev server — routes can register hooks via exports
+  const hookRegistry = createHookRegistry();
+  hookRegistry.setLogger(logger);
+
   // Pre-compile route regexes at startup — recompiled only on file change
   let compiledRoutes: CompiledRoute[] = compileRoutes(manifest.api);
   let compiledPages: CompiledPageRoute[] = compilePageRoutes(
@@ -183,12 +213,13 @@ async function startStandaloneServer(
         const body = await parseNodeBody(req);
         const result = await mod.POST({
           taskId: String(Date.now()),
-          input: body?.input,
+          input: (body as any)?.input,
           attempt: 1,
         });
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ status: 'completed', result }));
       } catch (err: any) {
+        reportError(err instanceof Error ? err : new Error(String(err.message)), { method, path: url.pathname, requestId: reqCtx.requestId }, logger);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: err.message }));
       }
@@ -209,58 +240,75 @@ async function startStandaloneServer(
     // Try API route matching (uses pre-compiled regexes)
     const match = matchRoute(compiledRoutes, method, url.pathname);
     if (match) {
-      try {
-        const mod = await loadHandler(match.route.filePath);
-        const handlerFn = mod[method];
+      const mod = await loadHandler(match.route.filePath);
+      const handlerFn = mod[method];
 
-        if (typeof handlerFn !== 'function') {
-          res.writeHead(405, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: `Method ${method} not exported` }));
+      if (typeof handlerFn !== 'function') {
+        res.writeHead(405, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Method ${method} not exported` }));
+        return;
+      }
+
+      const body = await parseNodeBody(req);
+
+      const cReq: ThenRequest = {
+        method,
+        url: url.pathname,
+        headers: req.headers,
+        params: match.params,
+        query: Object.fromEntries(url.searchParams.entries()),
+        parsedBody: body,
+      };
+
+      let statusCode = 200;
+      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      const cReply: ThenReply = {
+        status(code: number) { statusCode = code; return cReply; },
+        header(name: string, value: string) { headers[name] = value; return cReply; },
+        json(data: unknown) {
+          res.writeHead(statusCode, headers);
+          res.end(JSON.stringify(data));
+          return null;
+        },
+        send(data: string) {
+          res.writeHead(statusCode, headers);
+          res.end(data);
+          return null;
+        },
+      };
+
+      // Extract route-level hooks if the module exports them
+      const routeHooks: RouteHooks | undefined = mod.hooks;
+
+      // Validate request if route exports a schema
+      if (mod.schema) {
+        const validationError = validateRequest(cReq, mod.schema);
+        if (validationError) {
+          res.writeHead(validationError.statusCode, { 'content-type': 'application/json' });
+          res.end(JSON.stringify(validationError.body));
           return;
         }
+      }
 
-        const body = await parseNodeBody(req);
-
-        const cReq: ThenRequest = {
-          method,
-          url: url.pathname,
-          headers: req.headers,
-          params: match.params,
-          query: Object.fromEntries(url.searchParams.entries()),
-          parsedBody: body,
-        };
-
-        let statusCode = 200;
-        const headers: Record<string, string> = { 'content-type': 'application/json' };
-        const cReply: ThenReply = {
-          status(code: number) { statusCode = code; return cReply; },
-          header(name: string, value: string) { headers[name] = value; return cReply; },
-          json(data: unknown) {
-            res.writeHead(statusCode, headers);
-            res.end(JSON.stringify(data));
-            return null;
-          },
-          send(data: string) {
-            res.writeHead(statusCode, headers);
-            res.end(data);
-            return null;
-          },
-        };
-
+      // Execute handler with full hook lifecycle
+      const result = await executeWithHooks(hookRegistry, cReq, cReply, async () => {
         await handlerFn(cReq, cReply);
-      } catch (err: any) {
-        log.error(`handler error in ${method} ${url.pathname}`, { error: err.message });
-        if (!res.writableEnded) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Internal Server Error', message: err.message }));
-        }
+      }, routeHooks);
+
+      // If hooks/handler errored and response wasn't sent, send structured error
+      if (result.hadError && !res.writableEnded) {
+        const error = new HttpError(result.statusCode, 'HANDLER_ERROR', 'Internal Server Error');
+        const { statusCode: errStatus, body: errBody } = formatErrorResponse(error, 'development');
+        reportError(error, { method, path: url.pathname, requestId: reqCtx.requestId }, logger);
+        res.writeHead(errStatus, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(errBody));
       }
       return;
     }
 
-    // Try server-mode page matching (uses pre-compiled regexes)
+    // Try server-mode page matching (uses shared compilePageRoutes/matchPageRoute)
     if (method === 'GET' && !/\.\w+$/.test(url.pathname)) {
-      const pageMatch = matchDevPageRoute(compiledPages, url.pathname);
+      const pageMatch = matchPageRoute(compiledPages, url.pathname);
       if (pageMatch) {
         try {
           const mod = await loadHandler(pageMatch.page.filePath);
@@ -278,8 +326,8 @@ async function startStandaloneServer(
             }
 
             const vnode = Component({ ...serverData, params: pageMatch.params });
-            const bodyHtml = devRenderToString(vnode);
-            const html = devWrapDocument(bodyHtml, {
+            const bodyHtml = builtinRenderToString(vnode);
+            const html = wrapDocument(bodyHtml, {
               title: pageConfig.title ?? 'ThenJS App',
               meta: pageConfig.meta ?? [],
               styles: pageConfig.styles ?? [],
@@ -292,10 +340,12 @@ async function startStandaloneServer(
             return;
           }
         } catch (err: any) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          reportError(error, { method: 'GET', path: url.pathname, requestId: reqCtx.requestId }, logger);
           log.error(`page render error ${url.pathname}`, { error: err.message });
           if (!res.writableEnded) {
             res.writeHead(500, { 'Content-Type': 'text/html' });
-            res.end(`<h1>500 — Server Error</h1><pre>${devEscapeHtml(err.message)}</pre>`);
+            res.end(`<h1>500 — Server Error</h1><pre>${escapeHtml(err.message)}</pre>`);
           }
           return;
         }
@@ -316,10 +366,10 @@ async function startStandaloneServer(
       const watcher = watch(dir, { recursive: true }, async (event, filename) => {
         const prefix = dir === apiDir ? 'src/api' : 'src/pages';
         console.log(`  [then] ${event}: ${prefix}/${filename} — re-scanning routes`);
-        const { buildManifest: rescan, compileRoutes: recompile } = await import('@then/core');
+        const { buildManifest: rescan, compileRoutes: recompile, compilePageRoutes: recompilePages } = await import('@then/core');
         manifest = await rescan(opts.projectRoot);
         compiledRoutes = recompile(manifest.api);
-        compiledPages = compilePageRoutes(
+        compiledPages = recompilePages(
           manifest.pages.filter(p => p.mode === 'server' || p.mode === 'hybrid'),
         );
       });
@@ -338,148 +388,8 @@ async function startStandaloneServer(
   await new Promise(() => {});
 }
 
-// ─── Dev-mode Helpers ───
-
-interface CompiledPageRoute {
-  page: PageRoute;
-  regex: RegExp;
-  paramNames: string[];
-}
-
-function compilePageRoutes(pages: PageRoute[]): CompiledPageRoute[] {
-  return pages.map(page => {
-    const paramNames: string[] = [];
-    let regexStr = '';
-    let i = 0;
-    const pattern = page.urlPattern;
-    while (i < pattern.length) {
-      if (pattern[i] === ':' && i > 0 && pattern[i - 1] === '/') {
-        let name = ''; i++;
-        while (i < pattern.length && /[a-zA-Z0-9_]/.test(pattern[i])) { name += pattern[i]; i++; }
-        paramNames.push(name); regexStr += '([^/]+)';
-      } else if (pattern[i] === '*') {
-        paramNames.push('*'); regexStr += '(.*)'; i++;
-      } else {
-        const ch = pattern[i];
-        if ('.+?^${}()|[]\\'.includes(ch)) regexStr += '\\' + ch;
-        else regexStr += ch;
-        i++;
-      }
-    }
-    return { page, regex: new RegExp(`^${regexStr}$`), paramNames };
-  });
-}
-
-function matchDevPageRoute(
-  compiled: CompiledPageRoute[],
-  pathname: string,
-): { page: PageRoute; params: Record<string, string> } | null {
-  for (const { page, regex, paramNames } of compiled) {
-    const match = pathname.match(regex);
-    if (match) {
-      const params: Record<string, string> = {};
-      paramNames.forEach((name, idx) => { try { params[name] = decodeURIComponent(match[idx + 1]); } catch { params[name] = match[idx + 1]; } });
-      return { page, params };
-    }
-  }
-  return null;
-}
-
-function devRenderToString(vnode: any): string {
-  if (vnode == null || typeof vnode === 'boolean') return '';
-  if (typeof vnode === 'string') return devEscapeHtml(vnode);
-  if (typeof vnode === 'number') return String(vnode);
-  if (typeof vnode === 'function' && !vnode.type && !vnode.tag) return devRenderToString(vnode());
-  if (Array.isArray(vnode)) return vnode.map(devRenderToString).join('');
-  // Support both What Framework vnodes ({ tag }) and standard ({ type })
-  const type = vnode.type ?? vnode.tag;
-  const { props = {}, children } = vnode;
-  if (typeof type === 'function') return devRenderToString(type({ ...props, children }));
-  if (typeof type === 'string') {
-    const attrs = devRenderAttrs(props);
-    const VOID = new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);
-    if (VOID.has(type)) return `<${type}${attrs}>`;
-    let childHtml = '';
-    if (props.dangerouslySetInnerHTML) childHtml = props.dangerouslySetInnerHTML.__html ?? '';
-    else if (children != null) {
-      childHtml = Array.isArray(children) ? children.map(devRenderToString).join('') : devRenderToString(children);
-    }
-    return `<${type}${attrs}>${childHtml}</${type}>`;
-  }
-  if ((!type || typeof type === 'symbol') && children) {
-    return Array.isArray(children) ? children.map(devRenderToString).join('') : devRenderToString(children);
-  }
-  return '';
-}
-
-function devRenderAttrs(props: Record<string, any>): string {
-  let result = '';
-  for (const [key, value] of Object.entries(props)) {
-    if (key === 'children' || key === 'dangerouslySetInnerHTML') continue;
-    if (key.startsWith('on') && key.length > 2) continue;
-    if (value == null || value === false) continue;
-    const attrName = key === 'className' ? 'class' : key === 'htmlFor' ? 'for' : key;
-    if (value === true) result += ` ${attrName}`;
-    else if (key === 'style' && typeof value === 'object') {
-      const css = Object.entries(value).map(([p, v]) => `${p.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`)}: ${v}`).join('; ');
-      result += ` style="${devEscapeHtml(css)}"`;
-    } else result += ` ${attrName}="${devEscapeHtml(String(value))}"`;
-  }
-  return result;
-}
-
-function devEscapeHtml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-function devWrapDocument(bodyHtml: string, opts: { title: string; meta: any[]; styles: string[]; scripts: string[]; head: string }): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${devEscapeHtml(opts.title)}</title>
-    ${opts.head}
-</head>
-<body>
-    <div id="app">${bodyHtml}</div>
-</body>
-</html>`;
-}
-
-const DEV_MAX_BODY_SIZE = 1024 * 1024; // 1MB
-
-function parseNodeBody(req: any): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const method = (req.method ?? 'GET').toUpperCase();
-    if (method === 'GET' || method === 'HEAD') return resolve(null);
-
-    // Pre-check Content-Length before starting to buffer
-    const contentLength = req.headers['content-length'];
-    if (contentLength != null) {
-      const declared = parseInt(contentLength, 10);
-      if (!isNaN(declared) && declared > DEV_MAX_BODY_SIZE) {
-        req.destroy();
-        reject(new Error('Content-Length exceeds limit'));
-        return;
-      }
-    }
-
-    let size = 0;
-    const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > DEV_MAX_BODY_SIZE) { req.destroy(); reject(new Error('Body too large')); return; }
-      chunks.push(chunk);
-    });
-    req.on('error', () => resolve(null));
-    req.on('end', () => {
-      const data = Buffer.concat(chunks).toString();
-      if (!data) return resolve(null);
-      const ct = req.headers['content-type'] ?? '';
-      if (ct.includes('application/json')) {
-        try { resolve(JSON.parse(data)); } catch { resolve(null); }
-      } else { resolve(data); }
-    });
-  });
-}
+// All rendering, matching, parsing, and escaping utilities are now imported
+// from @then/core — no local copies needed. See:
+//   builtinRenderToString, wrapDocument, escapeHtml — from static-render.ts
+//   compilePageRoutes, matchPageRoute — from match.ts
+//   parseNodeBody — from body-parser.ts
