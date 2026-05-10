@@ -214,6 +214,12 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
               res.end(data);
               return null;
             },
+            redirect(url: string, status?: number) {
+              res.statusCode = status || 302;
+              res.setHeader('location', url);
+              res.end('Redirecting to ' + url);
+              return null;
+            },
           };
 
           // Validate request if route exports a schema

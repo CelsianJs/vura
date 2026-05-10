@@ -364,6 +364,11 @@ async function startStandaloneServer(
           res.end(data);
           return null;
         },
+        redirect(url: string, status?: number) {
+          res.writeHead(status || 302, { 'location': url });
+          res.end('Redirecting to ' + url);
+          return null;
+        },
       };
 
       // Extract route-level hooks if the module exports them

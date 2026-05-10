@@ -42,6 +42,8 @@ export interface ThenReply {
   json(data: unknown): unknown;
   /** Send text/HTML response */
   send(data: string): unknown;
+  /** Redirect to a URL. Defaults to 302 (temporary redirect). */
+  redirect(url: string, status?: number): unknown;
 }
 
 // ─── Handler Function ───
