@@ -1,14 +1,17 @@
 name: Build @then/compiler-native
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
       - 'packages/compiler-native/**'
+      - '.github/workflows/compiler-native.yml'
   pull_request:
     branches: [main]
     paths:
       - 'packages/compiler-native/**'
+      - '.github/workflows/compiler-native.yml'
 
 env:
   CARGO_INCREMENTAL: 0
