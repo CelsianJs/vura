@@ -63,12 +63,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y musl-tools
 
+      - name: Install Zig for Linux ARM cross-linking
+        if: startsWith(matrix.target, 'aarch64-unknown-linux')
+        uses: mlugg/setup-zig@v2
+
       - name: Install napi-rs CLI
         run: npm install -g @napi-rs/cli
 
       - name: Build native addon
+        if: ${{ !startsWith(matrix.target, 'aarch64-unknown-linux') }}
         working-directory: packages/compiler-native
         run: napi build --platform --release --target ${{ matrix.target }}
+
+      - name: Build native addon with Zig linker
+        if: startsWith(matrix.target, 'aarch64-unknown-linux')
+        working-directory: packages/compiler-native
+        run: napi build --platform --release --target ${{ matrix.target }} --zig
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
