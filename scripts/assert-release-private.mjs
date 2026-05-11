@@ -21,12 +21,13 @@ function findExamplePackageJsons(dir) {
 const compilerNative = JSON.parse(readFileSync('packages/compiler-native/package.json', 'utf8'));
 const adapterVura = JSON.parse(readFileSync('packages/adapter-vura/package.json', 'utf8'));
 const failures = [];
+const publishPackageSet = new Set(publishPackages);
 
 if (compilerNative.private !== true) {
   failures.push('@then/compiler-native must remain private until native artifacts and publish policy are ready');
 }
 
-if (publishPackages.includes('packages/compiler-native')) {
+if (publishPackageSet.has('packages/compiler-native')) {
   failures.push('scripts/package-list.mjs must not include packages/compiler-native in JS package publish list');
 }
 
@@ -34,8 +35,30 @@ if (adapterVura.private !== true) {
   failures.push('@then/adapter-vura must remain private until Vura Platform live smoke passes');
 }
 
-if (publishPackages.includes('packages/adapter-vura')) {
+if (publishPackageSet.has('packages/adapter-vura')) {
   failures.push('scripts/package-list.mjs must not include packages/adapter-vura until Vura Platform live smoke passes');
+}
+
+for (const packageJsonPath of findExamplePackageJsons('packages')) {
+  const packageDir = packageJsonPath.replace(/\/package\.json$/, '');
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+  if (packageJson.private === true) continue;
+  if (!publishPackageSet.has(packageDir)) {
+    failures.push(`${packageJsonPath} (${packageJson.name || '<unnamed>'}) is not in scripts/package-list.mjs`);
+  }
+}
+
+for (const packageDir of publishPackages) {
+  let packageJson;
+  try {
+    packageJson = JSON.parse(readFileSync(`${packageDir}/package.json`, 'utf8'));
+  } catch {
+    failures.push(`${packageDir}/package.json is listed for publish but was not found`);
+    continue;
+  }
+  if (packageJson.private === true) {
+    failures.push(`${packageDir}/package.json (${packageJson.name || '<unnamed>'}) is listed for publish but private`);
+  }
 }
 
 for (const packageJsonPath of findExamplePackageJsons('examples')) {
@@ -51,4 +74,4 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log('OK: private release assertions passed.');
+console.log(`OK: private release assertions passed for ${publishPackages.length} publish packages.`);
