@@ -244,3 +244,22 @@ The PR security workflow reached CodeQL analysis successfully, but upload failed
 Verification:
 - `git diff --check` passed.
 - Full evidence is expected from the GitHub PR workflow rerun.
+
+## 2026-05-11 — Final native CI wrap evidence
+
+After merging the low-risk `serde_json` Dependabot patch, GitHub native CI exposed a real wrap blocker: all seven `@then/compiler-native` platform builds passed, but the follow-on artifact aggregation job failed because `napi artifacts` expected future per-platform package `dist` directories that this source-only private native prototype does not publish yet.
+
+Addressed on `main`:
+
+- `5f31dc5` — replaced `napi artifacts` with direct verification/copying of exactly seven downloaded `.node` artifacts.
+- `3561db5` — added `workflow_dispatch` plus workflow-file path triggers so native workflow fixes self-verify.
+
+Verification on `main@3561db5`:
+
+- GitHub CI `25653817903` passed.
+- GitHub Security scanning `25653817910` passed.
+- GitHub Build `@then/compiler-native` `25653817912` passed: all seven platform build jobs and artifact aggregation green.
+
+Still blocked:
+
+- Real Vura publish remains blocked until npm `@then/*` scope authority exists or package names are intentionally changed by an owner and all gates are rerun.
