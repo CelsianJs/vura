@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:
 import { request } from 'node:http';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { Buffer } from 'node:buffer';
 import { tmpdir } from 'node:os';
 import { generateFunctionEntry, generateServerEntry } from '../src/build.js';
 import type { RouteManifest } from '../src/manifest.js';
@@ -246,8 +247,15 @@ export function DELETE(_req, reply) {
     tempRoots.add(functionDir);
     writeFileSync(join(functionDir, 'package.json'), JSON.stringify({ type: 'module' }) + '\n');
     writeFileSync(join(functionDir, 'route.js'), routeSource);
-    writeFileSync(join(functionDir, 'entry.mjs'), generateFunctionEntry(route, root));
-    const functionMod = await (new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>)(pathToFileURL(join(functionDir, 'entry.mjs')).href);
+    const entrySource = generateFunctionEntry(route, root);
+    writeFileSync(join(functionDir, 'entry.mjs'), entrySource);
+    const routeDataUrl = `data:text/javascript;base64,${Buffer.from(routeSource).toString('base64')}`;
+    const importableEntrySource = entrySource.replace(
+      /import \* as (\w+) from '\.\/route\.js';/,
+      (_match, name) => `import * as ${name} from '${routeDataUrl}';`,
+    );
+    const entryDataUrl = `data:text/javascript;base64,${Buffer.from(importableEntrySource).toString('base64')}`;
+    const functionMod = await import(/* @vite-ignore */ entryDataUrl);
 
     for (const method of ['GET', 'POST', 'DELETE']) {
       const hot = await httpRequest(port, method, '/api/return');

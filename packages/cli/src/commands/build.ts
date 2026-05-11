@@ -13,9 +13,11 @@
 
 import { buildManifest, build, renderStaticPages } from '@then/core';
 import { createRequire } from 'node:module';
+import { Buffer } from 'node:buffer';
 import { loadConfig } from '../config-loader.js';
 
-const nativeImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>;
+const nativeImport = (specifier: string): Promise<any> => import(/* @vite-ignore */ specifier);
+const moduleSourceToDataUrl = (source: string): string => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 
 export async function buildCommand(_args: string[]): Promise<void> {
   const startTime = Date.now();
@@ -42,8 +44,7 @@ export async function buildCommand(_args: string[]): Promise<void> {
   // Shared esbuild helpers
   const { build: esbuild } = await import('esbuild');
   const { join, resolve } = await import('node:path');
-  const { writeFile, mkdir } = await import('node:fs/promises');
-  const { pathToFileURL } = await import('node:url');
+  const { mkdir } = await import('node:fs/promises');
   const { existsSync } = await import('node:fs');
 
   const cliRequire = createRequire(import.meta.url);
@@ -242,10 +243,8 @@ export async function buildCommand(_args: string[]): Promise<void> {
         plugins: [esmResolvePlugin],
         external: [],
       });
-      const hash = Date.now().toString(36);
-      const outPath = join(tmpDir, `${filePath.replace(/[/\\:]/g, '_')}_${hash}.mjs`);
-      await writeFile(outPath, result.outputFiles[0].text);
-      return nativeImport(pathToFileURL(outPath).href);
+      const bundledSource = result.outputFiles[0].text;
+      return nativeImport(moduleSourceToDataUrl(bundledSource));
     };
 
     const outDir = join(root, 'dist');
