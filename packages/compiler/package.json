@@ -1,7 +1,7 @@
 {
   "name": "@then/compiler",
   "version": "0.1.0",
-  "description": "Pure JS compiler fallback for ThenJS \u2014 route scanning and JSX transforms",
+  "description": "Pure JS compiler fallback for ThenJS — route scanning and JSX transforms",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -38,5 +38,8 @@
     "jsx",
     "routes",
     "typescript"
-  ]
+  ],
+  "engines": {
+    "node": ">=20"
+  }
 }

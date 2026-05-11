@@ -20,7 +20,7 @@
     "prepack": "pnpm run build"
   },
   "dependencies": {
-    "@then/core": "0.1.0",
+    "@then/core": "workspace:0.1.0",
     "esbuild": "^0.27.3"
   },
   "publishConfig": {
@@ -42,5 +42,8 @@
     "serverless",
     "adapter",
     "deployment"
-  ]
+  ],
+  "engines": {
+    "node": ">=20"
+  }
 }

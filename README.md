@@ -12,6 +12,11 @@ pnpm add @then/core @then/cli
 
 The CLI exposes `vura` and `thenjs` as safe command names. The legacy `then` bin is still shipped for compatibility, but new npm scripts should use `vura` or `thenjs` because `then` is a shell reserved word.
 
+## Requirements
+
+- Node.js 20 or 22
+- pnpm 10.11.0 (the version pinned by `packageManager`)
+
 ## Quick start
 
 ```sh
@@ -50,6 +55,7 @@ for self-hosted deployments until managed deployment access is available.
 Before publishing, run:
 
 ```sh
+corepack enable
 pnpm install --frozen-lockfile
 pnpm assert:release-private
 pnpm lint

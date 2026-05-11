@@ -20,7 +20,7 @@
     "prepack": "pnpm run build"
   },
   "dependencies": {
-    "@then/core": "0.1.0"
+    "@then/core": "workspace:0.1.0"
   },
   "license": "MIT",
   "description": "Vura Platform deployment adapter for Vura applications",
@@ -39,5 +39,8 @@
     "platform",
     "serverless"
   ],
-  "private": true
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  }
 }

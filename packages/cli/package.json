@@ -1,7 +1,7 @@
 {
   "name": "@then/cli",
   "version": "0.1.0",
-  "description": "ThenJS CLI \u2014 build and deploy full-stack apps",
+  "description": "ThenJS CLI — build and deploy full-stack apps",
   "type": "module",
   "bin": {
     "then": "bin.js",
@@ -21,7 +21,7 @@
     "prepack": "pnpm run build"
   },
   "dependencies": {
-    "@then/core": "0.1.0",
+    "@then/core": "workspace:0.1.0",
     "esbuild": "^0.27.3"
   },
   "license": "MIT",
@@ -43,5 +43,8 @@
     "full-stack",
     "deployment",
     "typescript"
-  ]
+  ],
+  "engines": {
+    "node": ">=20"
+  }
 }

@@ -32,5 +32,8 @@
   "homepage": "https://github.com/zvndev/vura#readme",
   "bugs": {
     "url": "https://github.com/zvndev/vura/issues"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

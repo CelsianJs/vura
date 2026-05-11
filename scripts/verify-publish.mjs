@@ -2,7 +2,7 @@
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { publishPackages } from './package-list.mjs';
 
@@ -42,27 +42,24 @@ ${res.stderr}`;
   }
 }
 
+function runInstalledBinHelp(cwd, bin) {
+  // Execute the installed JS entrypoint directly instead of routing through
+  // npx/npm exec. The legacy `then` bin is a shell reserved word, so this
+  // keeps smoke checks independent of shell command parsing.
+  return run(process.execPath, [realpathSync(installedBinPath(cwd, bin)), '--help'], { cwd });
+}
+
 function assertHelpCommands(cwd) {
   for (const bin of smokeCliCommands) {
-    const res = run('npx', ['--no-install', bin, '--help'], { cwd });
-    if (bin === 'create-then') {
-      try {
-        assertHelpOutput(bin, res);
-      } catch {
-        // npm exec can resolve create-then through a symlink that bypasses its main guard.
-        assertHelpOutput(bin, run(process.execPath, [realpathSync(installedBinPath(cwd, bin)), '--help'], { cwd }));
-      }
-      continue;
-    }
-    assertHelpOutput(bin, res);
+    assertHelpOutput(bin, runInstalledBinHelp(cwd, bin));
   }
 }
 
-function npmPack(pkg, outDir) {
-  const res = run('npm', ['pack', '--pack-destination', outDir], { cwd: join(root, pkg) });
+function pnpmPack(pkg, outDir) {
+  const res = run('pnpm', ['pack', '--pack-destination', outDir], { cwd: join(root, pkg) });
   const file = res.stdout.trim().split(/\r?\n/).filter(Boolean).pop();
-  if (!file) throw new Error(`npm pack did not report a tarball for ${pkg}`);
-  return join(outDir, file);
+  if (!file) throw new Error(`pnpm pack did not report a tarball for ${pkg}`);
+  return isAbsolute(file) ? file : join(outDir, file);
 }
 
 const tmp = await mkdtemp(join(tmpdir(), 'vura-publish-verify-'));
@@ -71,7 +68,7 @@ try {
   for (const pkg of publishPackages) {
     const packageJson = JSON.parse(await readFile(join(root, pkg, 'package.json'), 'utf8'));
     if (packageJson.private) continue;
-    const tarball = npmPack(pkg, tmp);
+    const tarball = pnpmPack(pkg, tmp);
     const packed = run('tar', ['-xOf', tarball, 'package/package.json']).stdout;
     if (packed.includes('workspace:')) {
       throw new Error(`${packageJson.name} packed package.json still contains workspace: references`);
@@ -113,7 +110,7 @@ try {
     const nativeJson = JSON.parse(await readFile(join(root, 'packages/compiler-native/package.json'), 'utf8'));
     if (!nativeJson.private) throw new Error('@then/compiler-native must remain private until native artifacts exist');
   }
-  console.log(`OK: verified ${tarballs.length} tarball(s); no workspace refs; installed CLI bins/help; clean npm install/import and create-then scaffold smoke passed`);
+  console.log(`OK: verified ${tarballs.length} tarball(s); no workspace refs; installed CLI bins/direct help; clean npm install/import and create-then scaffold smoke passed`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }

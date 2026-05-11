@@ -45,19 +45,16 @@ ${res.stderr}`;
   }
 }
 
+function runInstalledBinHelp(cwd, bin) {
+  // Execute the installed JS entrypoint directly instead of routing through
+  // npx/npm exec. The legacy `then` bin is a shell reserved word, so this
+  // keeps smoke checks independent of shell command parsing.
+  return run(process.execPath, [realpathSync(installedBinPath(cwd, bin)), '--help'], { cwd });
+}
+
 function assertHelpCommands(cwd) {
   for (const bin of smokeCliCommands) {
-    const res = run('npx', ['--no-install', bin, '--help'], { cwd });
-    if (bin === 'create-then') {
-      try {
-        assertHelpOutput(bin, res);
-      } catch {
-        // npm exec can resolve create-then through a symlink that bypasses its main guard.
-        assertHelpOutput(bin, run(process.execPath, [realpathSync(installedBinPath(cwd, bin)), '--help'], { cwd }));
-      }
-      continue;
-    }
-    assertHelpOutput(bin, res);
+    assertHelpOutput(bin, runInstalledBinHelp(cwd, bin));
   }
 }
 
@@ -103,12 +100,12 @@ try {
     generatedAt: new Date().toISOString(),
     packageCount: specs.length,
     packages: specs,
-    checks: ['npm install --ignore-scripts', 'installed CLI bins', 'npx --no-install CLI help', 'esm imports', 'create-then --dry-run'],
+    checks: ['npm install --ignore-scripts', 'installed CLI bins', 'direct installed CLI bin help', 'esm imports', 'create-then --dry-run'],
   };
   await mkdir(dirname(artifactPath), { recursive: true });
   await writeFile(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`);
 
-  console.log(`OK: registry smoke installed, verified CLI bins/help, and imported ${specs.length} package(s): ${specs.join(', ')}`);
+  console.log(`OK: registry smoke installed, verified CLI bins/direct help, and imported ${specs.length} package(s): ${specs.join(', ')}`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }

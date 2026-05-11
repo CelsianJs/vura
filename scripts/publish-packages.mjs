@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { publishPackages } from './package-list.mjs';
 
@@ -73,17 +74,30 @@ for (const item of planned) {
   assertVersionNotPublished(item.name, item.version);
 }
 
-const published = [];
-for (const item of planned) {
-  console.log(`${dryRun ? 'Dry-run publishing' : 'Publishing'} ${packageSpec(item.name, item.version)} from ${item.pkg}`);
-  const args = ['publish', '--access', 'public', '--tag', distTag];
-  if (dryRun) args.push('--dry-run');
-  if (!dryRun && process.env.GITHUB_ACTIONS === 'true') args.push('--provenance');
-  run('npm', args, { cwd: join(root, item.pkg) });
-  published.push(packageSpec(item.name, item.version));
+function pnpmPack(pkg, outDir) {
+  const res = run('pnpm', ['pack', '--pack-destination', outDir], { cwd: join(root, pkg), stdio: 'pipe' });
+  const file = res.stdout.trim().split(/\r?\n/).filter(Boolean).pop();
+  if (!file) throw new Error(`pnpm pack did not report a tarball for ${pkg}`);
+  return isAbsolute(file) ? file : join(outDir, file);
 }
 
-console.log(`${dryRun ? 'Dry-run publish' : 'Publish'} complete:`);
-for (const spec of published) {
-  console.log(`  - ${spec}`);
+const tmp = await mkdtemp(join(tmpdir(), 'vura-publish-'));
+try {
+  const published = [];
+  for (const item of planned) {
+    console.log(`${dryRun ? 'Dry-run publishing' : 'Publishing'} ${packageSpec(item.name, item.version)} from ${item.pkg}`);
+    const tarball = pnpmPack(item.pkg, tmp);
+    const args = ['publish', tarball, '--access', 'public', '--tag', distTag];
+    if (dryRun) args.push('--dry-run');
+    if (!dryRun && process.env.GITHUB_ACTIONS === 'true') args.push('--provenance');
+    run('npm', args);
+    published.push(packageSpec(item.name, item.version));
+  }
+
+  console.log(`${dryRun ? 'Dry-run publish' : 'Publish'} complete:`);
+  for (const spec of published) {
+    console.log(`  - ${spec}`);
+  }
+} finally {
+  await rm(tmp, { recursive: true, force: true });
 }
