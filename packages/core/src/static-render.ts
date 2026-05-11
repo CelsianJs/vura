@@ -197,6 +197,8 @@ export function builtinRenderToString(vnode: any): string {
     // Render children
     let childHtml = '';
     if (props.dangerouslySetInnerHTML) {
+      // Mirrors React semantics: dangerouslySetInnerHTML is trusted caller-provided HTML.
+      // Vura does not sanitize it; callers must sanitize untrusted content before passing __html.
       childHtml = props.dangerouslySetInnerHTML.__html ?? '';
     } else if (children != null) {
       if (Array.isArray(children)) {

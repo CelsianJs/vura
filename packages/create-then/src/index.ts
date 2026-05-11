@@ -6,8 +6,73 @@ import * as readline from 'node:readline';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const THEN_PACKAGE_VERSION = '0.1.0';
-const WHAT_FRAMEWORK_VERSION = '^0.8.1';
+interface CreateThenPackageMetadata {
+  version?: string;
+  thenScaffold?: {
+    dependencies?: Record<string, string>;
+    thenPackages?: string[];
+  };
+}
+
+function readJsonFile<T>(filePath: string): T | null {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
+  } catch {
+    return null;
+  }
+}
+
+function findPackageJson(startDir: string): string | null {
+  let dir = startDir;
+  while (true) {
+    const candidate = path.join(dir, 'package.json');
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+function findWorkspacePackageVersion(packageName: string, createThenPackageJsonPath: string): string | null {
+  const packagesDir = path.dirname(path.dirname(createThenPackageJsonPath));
+  if (path.basename(packagesDir) !== 'packages') return null;
+
+  for (const entry of fs.readdirSync(packagesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const packageJson = readJsonFile<{ name?: string; version?: string }>(path.join(packagesDir, entry.name, 'package.json'));
+    if (packageJson?.name === packageName && packageJson.version) return packageJson.version;
+  }
+
+  return null;
+}
+
+function getScaffoldDependencyVersions(): Record<string, string> {
+  const entryDir = path.dirname(fileURLToPath(import.meta.url));
+  const packageJsonPath = findPackageJson(entryDir);
+  if (!packageJsonPath) {
+    throw new Error('Unable to locate create-then package metadata for scaffold dependency versions');
+  }
+
+  const packageJson = readJsonFile<CreateThenPackageMetadata>(packageJsonPath);
+  const ownVersion = packageJson?.version;
+  if (!packageJson || !ownVersion) {
+    throw new Error(`${packageJsonPath} must define a version for scaffold dependency versions`);
+  }
+
+  const scaffoldDependencies = packageJson.thenScaffold?.dependencies ?? {};
+  const whatFrameworkVersion = scaffoldDependencies['what-framework'];
+  if (!whatFrameworkVersion) {
+    throw new Error(`${packageJsonPath} must define thenScaffold.dependencies["what-framework"]`);
+  }
+
+  const thenPackages = packageJson.thenScaffold?.thenPackages ?? ['@then/core', '@then/cli'];
+  const dependencies: Record<string, string> = { 'what-framework': whatFrameworkVersion };
+  for (const packageName of thenPackages) {
+    dependencies[packageName] = findWorkspacePackageVersion(packageName, packageJsonPath) ?? ownVersion;
+  }
+
+  return dependencies;
+}
 
 // ─── Colors ──────────────────────────────────────────────────────────
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
@@ -82,11 +147,7 @@ export function getFiles(projectName: string): Record<string, string> {
           dev: 'vura dev',
           build: 'vura build',
         },
-        dependencies: {
-          'what-framework': WHAT_FRAMEWORK_VERSION,
-          '@then/core': THEN_PACKAGE_VERSION,
-          '@then/cli': THEN_PACKAGE_VERSION,
-        },
+        dependencies: getScaffoldDependencyVersions(),
       },
       null,
       2

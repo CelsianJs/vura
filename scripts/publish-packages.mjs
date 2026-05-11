@@ -8,7 +8,6 @@ import { publishPackages } from './package-list.mjs';
 const root = process.cwd();
 const dryRun = process.argv.includes('--dry-run') || process.env.VURA_PUBLISH_DRY_RUN === '1' || process.env.NPM_PUBLISH_DRY_RUN === '1';
 const distTag = process.env.NPM_DIST_TAG || 'latest';
-const skipScopePreflight = process.env.VURA_SKIP_NPM_SCOPE_PREFLIGHT === '1';
 
 function run(cmd, args, opts = {}) {
   const res = spawnSync(cmd, args, {
@@ -59,12 +58,7 @@ function assertNpmIdentity() {
 
 function assertScopePublishAuthority(plannedPackages) {
   const scopes = [...new Set(plannedPackages.map((item) => scopedPackageName(item.name)).filter(Boolean))];
-  if (scopes.length === 0 || skipScopePreflight) {
-    if (skipScopePreflight && scopes.length > 0) {
-      console.warn(`Skipping npm scope authority preflight for ${scopes.join(', ')} because VURA_SKIP_NPM_SCOPE_PREFLIGHT=1`);
-    }
-    return;
-  }
+  if (scopes.length === 0) return;
 
   const identity = assertNpmIdentity();
   for (const scope of scopes) {

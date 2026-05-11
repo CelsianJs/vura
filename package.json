@@ -15,7 +15,8 @@
     "check": "pnpm run assert:release-private && pnpm run lint && pnpm run build",
     "audit": "pnpm audit --prod",
     "verify:registry": "node scripts/verify-registry-install.mjs",
-    "assert:release-private": "node scripts/assert-release-private.mjs"
+    "assert:release-private": "node scripts/assert-release-private.mjs",
+    "release:check": "node scripts/release-check.mjs"
   },
   "devDependencies": {
     "@types/node": ">=20 <23",

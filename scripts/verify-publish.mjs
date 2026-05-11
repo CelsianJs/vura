@@ -170,8 +170,17 @@ try {
 
   const { getFiles } = await import(join(smoke, 'node_modules/create-then/dist/index.js'));
   const scaffoldPackage = JSON.parse(getFiles('smoke-app')['package.json']);
-  if (scaffoldPackage.dependencies['@then/core'] !== '0.1.0' || scaffoldPackage.dependencies['@then/cli'] !== '0.1.0') {
-    throw new Error('create-then scaffold dependencies are not aligned with the current publish version');
+  for (const name of ['@then/core', '@then/cli']) {
+    const expectedVersion = JSON.parse(await readFile(join(root, name === '@then/core' ? 'packages/core/package.json' : 'packages/cli/package.json'), 'utf8')).version;
+    if (scaffoldPackage.dependencies[name] !== expectedVersion) {
+      throw new Error(`create-then scaffold dependency ${name}=${scaffoldPackage.dependencies[name]} does not match package version ${expectedVersion}`);
+    }
+  }
+
+  const rootPackage = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+  const expectedWhatFramework = rootPackage.dependencies?.['what-framework'];
+  if (scaffoldPackage.dependencies['what-framework'] !== expectedWhatFramework) {
+    throw new Error(`create-then scaffold dependency what-framework=${scaffoldPackage.dependencies['what-framework']} does not match root dependency ${expectedWhatFramework}`);
   }
 
   run(process.execPath, [createThenBin, 'smoke-app', '--no-install'], { cwd: smoke });

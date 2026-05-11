@@ -2,10 +2,10 @@
 
 ## Current State
 - **Branch**: `audit-hardening`
-- **Tests**: 364 passing (`pnpm test`, 24 files)
+- **Tests**: 389 passing (`pnpm test`, 29 files)
 - **Build**: `pnpm build` passing
-- **Pack check**: `@then/vite-plugin` must contain `dist/index.js` + `dist/index.d.ts` before publish (`npx pnpm@10.23.0 --filter @then/vite-plugin pack --pack-destination /tmp/vura-pack-check`)
-- **Gold-standard score**: 45/50 after OSS release-blocker fixes; package tarballs are locally publish-ready but npm scope authorization blocks actual publish
+- **Pack check**: `pnpm verify:publish` currently verifies 7 public tarballs, no `workspace:` refs, installed CLI bins, imports, and create-then scaffold build/run smoke
+- **Gold-standard score**: 45/50 after OSS release-blocker fixes; package tarballs are locally publish-ready, but npm `@then/*` scope authorization still blocks actual publish
 
 ## What Was Done
 - Fixed production hooks: _executeWithHooks had dead code path (error always swallowed)
@@ -22,18 +22,18 @@
 
 ## Release Checklist / Current Blocker
 - [x] `pnpm build` passes
-- [x] `pnpm test` passes (current baseline: 364 tests)
-- [x] `pnpm verify:publish` passes: 8 tarballs, no `workspace:` refs, clean npm install/import smoke, `@then/compiler-native` private
-- [x] `pnpm -r publish --dry-run --no-git-checks --access public` passes for 8 public JS packages and excludes `@then/compiler-native`
+- [x] `pnpm test` passes (current baseline: 389 tests / 29 files)
+- [x] `pnpm verify:publish` passes: 7 public tarballs, no `workspace:` refs, clean npm install/import smoke, create-then scaffold build/run smoke, private package guards
+- [x] `VURA_PUBLISH_DRY_RUN=1 node scripts/publish-packages.mjs --dry-run` passes for 7 public JS packages and excludes private packages
 - [x] `CHANGELOG.md` and `.github/workflows/release.yml` added
 - [ ] **Actual publish blocked:** `pnpm -r publish --no-git-checks --access public` failed on `@then/compiler@0.1.0` with npm `E404` / no permission for the `@then` scope. No Vura packages were published.
-- [ ] Resolve package namespace before retry: obtain/admin the `@then` npm org, or intentionally rename packages to an owned scope (for example `@vura/*`) and rerun full `pnpm verify:publish` + dry-run.
+- [ ] Resolve package namespace before retry: obtain/admin the `@then` npm org, or intentionally rename packages to an owned scope (for example `@vura/*`) and rerun full `pnpm release:check`.
 
 ## What Remains
 
 ### Should Fix (from PM reviews)
 1. Resolve npm namespace authorization for `@then/*` or rename packages to an owned scope.
-2. After namespace resolution, rerun `pnpm build && pnpm test && pnpm verify:publish && pnpm -r publish --dry-run --no-git-checks --access public`.
+2. After namespace resolution, rerun `pnpm release:check`.
 3. Decide whether Cloudflare route support should expose more runtime APIs or keep the current safe route-runtime shim surface.
 
 ### Strategic Decisions (for Kirby)
@@ -136,3 +136,28 @@ Verification:
 - `pnpm test` passed: 27 files / 381 tests
 - `pnpm verify:publish` passed: 7 tarballs, no workspace refs, clean install/import + create-then scaffold smoke
 - `git diff --check` passed
+
+
+## 2026-05-10 — Product-review locally fixable release hardening
+
+Vura product-review follow-up found local release gates and scaffold metadata could still drift. Addressed locally:
+
+- Added `pnpm release:check` as the single local release gate covering private assertions, lint, build, tests, production audit, packed publish verification, npm dry-run publish, and `git diff --check`.
+- Removed the non-dry-run npm scope preflight bypass; real publish must prove npm identity and scoped package authority before upload.
+- Moved `create-then` scaffold dependency versions out of source constants: `what-framework` comes from `create-then` package metadata, and `@then/core` / `@then/cli` use workspace package versions locally or the `create-then` package version after publish.
+- Strengthened `pnpm verify:publish` to compare scaffold dependencies against package/root metadata instead of fixed literals.
+- Clarified manual release behavior in README/CONTRIBUTING: dry-runs are local verification only; real publish remains blocked until npm scope authority or an intentional rename.
+- Documented `dangerouslySetInnerHTML` rendering as trusted, unsanitized caller-provided HTML.
+
+Verification:
+- `pnpm lint` passed
+- `pnpm build` passed
+- `pnpm test` passed: 29 files / 389 tests
+- `npx pnpm@10.11.0 audit --prod` passed: no known vulnerabilities
+- `npx pnpm@10.11.0 verify:publish` passed: 7 tarballs, no workspace refs, installed CLI bins/direct help, clean install/import, create-then scaffold build/run smoke
+- `VURA_PUBLISH_DRY_RUN=1 node scripts/publish-packages.mjs --dry-run` passed for 7 publish candidates
+- `git diff --check` passed
+- `npx pnpm@10.11.0 release:check` passed end-to-end
+
+Still blocked:
+- Real publish remains blocked until npm `@then/*` namespace authority exists or package names are intentionally changed by an owner and all gates are rerun.
