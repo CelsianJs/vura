@@ -263,3 +263,7 @@ Verification on `main@3561db5`:
 Still blocked:
 
 - Real Vura publish remains blocked until npm `@then/*` scope authority exists or package names are intentionally changed by an owner and all gates are rerun.
+
+## 2026-05-11 — Current handoff-doc head
+
+- Current repo-local handoff document head: `main@bf390c6`.
