@@ -62,7 +62,7 @@ function assertScopePublishAuthority(plannedPackages) {
 
   const identity = assertNpmIdentity();
   for (const scope of scopes) {
-    const res = spawnSync('npm', ['access', 'ls-packages', scope, '--json'], {
+    const res = spawnSync('npm', ['access', 'list', 'packages', scope, '--json'], {
       cwd: root,
       encoding: 'utf8',
       stdio: 'pipe',

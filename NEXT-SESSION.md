@@ -47,6 +47,18 @@
 - Documentation site
 
 
+
+## 2026-05-10 — npm namespace preflight refresh
+
+Real publish remains safely blocked before any upload:
+
+- `npm whoami` resolved to `kirby_zvndev`.
+- `npm view @then/*@0.1.0` and `npm view create-then@0.1.0` returned E404, so the intended versions are not already published.
+- `node scripts/publish-packages.mjs` now uses the current npm command `npm access list packages @then --json` for scope authority and fails before packing/uploading because `kirby_zvndev` receives E403 for `@then`.
+- `VURA_PUBLISH_DRY_RUN=1 node scripts/publish-packages.mjs --dry-run` still passes for the 7 public tarballs.
+
+Conclusion: release artifacts are ready, but real publish is correctly blocked on npm `@then` organization/scope access or an intentional package rename.
+
 ## 2026-05-10 — Release-check refresh after smoke audit
 
 Latest local release-readiness evidence remains green, but real npm publish is still blocked by the `@then/*` namespace authority / rename decision.
