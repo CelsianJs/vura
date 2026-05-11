@@ -55,7 +55,7 @@ Real publish remains safely blocked before any upload:
 - `npm whoami` resolved to `kirby_zvndev`.
 - `npm view @then/*@0.1.0` and `npm view create-then@0.1.0` returned E404, so the intended versions are not already published.
 - `node scripts/publish-packages.mjs` now uses the current npm command `npm access list packages @then --json` for scope authority and fails before packing/uploading because `kirby_zvndev` receives E403 for `@then`.
-- `VURA_PUBLISH_DRY_RUN=1 node scripts/publish-packages.mjs --dry-run` still passes for the 7 public tarballs.
+- `VURA_PUBLISH_DRY_RUN=1 node scripts/publish-packages.mjs --dry-run` still passes for the 7 public tarballs. The npm scope guard is now covered by `scripts/publish-packages.test.mjs`.
 
 Conclusion: release artifacts are ready, but real publish is correctly blocked on npm `@then` organization/scope access or an intentional package rename.
 
@@ -64,7 +64,7 @@ Conclusion: release artifacts are ready, but real publish is correctly blocked o
 Latest local release-readiness evidence remains green, but real npm publish is still blocked by the `@then/*` namespace authority / rename decision.
 
 Verification:
-- `npx -y pnpm@10.11.0 release:check` passed: private assertions, hygiene, build, 29 Vitest files / 389 tests, production audit, packed publish verification with real `create-then` scaffold build/run smoke, package size gate, npm publish dry-run for 7 public tarballs, and `git diff --check`.
+- `npx -y pnpm@10.11.0 release:check` passed: private assertions, hygiene, build, 30 Vitest files / 390 tests, production audit, packed publish verification with real `create-then` scaffold build/run smoke, package size gate, npm publish dry-run for 7 public tarballs, and `git diff --check`.
 
 Not run:
 - Real `pnpm verify:registry` / publish, because npm scope authority is unresolved.
