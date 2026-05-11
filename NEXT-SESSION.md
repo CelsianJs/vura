@@ -200,3 +200,11 @@ Verification:
 
 Still blocked:
 - Real publish remains blocked until npm `@then/*` namespace authority exists or package names are intentionally changed by an owner and all gates are rerun.
+
+## 2026-05-10 — WhatStack runbook smoke refresh
+
+Ran the Vura build/run smoke from `../SMOKE-TEST-RUNBOOK.md` against the local CLI and a fresh `/tmp/vura-smoke-test` app:
+
+- `node packages/cli/dist/bin.js build` found 2 API routes and 2 pages, rendered static pages, copied public assets, and produced `dist/server/entry.js`.
+- The generated server entry contained no `require(` calls.
+- The built server returned JSON from `/api/hello`, echoed POST JSON from `/api/echo`, served `/test.txt`, and returned `200` for `/` and `/about`.
