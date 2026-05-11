@@ -68,7 +68,7 @@ jobs:
         uses: mlugg/setup-zig@v2
 
       - name: Install napi-rs CLI
-        run: npm install -g @napi-rs/cli
+        run: npm install -g @napi-rs/cli@2.18.4
 
       - name: Build native addon
         if: ${{ !startsWith(matrix.target, 'aarch64-unknown-linux') }}
@@ -110,7 +110,7 @@ jobs:
       - name: Move artifacts
         working-directory: packages/compiler-native
         run: |
-          npm install -g @napi-rs/cli
+          npm install -g @napi-rs/cli@2.18.4
           napi artifacts
 
       - name: List artifacts
