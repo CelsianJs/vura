@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { createServer } from 'node:net';
+import { spawn, spawnSync } from 'node:child_process';
 import { publishPackages } from './package-list.mjs';
 
 const root = process.cwd();
@@ -58,6 +59,60 @@ function assertHelpCommands(cwd) {
   }
 }
 
+async function findFreePort() {
+  return await new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+async function waitForText(url, text, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(url);
+      const body = await res.text();
+      if (res.ok && body.includes(text)) return;
+      lastError = new Error(`${url} returned ${res.status} without ${text}`);
+    } catch (err) {
+      lastError = err;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw lastError ?? new Error(`${url} did not become ready`);
+}
+
+async function assertScaffoldBuildAndBoot(scaffoldDir) {
+  run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: scaffoldDir, stdio: 'pipe' });
+  run('npm', ['run', 'build'], { cwd: scaffoldDir, stdio: 'pipe' });
+
+  const port = await findFreePort();
+  const child = spawn(process.execPath, ['dist/server/entry.js'], {
+    cwd: scaffoldDir,
+    env: { ...process.env, NODE_ENV: 'production', PORT: String(port) },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let output = '';
+  child.stdout.on('data', (chunk) => { output += chunk.toString(); });
+  child.stderr.on('data', (chunk) => { output += chunk.toString(); });
+  try {
+    await waitForText(`http://127.0.0.1:${port}/`, 'Welcome to ThenJS');
+    await waitForText(`http://127.0.0.1:${port}/about`, 'This project was scaffolded');
+    await waitForText(`http://127.0.0.1:${port}/api/hello`, 'Hello from ThenJS');
+  } catch (err) {
+    throw new Error(`registry scaffold boot smoke failed: ${err instanceof Error ? err.message : String(err)}\n${output}`);
+  } finally {
+    child.kill('SIGTERM');
+    await new Promise((resolve) => child.once('exit', resolve));
+  }
+}
+
 async function packageSpec(pkgDir) {
   const packageJson = JSON.parse(await readFile(join(root, pkgDir, 'package.json'), 'utf8'));
   if (packageJson.private) return null;
@@ -95,17 +150,20 @@ try {
     throw new Error(`create-then registry scaffold smoke did not list package.json; stdout=${JSON.stringify(scaffold.stdout)} stderr=${JSON.stringify(scaffold.stderr)}`);
   }
 
+  run(process.execPath, [createThenBin, 'registry-smoke-app', '--no-install'], { cwd: tmp });
+  await assertScaffoldBuildAndBoot(join(tmp, 'registry-smoke-app'));
+
   const artifact = {
     status: 'passed',
     generatedAt: new Date().toISOString(),
     packageCount: specs.length,
     packages: specs,
-    checks: ['npm install --ignore-scripts', 'installed CLI bins', 'direct installed CLI bin help', 'esm imports', 'create-then --dry-run'],
+    checks: ['npm install --ignore-scripts', 'installed CLI bins', 'direct installed CLI bin help', 'esm imports', 'create-then --dry-run', 'create-then --no-install', 'generated app npm install/build/boot'],
   };
   await mkdir(dirname(artifactPath), { recursive: true });
   await writeFile(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`);
 
-  console.log(`OK: registry smoke installed, verified CLI bins/direct help, and imported ${specs.length} package(s): ${specs.join(', ')}`);
+  console.log(`OK: registry smoke installed, verified CLI bins/direct help, real scaffold build/boot, and imported ${specs.length} package(s): ${specs.join(', ')}`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }

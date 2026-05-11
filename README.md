@@ -34,6 +34,12 @@ pnpm dev
 pnpm build
 ```
 
+Until the public `@then/*` scope is resolved, scaffold without installing to inspect or test the starter shape:
+
+```sh
+npx create-then my-app --no-install
+```
+
 Example scripts:
 
 ```json
@@ -48,6 +54,42 @@ Example scripts:
 `vura deploy` is reserved for the managed Vura Platform and intentionally
 fails closed in the open-source CLI. Use `vura build` plus the adapter output
 for self-hosted deployments until managed deployment access is available.
+
+## Deploy today
+
+### Node / VPS / Fly / Railway
+
+The default build emits a standalone Node server at `dist/server/entry.js` and static assets under `dist/static`.
+
+```sh
+pnpm install --frozen-lockfile
+pnpm build
+PORT=3000 NODE_ENV=production node dist/server/entry.js
+```
+
+Set runtime environment variables in your host dashboard, then health-check your deployed URL. The generated server serves API routes, server/hybrid pages, and static/client pages from one process.
+
+### Cloudflare Workers
+
+Use the Cloudflare adapter when you want Worker artifacts instead of the Node server:
+
+```sh
+pnpm add @then/adapter-cloudflare
+# configure then.config.js with the adapter
+pnpm build
+wrangler deploy
+```
+
+### AWS Lambda / SAM
+
+Use the Lambda adapter for API Gateway/Lambda packaging:
+
+```sh
+pnpm add @then/adapter-lambda
+# configure then.config.js with the adapter
+pnpm build
+sam deploy --guided
+```
 
 
 ## Page modes and build output

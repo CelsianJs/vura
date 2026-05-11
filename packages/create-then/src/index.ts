@@ -21,6 +21,7 @@ const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
 interface Args {
   projectName: string | null;
   dryRun: boolean;
+  noInstall: boolean;
   help: boolean;
 }
 
@@ -28,11 +29,14 @@ function parseArgs(argv: string[]): Args {
   const args = argv.slice(2);
   let projectName: string | null = null;
   let dryRun = false;
+  let noInstall = false;
   let help = false;
 
   for (const arg of args) {
     if (arg === '--dry-run') {
       dryRun = true;
+    } else if (arg === '--no-install') {
+      noInstall = true;
     } else if (arg === '--help' || arg === '-h') {
       help = true;
     } else if (!arg.startsWith('-')) {
@@ -40,7 +44,7 @@ function parseArgs(argv: string[]): Args {
     }
   }
 
-  return { projectName, dryRun, help };
+  return { projectName, dryRun, noInstall, help };
 }
 
 // ─── Prompt ──────────────────────────────────────────────────────────
@@ -218,8 +222,9 @@ ${bold('Usage:')}
   npx create-then ${dim('[project-name]')}
 
 ${bold('Options:')}
-  --dry-run    Print what would be created without writing files
-  -h, --help   Show this help message
+  --dry-run      Print what would be created without writing files
+  --no-install   Write files but skip dependency installation
+  -h, --help     Show this help message
 `);
     process.exit(0);
   }
@@ -289,15 +294,20 @@ ${bold('Options:')}
   // 4. Install dependencies
   const pm = detectPackageManager();
   console.log();
-  console.log(dim(`  Installing dependencies with ${pm}...\n`));
 
-  try {
-    execSync(`${pm} install`, {
-      cwd: targetDir,
-      stdio: 'inherit',
-    });
-  } catch {
-    console.log(yellow('\n  Warning: Failed to install dependencies. Run install manually.\n'));
+  if (args.noInstall) {
+    console.log(yellow('  Skipping dependency install (--no-install). Run install manually after package scope access is available.\n'));
+  } else {
+    console.log(dim(`  Installing dependencies with ${pm}...\n`));
+
+    try {
+      execSync(`${pm} install`, {
+        cwd: targetDir,
+        stdio: 'inherit',
+      });
+    } catch {
+      console.log(yellow('\n  Warning: Failed to install dependencies. The public @then/* npm scope is not available yet; rerun with --no-install for scaffolding-only smoke, or run install manually after namespace access is resolved.\n'));
+    }
   }
 
   // 5. Print next steps

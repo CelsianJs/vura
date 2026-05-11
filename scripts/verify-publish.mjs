@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { createServer } from 'node:net';
+import { spawn, spawnSync } from 'node:child_process';
 import { publishPackages } from './package-list.mjs';
 
 const root = process.cwd();
@@ -62,9 +63,75 @@ function pnpmPack(pkg, outDir) {
   return isAbsolute(file) ? file : join(outDir, file);
 }
 
+async function findFreePort() {
+  return await new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+async function waitForText(url, text, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(url);
+      const body = await res.text();
+      if (res.ok && body.includes(text)) return;
+      lastError = new Error(`${url} returned ${res.status} without ${text}`);
+    } catch (err) {
+      lastError = err;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw lastError ?? new Error(`${url} did not become ready`);
+}
+
+async function rewriteScaffoldDeps(scaffoldDir, tarballsByName) {
+  const packageJsonPath = join(scaffoldDir, 'package.json');
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+  for (const [name, tarball] of tarballsByName) {
+    if (packageJson.dependencies?.[name]) {
+      packageJson.dependencies[name] = `file:${tarball}`;
+    }
+  }
+  await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
+}
+
+async function assertScaffoldBuildAndBoot(scaffoldDir) {
+  run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: scaffoldDir, stdio: 'pipe' });
+  run('npm', ['run', 'build'], { cwd: scaffoldDir, stdio: 'pipe' });
+
+  const port = await findFreePort();
+  const child = spawn(process.execPath, ['dist/server/entry.js'], {
+    cwd: scaffoldDir,
+    env: { ...process.env, NODE_ENV: 'production', PORT: String(port) },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let output = '';
+  child.stdout.on('data', (chunk) => { output += chunk.toString(); });
+  child.stderr.on('data', (chunk) => { output += chunk.toString(); });
+  try {
+    await waitForText(`http://127.0.0.1:${port}/`, 'Welcome to ThenJS');
+    await waitForText(`http://127.0.0.1:${port}/about`, 'This project was scaffolded');
+    await waitForText(`http://127.0.0.1:${port}/api/hello`, 'Hello from ThenJS');
+  } catch (err) {
+    throw new Error(`scaffold boot smoke failed: ${err instanceof Error ? err.message : String(err)}\n${output}`);
+  } finally {
+    child.kill('SIGTERM');
+    await new Promise((resolve) => child.once('exit', resolve));
+  }
+}
+
 const tmp = await mkdtemp(join(tmpdir(), 'vura-publish-verify-'));
 try {
   const tarballs = [];
+  const tarballsByName = new Map();
   for (const pkg of publishPackages) {
     const packageJson = JSON.parse(await readFile(join(root, pkg, 'package.json'), 'utf8'));
     if (packageJson.private) continue;
@@ -74,6 +141,7 @@ try {
       throw new Error(`${packageJson.name} packed package.json still contains workspace: references`);
     }
     tarballs.push(tarball);
+    tarballsByName.set(packageJson.name, tarball);
   }
 
   const smoke = join(tmp, 'smoke');
@@ -106,11 +174,16 @@ try {
     throw new Error('create-then scaffold dependencies are not aligned with the current publish version');
   }
 
+  run(process.execPath, [createThenBin, 'smoke-app', '--no-install'], { cwd: smoke });
+  const scaffoldDir = join(smoke, 'smoke-app');
+  await rewriteScaffoldDeps(scaffoldDir, tarballsByName);
+  await assertScaffoldBuildAndBoot(scaffoldDir);
+
   if (existsSync(join(root, 'packages/compiler-native/package.json'))) {
     const nativeJson = JSON.parse(await readFile(join(root, 'packages/compiler-native/package.json'), 'utf8'));
     if (!nativeJson.private) throw new Error('@then/compiler-native must remain private until native artifacts exist');
   }
-  console.log(`OK: verified ${tarballs.length} tarball(s); no workspace refs; installed CLI bins/direct help; clean npm install/import and create-then scaffold smoke passed`);
+  console.log(`OK: verified ${tarballs.length} tarball(s); no workspace refs; installed CLI bins/direct help; clean npm install/import and real create-then scaffold build/run smoke passed`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }
