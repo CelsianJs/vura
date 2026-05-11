@@ -13,6 +13,7 @@ on:
 env:
   CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -107,15 +108,21 @@ jobs:
         with:
           path: packages/compiler-native/artifacts
 
-      - name: Move artifacts
+      - name: Collect artifacts
         working-directory: packages/compiler-native
         run: |
-          npm install -g @napi-rs/cli@2.18.4
-          napi artifacts
+          set -euo pipefail
+          find artifacts -maxdepth 3 -type f -name '*.node' -print -exec cp {} . \;
+          count=$(find . -maxdepth 1 -type f -name '*.node' | wc -l | tr -d ' ')
+          if [ "$count" != "7" ]; then
+            echo "Expected 7 native artifacts, found $count" >&2
+            find artifacts -maxdepth 3 -type f -print >&2
+            exit 1
+          fi
 
       - name: List artifacts
         working-directory: packages/compiler-native
-        run: ls -la *.node 2>/dev/null || echo "No .node files yet"
+        run: ls -la *.node
 
       # Uncomment to enable publishing:
       # - name: Publish
