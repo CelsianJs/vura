@@ -16,7 +16,8 @@
     "audit": "pnpm audit --prod",
     "verify:registry": "node scripts/verify-registry-install.mjs",
     "assert:release-private": "node scripts/assert-release-private.mjs",
-    "release:check": "node scripts/release-check.mjs"
+    "release:check": "node scripts/release-check.mjs",
+    "package:size": "node scripts/check-package-size.mjs"
   },
   "devDependencies": {
     "@types/node": ">=20 <23",

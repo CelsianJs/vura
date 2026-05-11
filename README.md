@@ -118,10 +118,18 @@ Before publishing, run:
 
 ```sh
 corepack enable
+corepack prepare pnpm@10.11.0 --activate
 pnpm install --frozen-lockfile
 pnpm release:check
 ```
 
-`pnpm release:check` runs the full local gate: private-package assertions, hygiene lint, build, tests, production audit, packed publish smoke, npm publish dry-run, and `git diff --check`.
+To bypass a mismatched local Corepack/global pnpm toolchain, run the same gate with Node 22 and the pinned pnpm directly:
+
+```sh
+npx -p node@22 -p pnpm@10.11.0 pnpm install --frozen-lockfile
+npx -p node@22 -p pnpm@10.11.0 pnpm release:check
+```
+
+`pnpm release:check` runs the full local gate: private-package assertions, hygiene lint, build, tests, production audit, packed publish smoke, tracked tarball-size limits, npm publish dry-run, and `git diff --check`.
 
 Do not publish from an unverified or dirty release tree. Manual release means running `pnpm release:check` locally first, then using the tag/manual GitHub release workflow or `node scripts/publish-packages.mjs` only after npm namespace authority is resolved. If npm returns `E403`, `E404`, or any permission/scope uncertainty for `@then/*`, stop: either obtain/admin the `@then` scope or intentionally rename the packages, then rerun the full release check before any real publish. Real publishing always runs a namespace-authority preflight for scoped packages before uploading tarballs; it cannot be bypassed with `VURA_SKIP_NPM_SCOPE_PREFLIGHT`.

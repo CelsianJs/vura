@@ -1,0 +1,9 @@
+{
+  "@then/core": 95000,
+  "@then/compiler": 10000,
+  "@then/cli": 45000,
+  "create-then": 10000,
+  "@then/adapter-cloudflare": 15000,
+  "@then/adapter-lambda": 18000,
+  "@then/vite-plugin": 12000
+}

@@ -15,6 +15,7 @@ const steps = [
   pnpmStep(['run', 'test']),
   pnpmStep(['audit', '--prod']),
   pnpmStep(['run', 'verify:publish']),
+  pnpmStep(['run', 'package:size']),
   ['node', ['scripts/publish-packages.mjs', '--dry-run'], { env: { VURA_PUBLISH_DRY_RUN: '1' } }],
   ['git', ['diff', '--check']],
 ];
