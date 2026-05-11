@@ -48,6 +48,15 @@
 
 
 
+
+## 2026-05-10 — Clean release tree gate
+
+Release safety follow-up: `pnpm release:check` now ends with `scripts/assert-clean-release-tree.mjs`, which runs whitespace checks and fails if `git status --porcelain` reports modified or untracked files. This closes the gap where `git diff --check` could pass while untracked files were present.
+
+Verification:
+- `npx -y pnpm@10.11.0 exec vitest run scripts/assert-clean-release-tree.test.mjs` passed.
+- `npx -y pnpm@10.11.0 release:check` passed from a clean tree: private assertions, hygiene, build, 31 Vitest files / 392 tests, production audit, packed publish verification, package size gate, npm publish dry-run for 7 tarballs, and clean release tree assertion.
+
 ## 2026-05-10 — Cloudflare route-runtime decision
 
 Resolved the local Cloudflare runtime-surface decision: keep the adapter on the conservative generated `req`/`reply` shim and expose Cloudflare-specific capabilities only through `req.__cf_env` / `req.__cf_ctx` escape hatches until a concrete use case justifies a first-class public API. README now documents this as the intended compatibility policy.
@@ -71,7 +80,7 @@ Conclusion: release artifacts are ready, but real publish is correctly blocked o
 Latest local release-readiness evidence remains green, but real npm publish is still blocked by the `@then/*` namespace authority / rename decision.
 
 Verification:
-- `npx -y pnpm@10.11.0 release:check` passed: private assertions, hygiene, build, 30 Vitest files / 390 tests, production audit, packed publish verification with real `create-then` scaffold build/run smoke, package size gate, npm publish dry-run for 7 public tarballs, and `git diff --check`.
+- `npx -y pnpm@10.11.0 release:check` passed: private assertions, hygiene, build, 31 Vitest files / 392 tests, production audit, packed publish verification with real `create-then` scaffold build/run smoke, package size gate, npm publish dry-run for 7 public tarballs, clean release tree assertion, and `git diff --check`.
 
 Not run:
 - Real `pnpm verify:registry` / publish, because npm scope authority is unresolved.
