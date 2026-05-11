@@ -46,6 +46,17 @@
 - CLI `create` scaffolding command
 - Documentation site
 
+
+## 2026-05-10 — Release-check refresh after smoke audit
+
+Latest local release-readiness evidence remains green, but real npm publish is still blocked by the `@then/*` namespace authority / rename decision.
+
+Verification:
+- `npx -y pnpm@10.11.0 release:check` passed: private assertions, hygiene, build, 29 Vitest files / 389 tests, production audit, packed publish verification with real `create-then` scaffold build/run smoke, package size gate, npm publish dry-run for 7 public tarballs, and `git diff --check`.
+
+Not run:
+- Real `pnpm verify:registry` / publish, because npm scope authority is unresolved.
+
 ## How to Resume
 ```bash
 cd vura
