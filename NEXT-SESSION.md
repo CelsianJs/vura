@@ -34,7 +34,6 @@
 ### Should Fix (from PM reviews)
 1. Resolve npm namespace authorization for `@then/*` or rename packages to an owned scope.
 2. After namespace resolution, rerun `pnpm release:check`.
-3. Decide whether Cloudflare route support should expose more runtime APIs or keep the current safe route-runtime shim surface.
 
 ### Strategic Decisions (for Kirby)
 - **Should Vura integrate CelsianJS as its server layer?** Currently generates its own HTTP server. Using CelsianJS would get security headers, compression, CORS, JWT, etc. for free.
@@ -47,6 +46,14 @@
 - Documentation site
 
 
+
+
+## 2026-05-10 — Cloudflare route-runtime decision
+
+Resolved the local Cloudflare runtime-surface decision: keep the adapter on the conservative generated `req`/`reply` shim and expose Cloudflare-specific capabilities only through `req.__cf_env` / `req.__cf_ctx` escape hatches until a concrete use case justifies a first-class public API. README now documents this as the intended compatibility policy.
+
+Verification:
+- `git diff --check`
 
 ## 2026-05-10 — npm namespace preflight refresh
 

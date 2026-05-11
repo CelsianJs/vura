@@ -80,6 +80,8 @@ pnpm build
 wrangler deploy
 ```
 
+Cloudflare route handlers intentionally receive the same conservative `req`/`reply` shim as other generated targets, plus Cloudflare-only escape hatches on `req.__cf_env` and `req.__cf_ctx`. Keep this runtime surface narrow until a concrete adapter use case needs a first-class API; widening the shim would become public API surface that must work across Worker, Node, and managed Vura Platform deployments.
+
 ### AWS Lambda / SAM
 
 Use the Lambda adapter for API Gateway/Lambda packaging:
