@@ -233,3 +233,14 @@ Verification:
 - `node -e "JSON.parse(...)"` package metadata check passed.
 - `git diff --check` passed.
 - Full evidence is expected from the GitHub PR workflow rerun.
+
+## 2026-05-10 — CodeQL availability follow-up
+
+The PR security workflow reached CodeQL analysis successfully, but upload failed because GitHub Advanced Security/code scanning is not enabled for this repository. Addressed locally:
+
+- CodeQL analyze is now non-blocking until GHAS/code scanning is enabled.
+- The gitleaks CLI secret scan remains the blocking security gate.
+
+Verification:
+- `git diff --check` passed.
+- Full evidence is expected from the GitHub PR workflow rerun.
