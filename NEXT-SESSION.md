@@ -220,3 +220,16 @@ Verification:
 - `pnpm --filter @then/adapter-vura test` passed.
 - `pnpm --filter @then/adapter-vura build` passed.
 - `git diff --check` passed.
+
+## 2026-05-10 — PR auxiliary workflow follow-up
+
+Opening the audit-hardening PR exposed auxiliary workflow failures outside the main JS release gate. Addressed locally:
+
+- `@then/compiler-native` napi config now disables default triples so the matrix target list does not duplicate built-in targets and fail every native build with `Duplicate targets are not allowed`.
+- Security workflow grants `actions: read` for CodeQL PR overlay database access.
+- Secret scanning now runs the open-source gitleaks Docker CLI directly instead of `gitleaks/gitleaks-action@v2`, which requires a paid org license secret.
+
+Verification:
+- `node -e "JSON.parse(...)"` package metadata check passed.
+- `git diff --check` passed.
+- Full evidence is expected from the GitHub PR workflow rerun.
