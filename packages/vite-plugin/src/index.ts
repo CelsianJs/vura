@@ -18,6 +18,7 @@ import {
   escapeHtml,
   parseNodeBody,
   executeWithHooks,
+  finalizeNodeHandlerResult,
   createHookRegistry,
   validateRequest,
   sendErrorResponse,
@@ -275,24 +276,7 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
 
           // Execute handler with full hook lifecycle
           const hookResult = await executeWithHooks(hookRegistry, cReq, cReply, async () => {
-            const result = await handlerFn(cReq, cReply);
-
-            // If handler returned a Response object (Web Standard)
-            if (result instanceof Response) {
-              res.statusCode = result.status;
-              result.headers.forEach((v: string, k: string) => res.setHeader(k, v));
-              const text = await result.text();
-              res.end(text);
-              return;
-            }
-
-            // If handler returned a plain object (auto-wrap as JSON)
-            if (result && typeof result === 'object' && !res.writableEnded) {
-              res.statusCode = statusCode;
-              res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify(result));
-              return;
-            }
+            return handlerFn(cReq, cReply);
           }, routeHooks);
 
           // If hooks/handler errored and response wasn't sent, send structured error
@@ -303,6 +287,13 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             res.statusCode = errStatus;
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify(errBody));
+          }
+
+          if (!hookResult.hadError) {
+            await finalizeNodeHandlerResult(hookResult.result, res, {
+              statusCode,
+              headers: responseHeaders,
+            });
           }
         } catch (err: any) {
           const error = err instanceof Error ? err : new Error(String(err));

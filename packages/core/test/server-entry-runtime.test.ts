@@ -3,8 +3,9 @@ import { fork, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
-import { generateServerEntry } from '../src/build.js';
+import { generateFunctionEntry, generateServerEntry } from '../src/build.js';
 import type { RouteManifest } from '../src/manifest.js';
 
 const childProcesses = new Set<ChildProcess>();
@@ -118,6 +119,31 @@ function httpGet(
   });
 }
 
+function httpRequest(
+  port: number,
+  method: string,
+  path: string,
+): Promise<{
+  statusCode: number;
+  headers: Record<string, string | string[] | undefined>;
+  body: string;
+}> {
+  return new Promise((resolve, reject) => {
+    const req = request({ hostname: '127.0.0.1', port, path, method }, (res) => {
+      const chunks: string[] = [];
+      res.setEncoding('utf8');
+      res.on('data', (chunk: string) => chunks.push(chunk));
+      res.on('end', () => resolve({
+        statusCode: res.statusCode ?? 0,
+        headers: res.headers,
+        body: chunks.join(''),
+      }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 
 function evaluateGeneratedTaskAdminAuth(
   entry: string,
@@ -183,6 +209,60 @@ afterEach(async () => {
 });
 
 describe('generated server runtime hardening', () => {
+  it('keeps hot-server and serverless handler return finalization in parity', async () => {
+    const routeSource = `
+export function GET(_req, reply) {
+  reply.status(201).header('x-mode', 'object');
+  return { ok: true, target: 'both' };
+}
+export function POST() {
+  return new Response('accepted', { status: 202, headers: { 'x-mode': 'response' } });
+}
+export function DELETE(_req, reply) {
+  return reply.redirect('/target', 307);
+}
+`;
+
+    const root = createTempProject();
+    writeModule(root, 'dist/server/api/return.js', routeSource);
+
+    const route = {
+      filePath: 'src/api/return.ts',
+      urlPattern: '/api/return',
+      methods: ['GET', 'POST', 'DELETE'],
+      kind: 'serverless' as const,
+      config: {},
+    };
+    const manifest: RouteManifest = {
+      api: [route],
+      pages: [],
+      layouts: [],
+      timestamp: new Date().toISOString(),
+    };
+
+    const { port } = await startGeneratedServer(root, manifest);
+
+    const functionDir = mkdtempSync(join(tmpdir(), 'vura-function-parity-'));
+    tempRoots.add(functionDir);
+    writeFileSync(join(functionDir, 'package.json'), JSON.stringify({ type: 'module' }) + '\n');
+    writeFileSync(join(functionDir, 'route.js'), routeSource);
+    writeFileSync(join(functionDir, 'entry.mjs'), generateFunctionEntry(route, root));
+    const functionMod = await (new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>)(pathToFileURL(join(functionDir, 'entry.mjs')).href);
+
+    for (const method of ['GET', 'POST', 'DELETE']) {
+      const hot = await httpRequest(port, method, '/api/return');
+      const serverless = await functionMod.default.fetch(new Request(`http://example.com/api/return`, { method }));
+      const serverlessBody = await serverless.text();
+
+      expect({ method, status: hot.statusCode, body: hot.body, location: hot.headers.location }).toEqual({
+        method,
+        status: serverless.status,
+        body: serverlessBody,
+        location: serverless.headers.get('location') ?? undefined,
+      });
+    }
+  }, 10000);
+
   it('serves server pages marked stream as chunked full HTML responses', async () => {
     const root = createTempProject();
     writeModule(root, 'dist/server/pages/stream.js', `

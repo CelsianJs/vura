@@ -15,6 +15,8 @@ import { buildManifest, build, renderStaticPages } from '@then/core';
 import { createRequire } from 'node:module';
 import { loadConfig } from '../config-loader.js';
 
+const nativeImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>;
+
 export async function buildCommand(_args: string[]): Promise<void> {
   const startTime = Date.now();
   const projectRoot = process.cwd();
@@ -174,6 +176,39 @@ export async function buildCommand(_args: string[]): Promise<void> {
     }
   }
 
+  // 3c. Bundle browser page modules for client and hybrid pages.
+  const browserPages = manifest.pages.filter(p => p.mode === 'client' || p.mode === 'hybrid');
+  const clientScripts: Record<string, string> = {};
+  if (browserPages.length > 0) {
+    console.log(`  Bundling ${browserPages.length} browser page modules...`);
+    const clientPagesDir = join(root, 'dist', 'static', '_then', 'pages');
+    await mkdir(clientPagesDir, { recursive: true });
+
+    for (const page of browserPages) {
+      const absPath = resolve(root, page.filePath);
+      const outFile = page.filePath.replace(/^src\/pages\//, '').replace(/\.(tsx|jsx|ts|js)$/, '.js');
+      const outPath = join(clientPagesDir, outFile);
+      await mkdir(join(outPath, '..'), { recursive: true });
+
+      await esbuild({
+        entryPoints: [absPath],
+        bundle: true,
+        format: 'esm',
+        target: 'es2022',
+        platform: 'browser',
+        outfile: outPath,
+        jsx: 'automatic',
+        jsxImportSource,
+        plugins: [esmResolvePlugin],
+        external: [],
+      });
+
+      const scriptPath = `/_then/pages/${outFile.replace(/\\/g, '/')}`;
+      clientScripts[page.filePath] = scriptPath;
+      console.log(`    ◇ ${page.urlPattern} → dist/static${scriptPath}`);
+    }
+  }
+
   // 4. Build API routes + task entries
   console.log('  Building...');
   const result = await build(manifest, config, root);
@@ -184,10 +219,10 @@ export async function buildCommand(_args: string[]): Promise<void> {
     console.log(`  Tasks: ${result.taskEntries.length} task entries`);
   }
 
-  // 5. Render static pages
-  const staticPages = manifest.pages.filter(p => p.mode === 'static');
+  // 5. Render build-time pages (static, client shells, and hybrid prerendered HTML)
+  const staticPages = manifest.pages.filter(p => p.mode !== 'server');
   if (staticPages.length > 0) {
-    console.log(`  Rendering ${staticPages.length} static pages...`);
+    console.log(`  Rendering ${staticPages.length} build-time pages...`);
 
     const tmpDir = join(root, 'dist', '.page-tmp');
     await mkdir(tmpDir, { recursive: true });
@@ -210,11 +245,11 @@ export async function buildCommand(_args: string[]): Promise<void> {
       const hash = Date.now().toString(36);
       const outPath = join(tmpDir, `${filePath.replace(/[/\\:]/g, '_')}_${hash}.mjs`);
       await writeFile(outPath, result.outputFiles[0].text);
-      return import(pathToFileURL(outPath).href);
+      return nativeImport(pathToFileURL(outPath).href);
     };
 
     const outDir = join(root, 'dist');
-    const rendered = await renderStaticPages(staticPages, loadModule, outDir);
+    const rendered = await renderStaticPages(staticPages, loadModule, outDir, { clientScripts });
 
     for (const page of rendered) {
       console.log(`    ◆ ${page.urlPattern} → ${page.outputPath.replace(root + '/', '')}`);

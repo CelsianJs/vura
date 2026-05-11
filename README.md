@@ -14,8 +14,16 @@ The CLI exposes `vura` and `thenjs` as safe command names. The legacy `then` bin
 
 ## Requirements
 
-- Node.js 20 or 22
+- Node.js 20 or 22 (`engines.node` is constrained to `>=20 <23`)
 - pnpm 10.11.0 (the version pinned by `packageManager`)
+
+Recommended activation on fresh machines:
+
+```sh
+corepack enable
+corepack prepare pnpm@10.11.0 --activate
+pnpm install --frozen-lockfile
+```
 
 ## Quick start
 
@@ -40,6 +48,18 @@ Example scripts:
 `vura deploy` is reserved for the managed Vura Platform and intentionally
 fails closed in the open-source CLI. Use `vura build` plus the adapter output
 for self-hosted deployments until managed deployment access is available.
+
+
+## Page modes and build output
+
+`vura build` now emits deployable build-time output for every non-server page mode:
+
+- `static` pages prerender to `dist/static/<route>/index.html` with no framework JavaScript added.
+- `client` pages prerender a loading shell and emit a browser module under `dist/static/_then/pages/*.js`; the HTML references that module.
+- `hybrid` pages prerender HTML and emit a matching browser module under `dist/static/_then/pages/*.js` for hydration/island code.
+- `server` pages remain runtime-rendered by `dist/server/entry.js`.
+
+The generated hot server serves API routes first, server/hybrid runtime pages next, and `dist/static` as the final fallback so static/client assets remain deployable without shadowing APIs.
 
 ## Packages
 

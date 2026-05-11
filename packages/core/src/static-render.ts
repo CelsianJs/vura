@@ -22,6 +22,11 @@ export interface PageRenderResult {
   outputPath: string;
 }
 
+export interface StaticRenderOptions {
+  /** Browser module paths keyed by page filePath, emitted relative to dist/static root. */
+  clientScripts?: Record<string, string>;
+}
+
 /**
  * Render all static pages from compiled page modules.
  *
@@ -33,9 +38,10 @@ export async function renderStaticPages(
   pages: PageRoute[],
   loadModule: (filePath: string) => Promise<any>,
   outDir: string,
+  options: StaticRenderOptions = {},
 ): Promise<PageRenderResult[]> {
-  // Render static and hybrid pages at build time.
-  // Client pages get a minimal shell. Server pages are skipped (rendered at runtime).
+  // Render static, client, and hybrid pages at build time.
+  // Server pages are skipped (rendered at runtime).
   const buildTimePages = pages.filter(p => p.mode !== 'server');
   const results: PageRenderResult[] = [];
 
@@ -66,15 +72,18 @@ export async function renderStaticPages(
     if (page.mode === 'client') {
       // Client mode: minimal shell, JS does the rendering
       bodyHtml = '<div id="loading">Loading...</div>';
-      scripts.push(`/${page.filePath.replace(/\.tsx?$/, '.js')}`);
+      const clientScript = options.clientScripts?.[page.filePath];
+      if (clientScript) scripts.push(clientScript);
+      else scripts.push(`/${page.filePath.replace(/\.(tsx|jsx|ts|js)$/, '.js')}`);
     } else {
       // Static and hybrid: pre-render the component
       const vnode = Component(pageConfig.props ?? {});
       bodyHtml = renderToString(vnode);
 
       if (page.mode === 'hybrid') {
-        // Hybrid pages include the island hydration script
-        scripts.push('/@what/islands.js');
+        // Hybrid pages include their browser bundle for hydration/island code.
+        const clientScript = options.clientScripts?.[page.filePath];
+        if (clientScript) scripts.push(clientScript);
       }
     }
 

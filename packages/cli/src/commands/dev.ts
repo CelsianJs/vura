@@ -25,6 +25,7 @@ import {
   escapeHtml,
   parseNodeBody,
   executeWithHooks,
+  finalizeNodeHandlerResult,
   createHookRegistry,
   validateRequest,
   sendErrorResponse,
@@ -437,7 +438,7 @@ async function startStandaloneServer(
 
       // Execute handler with full hook lifecycle
       const result = await executeWithHooks(hookRegistry, cReq, cReply, async () => {
-        await handlerFn(cReq, cReply);
+        return handlerFn(cReq, cReply);
       }, routeHooks);
 
       // If hooks/handler errored and response wasn't sent, send structured error
@@ -447,6 +448,10 @@ async function startStandaloneServer(
         reportError(error, { method, path: url.pathname, requestId: reqCtx.requestId }, logger);
         res.writeHead(errStatus, { 'content-type': 'application/json' });
         res.end(JSON.stringify(errBody));
+      }
+
+      if (!result.hadError) {
+        await finalizeNodeHandlerResult(result.result, res, { statusCode, headers });
       }
       return;
     }

@@ -46,6 +46,7 @@ export {
 export type {
   PageRenderResult,
   DocumentOptions,
+  StaticRenderOptions,
 } from './static-render.js';
 
 export {
@@ -70,10 +71,16 @@ export type {
   PageRouteMatch,
 } from './match.js';
 
+export {
+  finalizeNodeHandlerResult,
+} from './handler.js';
+
 export type {
   ThenRequest,
   ThenReply,
   ThenHandler,
+  NodeHandlerFinalizationState,
+  NodeHandlerFinalizationResult,
 } from './handler.js';
 
 export {

@@ -679,6 +679,7 @@ const HOOKS_CODE = [
   '  const _hookStart = performance.now();',
   '  let _hookStatus = 200;',
   '  let _hookHadError = false;',
+  '  let _handlerResult;',
   '  try {',
   '    // onRequest hooks (global + route-level)',
   '    if (_globalHooks.onRequest) {',
@@ -688,7 +689,7 @@ const HOOKS_CODE = [
   '      await _runHooks(routeHooks.onRequest, req, reply);',
   '    }',
   '    // Handler',
-  '    await handlerFn(req, reply);',
+  '    _handlerResult = await handlerFn(req, reply);',
   '  } catch (err) {',
   '    _hookHadError = true;',
   '    _hookStatus = (err && err.statusCode) ? err.statusCode : 500;',
@@ -714,7 +715,29 @@ const HOOKS_CODE = [
   '      catch (_) { /* onResponse errors are silenced */ }',
   '    }',
   '  }',
-  '  return { statusCode: _hookStatus, hadError: _hookHadError };',
+  '  return { statusCode: _hookStatus, hadError: _hookHadError, result: _handlerResult };',
+  '}',
+].join('\n');
+
+const HANDLER_FINALIZATION_CODE = [
+  '// Canonical handler return finalization for generated Node servers.',
+  'async function _finalizeHandlerResult(result, nodeRes, state) {',
+  '  if (nodeRes.writableEnded) return true;',
+  '  if (typeof Response !== "undefined" && result instanceof Response) {',
+  '    const responseHeaders = {};',
+  '    result.headers.forEach((value, key) => { responseHeaders[key] = value; });',
+  '    nodeRes.writeHead(result.status, responseHeaders);',
+  '    nodeRes.end(await result.text());',
+  '    return true;',
+  '  }',
+  '  if (result !== null && typeof result === "object") {',
+  '    nodeRes.writeHead(state.statusCode, state.headers);',
+  '    nodeRes.end(JSON.stringify(result));',
+  '    return true;',
+  '  }',
+  '  nodeRes.writeHead(204);',
+  '  nodeRes.end();',
+  '  return true;',
   '}',
 ].join('\n');
 
@@ -901,10 +924,9 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
   lines.push('        nodeRes.end(JSON.stringify({ error: "Internal Server Error", code: "HANDLER_ERROR" }));');
   lines.push('      }');
   lines.push('');
-  lines.push('      // If handler returned a value and response not yet sent, auto-send');
-  lines.push('      if (!nodeRes.writableEnded && !hookResult.hadError) {');
-  lines.push('        nodeRes.writeHead(204);');
-  lines.push('        nodeRes.end();');
+  lines.push('      // Finalize returned values consistently with dev/serverless targets');
+  lines.push('      if (!hookResult.hadError) {');
+  lines.push('        await _finalizeHandlerResult(hookResult.result, nodeRes, { statusCode, headers });');
   lines.push('      }');
   lines.push('    } catch (err) {');
   lines.push("      _log('error', 'Error in ' + method + ' ' + url.pathname, { error: err.message || String(err) });");
@@ -1230,6 +1252,7 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
 
   lines.push('');
   lines.push(HOOKS_CODE);
+  lines.push(HANDLER_FINALIZATION_CODE);
 
   if (hasPages) {
     lines.push('');

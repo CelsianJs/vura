@@ -277,17 +277,18 @@ export async function executeWithHooks(
   reply: ThenReply,
   handler: () => unknown | Promise<unknown>,
   routeHooks?: RouteHooks,
-): Promise<{ statusCode: number; hadError: boolean }> {
+): Promise<{ statusCode: number; hadError: boolean; result?: unknown }> {
   const startTime = performance.now();
   let statusCode = 200;
   let hadError = false;
+  let handlerResult: unknown;
 
   try {
     // 1. onRequest hooks
     await registry.runOnRequest(req, reply, routeHooks?.onRequest);
 
     // 2. Handler
-    await handler();
+    handlerResult = await handler();
   } catch (err) {
     hadError = true;
     const error = err instanceof Error ? err : new Error(String(err));
@@ -317,5 +318,5 @@ export async function executeWithHooks(
     );
   }
 
-  return { statusCode, hadError };
+  return { statusCode, hadError, result: handlerResult };
 }
