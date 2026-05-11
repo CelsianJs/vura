@@ -88,8 +88,8 @@ Not run:
 ## How to Resume
 ```bash
 cd vura
-pnpm build
-pnpm test    # 360 tests, all should pass
+npx -y pnpm@10.11.0 release:check
+node scripts/publish-packages.mjs   # only after npm @then scope authority or rename decision is resolved
 ```
 
 ## 2026-05-10 — Scaffold publish-smoke and namespace honesty
