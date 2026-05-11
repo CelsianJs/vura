@@ -34,7 +34,7 @@ pnpm dev
 pnpm build
 ```
 
-Until the public `@then/*` scope is resolved, scaffold without installing to inspect or test the starter shape:
+`create-then` treats dependency installation as part of a successful scaffold. If install fails, the command exits non-zero after writing the files so registry or namespace-access problems cannot be missed. Until the public `@then/*` scope is resolved, pass `--no-install` explicitly to inspect or test the starter shape without installing:
 
 ```sh
 npx create-then my-app --no-install
@@ -129,4 +129,4 @@ VURA_PUBLISH_DRY_RUN=1 node scripts/publish-packages.mjs
 git diff --check
 ```
 
-Do not publish from an unverified or dirty release tree. If npm returns `E404`/permission errors for `@then/*`, stop: either obtain/admin the `@then` scope or intentionally rename the packages, then rerun the full verification and dry-run before any real publish.
+Do not publish from an unverified or dirty release tree. If npm returns `E404`/permission errors for `@then/*`, stop: either obtain/admin the `@then` scope or intentionally rename the packages, then rerun the full verification and dry-run before any real publish. Real publishing also runs a namespace-authority preflight for scoped packages before uploading tarballs; do not bypass it unless a separate reviewed release procedure replaces it.

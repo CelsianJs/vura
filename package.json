@@ -18,7 +18,7 @@
     "assert:release-private": "node scripts/assert-release-private.mjs"
   },
   "devDependencies": {
-    "@types/node": "^25.4.0",
+    "@types/node": ">=20 <23",
     "esbuild": "^0.27.3",
     "typescript": "^5.7.0",
     "vite": "^6.4.1",
@@ -28,7 +28,10 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "workerd"
-    ]
+    ],
+    "overrides": {
+      "@types/node": "22.19.18"
+    }
   },
   "dependencies": {
     "what-core": "^0.8.1",

@@ -3,7 +3,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const THEN_PACKAGE_VERSION = '0.1.0';
@@ -301,12 +301,14 @@ ${bold('Options:')}
     console.log(dim(`  Installing dependencies with ${pm}...\n`));
 
     try {
-      execSync(`${pm} install`, {
+      execFileSync(pm, ['install'], {
         cwd: targetDir,
         stdio: 'inherit',
       });
     } catch {
-      console.log(yellow('\n  Warning: Failed to install dependencies. The public @then/* npm scope is not available yet; rerun with --no-install for scaffolding-only smoke, or run install manually after namespace access is resolved.\n'));
+      console.error(red('\n  Error: Failed to install dependencies. The scaffold was created, but installation must succeed unless --no-install is explicitly passed.'));
+      console.error(dim('  Rerun with --no-install only for scaffolding-only inspection, or fix package registry/scope access and run install manually in the project.\n'));
+      process.exit(1);
     }
   }
 
