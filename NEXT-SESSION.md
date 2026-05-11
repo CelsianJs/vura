@@ -266,4 +266,4 @@ Still blocked:
 
 ## 2026-05-11 — Current handoff-doc head
 
-- Current repo-local handoff document head: `main@bf390c6`.
+- Use `git rev-parse --short HEAD` on `main`; this handoff file may be committed after earlier evidence sections, so avoid copying a stale self-referential hash.
