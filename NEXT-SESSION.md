@@ -2,7 +2,7 @@
 
 ## Current State
 - **Branch**: `audit-hardening`
-- **Tests**: 389 passing (`pnpm test`, 29 files)
+- **Tests**: latest `pnpm release:check` passed with 31 Vitest files / 392 tests
 - **Build**: `pnpm build` passing
 - **Pack check**: `pnpm verify:publish` currently verifies 7 public tarballs, no `workspace:` refs, installed CLI bins, imports, and create-then scaffold build/run smoke
 - **Gold-standard score**: 45/50 after OSS release-blocker fixes; package tarballs are locally publish-ready, but npm `@then/*` scope authorization still blocks actual publish
@@ -22,7 +22,7 @@
 
 ## Release Checklist / Current Blocker
 - [x] `pnpm build` passes
-- [x] `pnpm test` passes (current baseline: 389 tests / 29 files)
+- [x] `pnpm test` passes (current baseline from latest release check: 31 Vitest files / 392 tests)
 - [x] `pnpm verify:publish` passes: 7 public tarballs, no `workspace:` refs, clean npm install/import smoke, create-then scaffold build/run smoke, private package guards
 - [x] `VURA_PUBLISH_DRY_RUN=1 node scripts/publish-packages.mjs --dry-run` passes for 7 public JS packages and excludes private packages
 - [x] `CHANGELOG.md` and `.github/workflows/release.yml` added
