@@ -208,3 +208,15 @@ Ran the Vura build/run smoke from `../SMOKE-TEST-RUNBOOK.md` against the local C
 - `node packages/cli/dist/bin.js build` found 2 API routes and 2 pages, rendered static pages, copied public assets, and produced `dist/server/entry.js`.
 - The generated server entry contained no `require(` calls.
 - The built server returned JSON from `/api/hello`, echoed POST JSON from `/api/echo`, served `/test.txt`, and returned `200` for `/` and `/about`.
+
+## 2026-05-10 — GitHub CI tar portability follow-up
+
+After pushing `audit-hardening`, GitHub CI exposed a Linux-only failure in `packages/adapter-vura/test/tarball.test.ts`: GNU tar exits nonzero when the destination tarball is created inside the directory being archived. Addressed locally:
+
+- `createTarball()` now writes the archive to an external temporary directory first, then renames it to the requested output path.
+- This preserves shell-injection safety while avoiding GNU tar's "file changed as we read it" failure.
+
+Verification:
+- `pnpm --filter @then/adapter-vura test` passed.
+- `pnpm --filter @then/adapter-vura build` passed.
+- `git diff --check` passed.

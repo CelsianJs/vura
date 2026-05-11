@@ -19,12 +19,12 @@
  * ```
  */
 
-import { readFile, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rename, rm, stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
-import { basename, join, relative } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import type { ThenAdapter, AdapterBuildContext } from '@then/core';
 
 const execAsync = promisify(exec);
@@ -198,16 +198,23 @@ async function getGitInfo(projectRoot: string): Promise<{ ref?: string; sha?: st
 }
 
 export async function createTarball(sourceDir: string, outputPath: string): Promise<void> {
-  // Use the system tar command for reliability
-  await execFileAsync('tar', [
-    '-czf',
-    outputPath,
-    '--exclude',
-    basename(outputPath),
-    '-C',
-    sourceDir,
-    '.',
-  ]);
+  // Use the system tar command for reliability. Write outside sourceDir first so
+  // GNU tar on Linux does not warn/fail when the destination path is inside the
+  // directory being archived.
+  const tempDir = await mkdtemp(join(tmpdir(), 'vura-tarball-out-'));
+  const tempOutputPath = join(tempDir, basename(outputPath));
+  try {
+    await execFileAsync('tar', [
+      '-czf',
+      tempOutputPath,
+      '-C',
+      sourceDir,
+      '.',
+    ]);
+    await rename(tempOutputPath, outputPath);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
 }
 
 async function streamLogs(apiUrl: string, deploymentId: string, token: string): Promise<void> {
