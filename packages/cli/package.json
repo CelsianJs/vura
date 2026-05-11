@@ -4,17 +4,47 @@
   "description": "ThenJS CLI — build and deploy full-stack apps",
   "type": "module",
   "bin": {
-    "then": "dist/bin.js"
+    "then": "bin.js",
+    "thenjs": "bin.js",
+    "vura": "bin.js"
   },
   "exports": {
     ".": "./dist/index.js"
   },
-  "files": ["dist"],
+  "files": [
+    "bin.js",
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -b",
-    "dev": "tsc -b --watch"
+    "dev": "tsc -b --watch",
+    "prepack": "pnpm run build"
   },
   "dependencies": {
-    "@then/core": "workspace:*"
+    "@then/core": "workspace:0.1.0",
+    "esbuild": "^0.27.3"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zvndev/vura.git"
+  },
+  "homepage": "https://github.com/zvndev/vura#readme",
+  "bugs": {
+    "url": "https://github.com/zvndev/vura/issues"
+  },
+  "keywords": [
+    "vura",
+    "thenjs",
+    "cli",
+    "full-stack",
+    "deployment",
+    "typescript"
+  ],
+  "engines": {
+    "node": ">=20 <23"
   }
 }

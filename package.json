@@ -1,17 +1,26 @@
 {
   "private": true,
-  "name": "then-monorepo",
+  "name": "vura",
   "workspaces": [
     "packages/*",
     "examples/*"
   ],
   "scripts": {
-    "build": "tsc -b packages/core packages/cli packages/vite-plugin packages/adapter-lambda packages/adapter-cloudflare",
+    "build": "tsc -b packages/core packages/cli packages/vite-plugin packages/adapter-lambda packages/adapter-cloudflare packages/adapter-vura packages/compiler packages/create-then",
     "test": "vitest run",
-    "dev": "node packages/cli/dist/bin.js dev"
+    "dev": "node packages/cli/dist/bin.js dev",
+    "verify:publish": "node scripts/verify-publish.mjs",
+    "lint": "node scripts/check-hygiene.mjs",
+    "format": "node scripts/check-hygiene.mjs",
+    "check": "pnpm run assert:release-private && pnpm run lint && pnpm run build",
+    "audit": "pnpm audit --prod",
+    "verify:registry": "node scripts/verify-registry-install.mjs",
+    "assert:release-private": "node scripts/assert-release-private.mjs",
+    "release:check": "node scripts/release-check.mjs",
+    "package:size": "node scripts/check-package-size.mjs"
   },
   "devDependencies": {
-    "@types/node": "^25.4.0",
+    "@types/node": ">=20 <23",
     "esbuild": "^0.27.3",
     "typescript": "^5.7.0",
     "vite": "^6.4.1",
@@ -21,10 +30,18 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "workerd"
-    ]
+    ],
+    "overrides": {
+      "@types/node": "22.19.18"
+    }
   },
   "dependencies": {
-    "what-core": "file:/Users/macbookpro-kirby/Desktop/Coding/ZVN/what-fw/packages/core",
-    "what-framework": "file:/Users/macbookpro-kirby/Desktop/Coding/ZVN/what-fw/packages/what"
+    "what-core": "^0.8.1",
+    "what-framework": "^0.8.1"
+  },
+  "license": "MIT",
+  "packageManager": "pnpm@10.11.0",
+  "engines": {
+    "node": ">=20 <23"
   }
 }

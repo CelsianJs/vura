@@ -39,12 +39,12 @@ export async function run(args: string[]): Promise<void> {
 
 function printHelp(): void {
   console.log(`
-  then — ThenJS CLI
+  vura / thenjs — Vura CLI
 
   Commands:
     dev         Start local development server
     build       Build the project for deployment
-    deploy      Deploy to configured provider
+    deploy      Explain managed deployment availability (not in OSS CLI yet)
     admin       Launch the admin dashboard
     manifest    Print the route manifest (debug)
 

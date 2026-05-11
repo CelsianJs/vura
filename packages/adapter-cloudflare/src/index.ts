@@ -12,9 +12,55 @@
  */
 
 import { writeFile, mkdir } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ThenAdapter, AdapterBuildContext } from '@then/core';
 import type { RouteManifest, ApiRoute } from '@then/core';
+
+
+const require = createRequire(import.meta.url);
+
+function resolveCorePackageDir(): string {
+  try {
+    return dirname(require.resolve('@then/core'));
+  } catch {
+    const localCore = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules', '@then', 'core');
+    return join(localCore, existsSync(join(localCore, 'src')) ? 'src' : 'dist');
+  }
+}
+
+const CORE_PACKAGE_DIR = resolveCorePackageDir();
+
+function coreModuleExt(moduleName: string): string {
+  return existsSync(join(CORE_PACKAGE_DIR, `${moduleName}.ts`)) ? 'ts' : 'js';
+}
+
+function thenCoreRuntimeShimPlugin() {
+  return {
+    name: 'then-core-runtime-shim',
+    setup(build: any) {
+      build.onResolve({ filter: /^@then\/core\/(jsx-runtime|jsx-dev-runtime)$/ }, () => ({
+        path: join(CORE_PACKAGE_DIR, `jsx-runtime.${coreModuleExt('jsx-runtime')}`),
+      }));
+      build.onResolve({ filter: /^@then\/core$/ }, () => ({
+        path: '@then/core',
+        namespace: 'then-core-runtime-shim',
+      }));
+      build.onLoad({ filter: /.*/, namespace: 'then-core-runtime-shim' }, () => ({
+        loader: 'js',
+        resolveDir: CORE_PACKAGE_DIR,
+        contents: `
+export { defineConfig } from './config.${coreModuleExt('config')}';
+export { HttpError, ErrorCode, badRequest, unauthorized, forbidden, notFound, methodNotAllowed, conflict, rateLimited, internalError, serviceUnavailable, formatErrorResponse, sendErrorResponse, renderErrorPage, setGlobalErrorHandler, getGlobalErrorHandler, reportError, getErrorMode } from './errors.${coreModuleExt('errors')}';
+export { defineSchema, validate, withValidation, validateRequest } from './validation.${coreModuleExt('validation')}';
+export { HookRegistry, createHookRegistry, getHookRegistry, setDefaultHookRegistry, executeWithHooks } from './hooks.${coreModuleExt('hooks')}';
+`,
+      }));
+    },
+  };
+}
 
 // ─── Types ───
 
@@ -166,10 +212,7 @@ export function generateWorkerEntry(
 
   for (const route of routes) {
     const varName = routeToVarName(route);
-    const relPath = relative(workerDir, join(projectRoot, route.filePath))
-      .replace(/\.tsx?$/, '.js')
-      .replace(/\\/g, '/');
-    const importPath = relPath.startsWith('.') ? relPath : `./${relPath}`;
+    const importPath = `./routes/${routeModuleFileName(route)}`;
     imports.push(`import * as ${varName} from '${importPath}';`);
 
     routeTable.push(`  { pattern: '${route.urlPattern}', methods: [${route.methods.map(m => `'${m}'`).join(', ')}], handlers: ${varName} },`);
@@ -180,10 +223,7 @@ export function generateWorkerEntry(
   const taskTable: string[] = [];
   for (const route of taskRoutes) {
     const varName = routeToVarName(route);
-    const relPath = relative(workerDir, join(projectRoot, route.filePath))
-      .replace(/\.tsx?$/, '.js')
-      .replace(/\\/g, '/');
-    const importPath = relPath.startsWith('.') ? relPath : `./${relPath}`;
+    const importPath = `./routes/${routeModuleFileName(route)}`;
     taskImports.push(`import * as ${varName} from '${importPath}';`);
     const taskName = route.urlPattern.replace(/^\/api\//, '').replace(/\//g, '.');
     const schedule = route.config.schedule ? `'${route.config.schedule}'` : 'null';
@@ -236,6 +276,61 @@ function parseBody(request) {
   return request.text();
 }
 
+function normalizeHooks(hooks) {
+  if (!hooks) return undefined;
+  return {
+    onRequest: hooks.onRequest ? (Array.isArray(hooks.onRequest) ? hooks.onRequest : [hooks.onRequest]) : undefined,
+    onError: hooks.onError ? (Array.isArray(hooks.onError) ? hooks.onError : [hooks.onError]) : undefined,
+    onResponse: hooks.onResponse ? (Array.isArray(hooks.onResponse) ? hooks.onResponse : [hooks.onResponse]) : undefined,
+  };
+}
+
+function validationIssues(target, error) {
+  const issues = (error && Array.isArray(error.issues)) ? error.issues : [{ path: [], message: error?.message || 'Invalid value' }];
+  return { target, issues: issues.map(i => ({ path: Array.isArray(i.path) ? i.path.join('.') : String(i.path || ''), message: i.message || 'Invalid value', ...(i.code ? { code: i.code } : {}) })) };
+}
+
+function validateRequest(req, schema) {
+  const errors = [];
+  if (schema.body) {
+    const r = schema.body.safeParse(req.parsedBody);
+    if (!r.success) errors.push(validationIssues('body', r.error));
+    else { req.parsedBody = r.data; req.body = r.data; }
+  }
+  if (schema.query) {
+    const r = schema.query.safeParse(req.query);
+    if (!r.success) errors.push(validationIssues('query', r.error));
+    else req.query = r.data;
+  }
+  if (schema.params) {
+    const r = schema.params.safeParse(req.params);
+    if (!r.success) errors.push(validationIssues('params', r.error));
+    else req.params = r.data;
+  }
+  if (errors.length > 0) {
+    const issueCount = errors.reduce((acc, e) => acc + e.issues.length, 0);
+    const message = 'Validation failed: ' + issueCount + ' issue' + (issueCount > 1 ? 's' : '') + ' in ' + errors.map(e => e.target).join(', ');
+    return { statusCode: 400, body: { error: message, code: 'VALIDATION_ERROR', details: errors } };
+  }
+  req.validated = { body: req.parsedBody, query: req.query, params: req.params };
+  return null;
+}
+
+async function runHooks(hooks, ...args) {
+  if (!hooks) return;
+  for (const hook of hooks) await hook(...args);
+}
+
+async function runOnError(err, req, reply, routeHooks) {
+  if (!routeHooks?.onError) return { handled: false, error: err };
+  let handled = false;
+  for (const hook of routeHooks.onError) {
+    try { await hook(err, req, reply); handled = true; }
+    catch (hookErr) { err = hookErr; }
+  }
+  return { handled, error: err };
+}
+
 ${taskTable.length > 0 ? `const taskRoutes = [\n${taskTable.join('\n')}\n];\n` : ''}
 export default {
   async fetch(request, env, ctx) {
@@ -252,6 +347,8 @@ export default {
     }
 
     const handlerFn = match.route.handlers[method];
+    const routeHooks = normalizeHooks(match.route.handlers.hooks || match.route.handlers);
+    const routeSchema = match.route.handlers.schema;
     if (typeof handlerFn !== 'function') {
       return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { status: 405, headers: { 'Content-Type': 'application/json' } });
     }
@@ -263,6 +360,7 @@ export default {
       headers: Object.fromEntries(request.headers.entries()),
       params: match.params,
       query: Object.fromEntries(url.searchParams.entries()),
+      body,
       parsedBody: body,
       __cf_env: env,
       __cf_ctx: ctx,
@@ -276,9 +374,32 @@ export default {
       header(name, value) { responseHeaders[name] = value; return reply; },
       json(data) { responseBody = JSON.stringify(data); return null; },
       send(data) { responseBody = data; return null; },
+      redirect(url, status) { statusCode = status || 302; responseHeaders.location = url; responseBody = 'Redirecting to ' + url; return null; },
     };
 
-    const result = await handlerFn(req, reply);
+    if (routeSchema) {
+      const validationError = validateRequest(req, routeSchema);
+      if (validationError) return new Response(JSON.stringify(validationError.body), { status: validationError.statusCode, headers: responseHeaders });
+    }
+
+    const startedAt = performance.now();
+    let result;
+    let hadError = false;
+    try {
+      await runHooks(routeHooks?.onRequest, req, reply);
+      result = await handlerFn(req, reply);
+    } catch (err) {
+      hadError = true;
+      statusCode = err && err.statusCode ? err.statusCode : 500;
+      const errorResult = await runOnError(err, req, reply, routeHooks);
+      if (!errorResult.handled && responseBody === null) {
+        responseBody = JSON.stringify({ error: statusCode === 500 ? 'Internal Server Error' : (errorResult.error?.message || 'Request failed') });
+      }
+    } finally {
+      const durationMs = Math.round((performance.now() - startedAt) * 100) / 100;
+      try { await runHooks(routeHooks?.onResponse, req, reply, { statusCode, durationMs, hadError }); } catch {}
+    }
+
     if (result instanceof Response) return result;
     if (responseBody !== null) return new Response(responseBody, { status: statusCode, headers: responseHeaders });
     if (result && typeof result === 'object') return new Response(JSON.stringify(result), { status: statusCode, headers: responseHeaders });
@@ -289,6 +410,7 @@ ${taskTable.length > 0 ? `
     // Execute all task routes that have schedules
     const results = [];
     for (const task of taskRoutes) {
+      if (task.schedule !== event.cron) continue;
       if (typeof task.handler === 'function') {
         try {
           const result = await task.handler({
@@ -397,6 +519,9 @@ export function cloudflareAdapter(options: CloudflareAdapterOptions): ThenAdapte
         // Generate worker entry (include task routes for scheduled handler)
         const entry = generateWorkerEntry(routes, projectRoot, workerDir, taskRoutes);
         await writeFile(join(workerDir, 'entry.js'), entry);
+        for (const route of [...routes, ...taskRoutes]) {
+          await bundleRouteModule(route, projectRoot, join(workerDir, 'routes', routeModuleFileName(route)));
+        }
       }
     },
   };
@@ -437,6 +562,39 @@ function routeToVarName(route: ApiRoute): string {
     .replace(/^\//, '')
     .replace(/[/:*\-]/g, '_')
     .replace(/_+/g, '_');
+}
+
+function routeModuleFileName(route: ApiRoute): string {
+  return route.filePath
+    .replace(/\.[cm]?tsx?$/, '')
+    .replace(/[^a-zA-Z0-9_/-]/g, '_')
+    .replace(/[/-]+/g, '_')
+    .replace(/^_+|_+$/g, '') + '.js';
+}
+
+async function bundleRouteModule(route: ApiRoute, projectRoot: string, outfile: string): Promise<void> {
+  const absPath = join(projectRoot, route.filePath);
+  if (!existsSync(absPath)) {
+    throw new Error(`Route source not found for ${route.filePath}: ${absPath}`);
+  }
+
+  const { build: esbuild } = await import('esbuild');
+  await mkdir(dirname(outfile), { recursive: true });
+  await esbuild({
+    entryPoints: [absPath],
+    bundle: true,
+    format: 'esm',
+    target: 'es2022',
+    platform: 'neutral',
+    outfile,
+    nodePaths: [
+      join(projectRoot, 'node_modules'),
+      join(process.cwd(), 'node_modules'),
+      join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules'),
+    ],
+    plugins: [thenCoreRuntimeShimPlugin()],
+    external: ['what-framework', 'what-framework/*'],
+  });
 }
 
 function toDateString(date: Date): string {

@@ -21,12 +21,38 @@
       "default": "./dist/jsx-runtime.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "prepack": "pnpm run build"
   },
-  "dependencies": {},
+  "dependencies": {
+    "esbuild": "^0.27.3"
+  },
   "publishConfig": {
     "access": "public"
+  },
+  "license": "MIT",
+  "description": "Vura core runtime and build pipeline for full-stack TypeScript apps",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zvndev/vura.git"
+  },
+  "homepage": "https://github.com/zvndev/vura#readme",
+  "bugs": {
+    "url": "https://github.com/zvndev/vura/issues"
+  },
+  "keywords": [
+    "vura",
+    "thenjs",
+    "full-stack",
+    "serverless",
+    "static-site",
+    "typescript"
+  ],
+  "engines": {
+    "node": ">=20 <23"
   }
 }

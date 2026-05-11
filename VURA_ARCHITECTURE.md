@@ -677,7 +677,7 @@ running before proxying.
 
 7. GitHub PR comment posted:
    "✅ Preview deployed to https://feature-branch--myapp-myteam.vura.app
-    
+
     Route summary:
     λ GET /api/hello          serverless
     ● GET /api/health         hot (on-demand)
@@ -841,14 +841,14 @@ TTL: 300 seconds (cached)
 User adds domain in dashboard:
 1. Insert domain record (status: 'pending')
 2. Return DNS instructions:
-   
+
    Option A (CNAME — recommended):
      CNAME <subdomain> → proxy.vura.app
-   
+
    Option B (A record — apex domains):
      A @ → <Vura IP 1>
      A @ → <Vura IP 2>
-   
+
    Verification:
      TXT _vura-verification.<domain> → <verification_token>
 

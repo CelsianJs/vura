@@ -5,7 +5,7 @@
  *
  * Usage:
  *   then build     — Scan routes, generate manifests, bundle for deployment
- *   then deploy    — Deploy to configured provider (CF Workers, Lambda, etc.)
+ *   then deploy    — Explain managed deployment availability (not in OSS CLI yet)
  *   then dev       — Start local dev server with HMR
  *   then manifest  — Print the route manifest (debug)
  */

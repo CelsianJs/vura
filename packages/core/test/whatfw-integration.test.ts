@@ -239,8 +239,8 @@ describe('What Framework Integration — Page Modes', () => {
     });
   });
 
-  describe('Streaming SSR', () => {
-    it('streams HTML chunks via async iterator', async () => {
+  describe('Chunked full HTML rendering', () => {
+    it('yields full HTML in chunks via async iterator', async () => {
       function BigPage() {
         return h('div', null,
           h('h1', null, 'Streamed Page'),
@@ -262,7 +262,7 @@ describe('What Framework Integration — Page Modes', () => {
       expect(fullHtml).toContain('<h1>Streamed Page</h1>');
       expect(fullHtml).toContain('First section');
       expect(fullHtml).toContain('Second section');
-      // Should have gotten multiple chunks
+      // This only asserts chunked full HTML output, not progressive SSR.
       expect(chunks.length).toBeGreaterThan(1);
     });
   });

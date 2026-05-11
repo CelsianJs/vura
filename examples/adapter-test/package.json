@@ -1,1 +1,1 @@
-{ "name": "adapter-test", "type": "module" }
+{ "name": "adapter-test", "private": true, "type": "module" }

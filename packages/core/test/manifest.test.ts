@@ -1,6 +1,29 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { extractApiExports, extractPageConfig, fileToUrlPattern, buildManifest } from '../src/manifest.js';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+
+const tempRoots = new Set<string>();
+
+function createManifestFixture(): string {
+  const root = mkdtempSync(join(tmpdir(), 'vura-manifest-'));
+  tempRoots.add(root);
+  return root;
+}
+
+function writeFixtureFile(root: string, relPath: string, source: string): void {
+  const fullPath = join(root, relPath);
+  mkdirSync(dirname(fullPath), { recursive: true });
+  writeFileSync(fullPath, source);
+}
+
+afterEach(() => {
+  for (const root of tempRoots) {
+    rmSync(root, { recursive: true, force: true });
+    tempRoots.delete(root);
+  }
+});
 
 describe('extractApiExports', () => {
   it('detects GET and POST methods', () => {
@@ -115,6 +138,35 @@ describe('fileToUrlPattern', () => {
 });
 
 describe('buildManifest', () => {
+  it('builds nested layout chains from root to leaf and excludes layout files as routes', async () => {
+    const root = createManifestFixture();
+    writeFixtureFile(root, 'src/pages/_layout.tsx', 'export default function RootLayout() {}');
+    writeFixtureFile(root, 'src/pages/blog/layout.tsx', 'export default function BlogLayout() {}');
+    writeFixtureFile(root, 'src/pages/blog/[slug].tsx', `
+      export const page = { mode: 'server' };
+      export default function Post() {}
+    `);
+    writeFixtureFile(root, 'src/pages/about.tsx', `
+      export const page = { mode: 'server' };
+      export default function About() {}
+    `);
+
+    const manifest = await buildManifest(root);
+
+    const post = manifest.pages.find((page) => page.urlPattern === '/blog/:slug');
+    expect(post?.layouts).toEqual([
+      'src/pages/_layout.tsx',
+      'src/pages/blog/layout.tsx',
+    ]);
+
+    const about = manifest.pages.find((page) => page.urlPattern === '/about');
+    expect(about?.layouts).toEqual(['src/pages/_layout.tsx']);
+
+    expect(manifest.pages.map((page) => page.urlPattern)).not.toContain('/_layout');
+    expect(manifest.pages.map((page) => page.urlPattern)).not.toContain('/blog/layout');
+    expect(manifest.layouts.map((layout) => layout.dirPattern).sort()).toEqual(['', 'blog']);
+  });
+
   it('scans the serverless-poc example', async () => {
     const pocRoot = join(__dirname, '../../../examples/serverless-poc');
     const manifest = await buildManifest(pocRoot);

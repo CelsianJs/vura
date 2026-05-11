@@ -12,7 +12,12 @@
  */
 
 import { buildManifest, build, renderStaticPages } from '@then/core';
+import { createRequire } from 'node:module';
+import { Buffer } from 'node:buffer';
 import { loadConfig } from '../config-loader.js';
+
+const nativeImport = (specifier: string): Promise<any> => import(/* @vite-ignore */ specifier);
+const moduleSourceToDataUrl = (source: string): string => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 
 export async function buildCommand(_args: string[]): Promise<void> {
   const startTime = Date.now();
@@ -39,15 +44,18 @@ export async function buildCommand(_args: string[]): Promise<void> {
   // Shared esbuild helpers
   const { build: esbuild } = await import('esbuild');
   const { join, resolve } = await import('node:path');
-  const { writeFile, mkdir } = await import('node:fs/promises');
-  const { pathToFileURL } = await import('node:url');
+  const { mkdir } = await import('node:fs/promises');
   const { existsSync } = await import('node:fs');
 
-  // Determine JSX import source: prefer what-framework, fall back to @then/core
+  const cliRequire = createRequire(import.meta.url);
+  const projectRequire = createRequire(join(root, 'package.json'));
+
+  // Determine JSX import source from the user's project, not from the CLI's own
+  // dependency graph. Use ESM resolution because What Framework exposes
+  // jsx-runtime under import conditions, not CommonJS require conditions.
   let jsxImportSource = '@then/core';
   try {
-    // @ts-ignore — optional dependency
-    await import('what-framework/jsx-runtime');
+    await import('what-framework' + '/jsx-runtime');
     jsxImportSource = 'what-framework';
     console.log('  Using What Framework JSX runtime');
   } catch {
@@ -72,6 +80,14 @@ export async function buildCommand(_args: string[]): Promise<void> {
   const esmResolvePlugin = {
     name: 'esm-resolve',
     setup(build: any) {
+      build.onResolve({ filter: /^@then\/core\/(jsx-runtime|jsx-dev-runtime)$/ }, (args: any) => {
+        try {
+          return { path: projectRequire.resolve(args.path) };
+        } catch {
+          return { path: cliRequire.resolve(args.path) };
+        }
+      });
+
       build.onResolve({ filter: /^what-(framework|core)\// }, (args: any) => {
         const parts = args.path.split('/');
         const pkg = parts[0];
@@ -121,6 +137,79 @@ export async function buildCommand(_args: string[]): Promise<void> {
     }
   }
 
+  // 3b. Bundle layout files used by server-mode pages
+  if (manifest.layouts.length > 0 && serverPages.length > 0) {
+    // Only compile layouts that are actually referenced by server-mode pages
+    const usedLayoutPaths = new Set<string>();
+    for (const page of serverPages) {
+      if (page.layouts) {
+        for (const lp of page.layouts) usedLayoutPaths.add(lp);
+      }
+    }
+
+    const layoutsToCompile = manifest.layouts.filter(l => usedLayoutPaths.has(l.filePath));
+    if (layoutsToCompile.length > 0) {
+      console.log(`  Bundling ${layoutsToCompile.length} layout files...`);
+      const serverPagesDir = join(root, 'dist', 'server', 'pages');
+      await mkdir(serverPagesDir, { recursive: true });
+
+      for (const layout of layoutsToCompile) {
+        const absPath = resolve(root, layout.filePath);
+        const outFile = layout.filePath.replace(/^src\/pages\//, '').replace(/\.tsx?$/, '.js');
+        const outPath = join(serverPagesDir, outFile);
+        await mkdir(join(outPath, '..'), { recursive: true });
+
+        await esbuild({
+          entryPoints: [absPath],
+          bundle: true,
+          format: 'esm',
+          target: 'es2022',
+          platform: 'node',
+          outfile: outPath,
+          jsx: 'automatic',
+          jsxImportSource,
+          plugins: [esmResolvePlugin],
+          external: [],
+        });
+
+        console.log(`    ⊟ layout ${layout.dirPattern || '(root)'} → dist/server/pages/${outFile}`);
+      }
+    }
+  }
+
+  // 3c. Bundle browser page modules for client and hybrid pages.
+  const browserPages = manifest.pages.filter(p => p.mode === 'client' || p.mode === 'hybrid');
+  const clientScripts: Record<string, string> = {};
+  if (browserPages.length > 0) {
+    console.log(`  Bundling ${browserPages.length} browser page modules...`);
+    const clientPagesDir = join(root, 'dist', 'static', '_then', 'pages');
+    await mkdir(clientPagesDir, { recursive: true });
+
+    for (const page of browserPages) {
+      const absPath = resolve(root, page.filePath);
+      const outFile = page.filePath.replace(/^src\/pages\//, '').replace(/\.(tsx|jsx|ts|js)$/, '.js');
+      const outPath = join(clientPagesDir, outFile);
+      await mkdir(join(outPath, '..'), { recursive: true });
+
+      await esbuild({
+        entryPoints: [absPath],
+        bundle: true,
+        format: 'esm',
+        target: 'es2022',
+        platform: 'browser',
+        outfile: outPath,
+        jsx: 'automatic',
+        jsxImportSource,
+        plugins: [esmResolvePlugin],
+        external: [],
+      });
+
+      const scriptPath = `/_then/pages/${outFile.replace(/\\/g, '/')}`;
+      clientScripts[page.filePath] = scriptPath;
+      console.log(`    ◇ ${page.urlPattern} → dist/static${scriptPath}`);
+    }
+  }
+
   // 4. Build API routes + task entries
   console.log('  Building...');
   const result = await build(manifest, config, root);
@@ -131,10 +220,10 @@ export async function buildCommand(_args: string[]): Promise<void> {
     console.log(`  Tasks: ${result.taskEntries.length} task entries`);
   }
 
-  // 5. Render static pages
-  const staticPages = manifest.pages.filter(p => p.mode === 'static');
+  // 5. Render build-time pages (static, client shells, and hybrid prerendered HTML)
+  const staticPages = manifest.pages.filter(p => p.mode !== 'server');
   if (staticPages.length > 0) {
-    console.log(`  Rendering ${staticPages.length} static pages...`);
+    console.log(`  Rendering ${staticPages.length} build-time pages...`);
 
     const tmpDir = join(root, 'dist', '.page-tmp');
     await mkdir(tmpDir, { recursive: true });
@@ -154,14 +243,12 @@ export async function buildCommand(_args: string[]): Promise<void> {
         plugins: [esmResolvePlugin],
         external: [],
       });
-      const hash = Date.now().toString(36);
-      const outPath = join(tmpDir, `${filePath.replace(/[/\\:]/g, '_')}_${hash}.mjs`);
-      await writeFile(outPath, result.outputFiles[0].text);
-      return import(pathToFileURL(outPath).href);
+      const bundledSource = result.outputFiles[0].text;
+      return nativeImport(moduleSourceToDataUrl(bundledSource));
     };
 
     const outDir = join(root, 'dist');
-    const rendered = await renderStaticPages(staticPages, loadModule, outDir);
+    const rendered = await renderStaticPages(staticPages, loadModule, outDir, { clientScripts });
 
     for (const page of rendered) {
       console.log(`    ◆ ${page.urlPattern} → ${page.outputPath.replace(root + '/', '')}`);
@@ -170,6 +257,24 @@ export async function buildCommand(_args: string[]): Promise<void> {
     // Clean up temp files
     const { rm } = await import('node:fs/promises');
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
+
+  // 6. Copy public assets to dist/public/ for production static serving.
+  // Prefer the framework-standard root public/ directory, but support the
+  // historical starter/runbook layout src/public/ when root public/ is absent.
+  const publicDir = join(root, 'public');
+  const legacySrcPublicDir = join(root, 'src', 'public');
+  const publicSourceDir = existsSync(publicDir)
+    ? publicDir
+    : existsSync(legacySrcPublicDir)
+      ? legacySrcPublicDir
+      : null;
+  if (publicSourceDir) {
+    const { cp } = await import('node:fs/promises');
+    const distPublicDir = join(root, 'dist', 'public');
+    await cp(publicSourceDir, distPublicDir, { recursive: true });
+    const label = publicSourceDir === publicDir ? 'public/' : 'src/public/';
+    console.log(`  Copied ${label} → dist/public/`);
   }
 
   if (config.adapter) {

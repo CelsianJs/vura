@@ -3,7 +3,76 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+interface CreateThenPackageMetadata {
+  version?: string;
+  thenScaffold?: {
+    dependencies?: Record<string, string>;
+    thenPackages?: string[];
+  };
+}
+
+function readJsonFile<T>(filePath: string): T | null {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
+  } catch {
+    return null;
+  }
+}
+
+function findPackageJson(startDir: string): string | null {
+  let dir = startDir;
+  while (true) {
+    const candidate = path.join(dir, 'package.json');
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+function findWorkspacePackageVersion(packageName: string, createThenPackageJsonPath: string): string | null {
+  const packagesDir = path.dirname(path.dirname(createThenPackageJsonPath));
+  if (path.basename(packagesDir) !== 'packages') return null;
+
+  for (const entry of fs.readdirSync(packagesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const packageJson = readJsonFile<{ name?: string; version?: string }>(path.join(packagesDir, entry.name, 'package.json'));
+    if (packageJson?.name === packageName && packageJson.version) return packageJson.version;
+  }
+
+  return null;
+}
+
+function getScaffoldDependencyVersions(): Record<string, string> {
+  const entryDir = path.dirname(fileURLToPath(import.meta.url));
+  const packageJsonPath = findPackageJson(entryDir);
+  if (!packageJsonPath) {
+    throw new Error('Unable to locate create-then package metadata for scaffold dependency versions');
+  }
+
+  const packageJson = readJsonFile<CreateThenPackageMetadata>(packageJsonPath);
+  const ownVersion = packageJson?.version;
+  if (!packageJson || !ownVersion) {
+    throw new Error(`${packageJsonPath} must define a version for scaffold dependency versions`);
+  }
+
+  const scaffoldDependencies = packageJson.thenScaffold?.dependencies ?? {};
+  const whatFrameworkVersion = scaffoldDependencies['what-framework'];
+  if (!whatFrameworkVersion) {
+    throw new Error(`${packageJsonPath} must define thenScaffold.dependencies["what-framework"]`);
+  }
+
+  const thenPackages = packageJson.thenScaffold?.thenPackages ?? ['@then/core', '@then/cli'];
+  const dependencies: Record<string, string> = { 'what-framework': whatFrameworkVersion };
+  for (const packageName of thenPackages) {
+    dependencies[packageName] = findWorkspacePackageVersion(packageName, packageJsonPath) ?? ownVersion;
+  }
+
+  return dependencies;
+}
 
 // ─── Colors ──────────────────────────────────────────────────────────
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
@@ -17,6 +86,7 @@ const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
 interface Args {
   projectName: string | null;
   dryRun: boolean;
+  noInstall: boolean;
   help: boolean;
 }
 
@@ -24,11 +94,14 @@ function parseArgs(argv: string[]): Args {
   const args = argv.slice(2);
   let projectName: string | null = null;
   let dryRun = false;
+  let noInstall = false;
   let help = false;
 
   for (const arg of args) {
     if (arg === '--dry-run') {
       dryRun = true;
+    } else if (arg === '--no-install') {
+      noInstall = true;
     } else if (arg === '--help' || arg === '-h') {
       help = true;
     } else if (!arg.startsWith('-')) {
@@ -36,7 +109,7 @@ function parseArgs(argv: string[]): Args {
     }
   }
 
-  return { projectName, dryRun, help };
+  return { projectName, dryRun, noInstall, help };
 }
 
 // ─── Prompt ──────────────────────────────────────────────────────────
@@ -62,7 +135,7 @@ function detectPackageManager(): 'pnpm' | 'yarn' | 'npm' {
 }
 
 // ─── File Templates ──────────────────────────────────────────────────
-function getFiles(projectName: string): Record<string, string> {
+export function getFiles(projectName: string): Record<string, string> {
   return {
     'package.json': JSON.stringify(
       {
@@ -71,21 +144,16 @@ function getFiles(projectName: string): Record<string, string> {
         private: true,
         type: 'module',
         scripts: {
-          dev: 'then dev',
-          build: 'then build',
-          deploy: 'then deploy',
+          dev: 'vura dev',
+          build: 'vura build',
         },
-        dependencies: {
-          'what-framework': 'latest',
-          '@then/core': 'latest',
-          '@then/cli': 'latest',
-        },
+        dependencies: getScaffoldDependencyVersions(),
       },
       null,
       2
     ) + '\n',
 
-    'then.config.ts': `import { defineConfig } from '@then/core';
+    'then.config.js': `import { defineConfig } from '@then/core';
 
 export default defineConfig({});
 `,
@@ -141,7 +209,7 @@ export default function HomePage() {
   return (
     <div class="home">
       <h1>Welcome to ThenJS</h1>
-      <p>Built with What Framework + CelsianJS</p>
+      <p>Built with What Framework + ThenJS API routes</p>
       <nav>
         <a href="/about">About</a>
         {' | '}
@@ -161,8 +229,7 @@ export default function AboutPage() {
       <p>This project was scaffolded with <code>create-then</code>.</p>
       <p>
         ThenJS is a full-stack meta-framework combining{' '}
-        <strong>What Framework</strong> for the UI and{' '}
-        <strong>CelsianJS</strong> for the backend.
+        <strong>What Framework</strong> for the UI with file-based API routes.
       </p>
       <nav>
         <a href="/">Home</a>
@@ -216,8 +283,9 @@ ${bold('Usage:')}
   npx create-then ${dim('[project-name]')}
 
 ${bold('Options:')}
-  --dry-run    Print what would be created without writing files
-  -h, --help   Show this help message
+  --dry-run      Print what would be created without writing files
+  --no-install   Write files but skip dependency installation
+  -h, --help     Show this help message
 `);
     process.exit(0);
   }
@@ -287,15 +355,22 @@ ${bold('Options:')}
   // 4. Install dependencies
   const pm = detectPackageManager();
   console.log();
-  console.log(dim(`  Installing dependencies with ${pm}...\n`));
 
-  try {
-    execSync(`${pm} install`, {
-      cwd: targetDir,
-      stdio: 'inherit',
-    });
-  } catch {
-    console.log(yellow('\n  Warning: Failed to install dependencies. Run install manually.\n'));
+  if (args.noInstall) {
+    console.log(yellow('  Skipping dependency install (--no-install). Run install manually after package scope access is available.\n'));
+  } else {
+    console.log(dim(`  Installing dependencies with ${pm}...\n`));
+
+    try {
+      execFileSync(pm, ['install'], {
+        cwd: targetDir,
+        stdio: 'inherit',
+      });
+    } catch {
+      console.error(red('\n  Error: Failed to install dependencies. The scaffold was created, but installation must succeed unless --no-install is explicitly passed.'));
+      console.error(dim('  Rerun with --no-install only for scaffolding-only inspection, or fix package registry/scope access and run install manually in the project.\n'));
+      process.exit(1);
+    }
   }
 
   // 5. Print next steps
@@ -304,11 +379,13 @@ ${bold('Options:')}
   console.log(bold('  Next steps:\n'));
   console.log(`    cd ${projectName}`);
   console.log(`    ${pm === 'npm' ? 'npm run' : pm} dev\n`);
-  console.log(dim('  Docs: https://thenjs.dev'));
+  console.log(dim('  Docs: https://github.com/zvndev/vura#readme'));
   console.log();
 }
 
-main().catch((err) => {
-  console.error(red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
-  process.exit(1);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error(red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
+    process.exit(1);
+  });
+}

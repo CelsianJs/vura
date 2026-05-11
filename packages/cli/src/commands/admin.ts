@@ -5,26 +5,85 @@
  * variables, and domain configuration. Inspired by Vercel's dashboard.
  *
  * Usage:
- *   then admin              — Start on port 4000
- *   then admin --port 9000  — Start on custom port
+ *   then admin                    — Start on 127.0.0.1:4000
+ *   then admin --port 9000        — Start on 127.0.0.1:9000
+ *   then admin --host 127.0.0.1 — Bind explicitly to loopback
  */
 
 import { buildManifest } from '@then/core';
 import { loadConfig } from '../config-loader.js';
 
+export const ADMIN_ENV_MAX_BODY_BYTES = 128 * 1024;
+
 interface AdminOptions {
   port: number;
+  host: string;
   projectRoot: string;
 }
 
-export async function adminCommand(args: string[]): Promise<void> {
+export function parseAdminOptions(args: string[], projectRoot = process.cwd()): AdminOptions {
   const portArg = args.find((_, i) => args[i - 1] === '--port');
-  const opts: AdminOptions = {
+  const hostArg = args.find((_, i) => args[i - 1] === '--host');
+
+  return {
     port: portArg ? parseInt(portArg, 10) : 4000,
-    projectRoot: process.cwd(),
+    host: hostArg || '127.0.0.1',
+    projectRoot,
   };
+}
+
+export function isLocalAdminHost(host: string): boolean {
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+}
+
+export function assertSafeAdminBindHost(host: string): void {
+  if (!isLocalAdminHost(host)) {
+    throw new Error(
+      `then admin must bind to localhost/loopback. Refusing unsafe host "${host}" because the dashboard manages local secrets.`,
+    );
+  }
+}
+
+export function adminApiHeaders(contentType = 'application/json'): Record<string, string> {
+  return {
+    'Content-Type': contentType,
+    'Cache-Control': 'no-store',
+  };
+}
+
+export function isAllowedAdminRequest(
+  headers: { host?: string | string[]; origin?: string | string[] },
+  bindHost: string,
+  port: number,
+): boolean {
+  const hostHeader = Array.isArray(headers.host) ? headers.host[0] : headers.host;
+  if (!hostHeader) return false;
+  const allowedHosts = new Set([
+    `127.0.0.1:${port}`,
+    `localhost:${port}`,
+    `[::1]:${port}`,
+  ]);
+  if (!isLocalAdminHost(bindHost)) return false;
+  allowedHosts.add(`${bindHost}:${port}`);
+  if (!allowedHosts.has(hostHeader)) return false;
+
+  const origin = Array.isArray(headers.origin) ? headers.origin[0] : headers.origin;
+  if (!origin) return true;
+  try {
+    const parsed = new URL(origin);
+    return allowedHosts.has(parsed.host) && (parsed.protocol === 'http:' || parsed.protocol === 'https:');
+  } catch {
+    return false;
+  }
+}
+
+export async function adminCommand(args: string[]): Promise<void> {
+  const opts = parseAdminOptions(args);
+
+  assertSafeAdminBindHost(opts.host);
 
   const { createServer } = await import('node:http');
+  const { randomBytes } = await import('node:crypto');
   const { readFile, writeFile, readdir, stat, access } = await import('node:fs/promises');
   const { join, basename } = await import('node:path');
 
@@ -32,16 +91,38 @@ export async function adminCommand(args: string[]): Promise<void> {
   let manifest = await buildManifest(opts.projectRoot);
   const config = await loadConfig(opts.projectRoot);
   const projectName = basename(opts.projectRoot);
+  const adminToken = randomBytes(32).toString('base64url');
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     const method = (req.method ?? 'GET').toUpperCase();
+    const isAdminApi = url.pathname.startsWith('/__admin/api/');
+    const sameOrigin = isAllowedAdminRequest(req.headers, opts.host, opts.port);
+    const apiHeaders = adminApiHeaders();
+
+    if (method === 'OPTIONS') {
+      res.writeHead(sameOrigin ? 204 : 403, {
+        ...apiHeaders,
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, X-Then-Admin-Token',
+      });
+      res.end();
+      return;
+    }
+
+    if (isAdminApi) {
+      if (!sameOrigin || req.headers['x-then-admin-token'] !== adminToken) {
+        res.writeHead(403, apiHeaders);
+        res.end(JSON.stringify({ error: 'Forbidden' }));
+        return;
+      }
+    }
 
     // ─── API Endpoints ───
 
     if (url.pathname === '/__admin/api/manifest' && method === 'GET') {
       manifest = await buildManifest(opts.projectRoot);
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, apiHeaders);
       res.end(JSON.stringify(manifest));
       return;
     }
@@ -91,7 +172,7 @@ export async function adminCommand(args: string[]): Promise<void> {
         }
       }
 
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, apiHeaders);
       res.end(JSON.stringify({
         name: pkgJson.name ?? projectName,
         version: pkgJson.version ?? '0.0.0',
@@ -139,7 +220,7 @@ export async function adminCommand(args: string[]): Promise<void> {
         return vars;
       };
 
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, apiHeaders);
       res.end(JSON.stringify({
         env: parseEnv(envContent),
         envLocal: parseEnv(envLocalContent),
@@ -150,17 +231,39 @@ export async function adminCommand(args: string[]): Promise<void> {
     }
 
     if (url.pathname === '/__admin/api/env' && method === 'POST') {
-      const chunks: Buffer[] = [];
-      for await (const chunk of req) chunks.push(chunk as Buffer);
-      const body = JSON.parse(Buffer.concat(chunks).toString());
+      try {
+        const chunks: Buffer[] = [];
+        let totalBytes = 0;
+        for await (const chunk of req) {
+          const buffer = chunk as Buffer;
+          totalBytes += buffer.byteLength;
+          if (totalBytes > ADMIN_ENV_MAX_BODY_BYTES) {
+            res.writeHead(413, apiHeaders);
+            res.end(JSON.stringify({ error: 'Env save payload too large' }));
+            req.destroy();
+            return;
+          }
+          chunks.push(buffer);
+        }
+        const body = JSON.parse(Buffer.concat(chunks).toString());
 
-      if (body.file === '.env' || body.file === '.env.local') {
+        if (body.file !== '.env' && body.file !== '.env.local') {
+          res.writeHead(400, apiHeaders);
+          res.end(JSON.stringify({ error: 'Invalid file' }));
+          return;
+        }
+        if (typeof body.content !== 'string') {
+          res.writeHead(400, apiHeaders);
+          res.end(JSON.stringify({ error: 'Invalid env content' }));
+          return;
+        }
+
         await writeFile(join(opts.projectRoot, body.file), body.content, 'utf-8');
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(200, apiHeaders);
         res.end(JSON.stringify({ ok: true }));
-      } else {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid file' }));
+      } catch (err) {
+        res.writeHead(400, apiHeaders);
+        res.end(JSON.stringify({ error: err instanceof SyntaxError ? 'Invalid JSON body' : 'Failed to save env file' }));
       }
       return;
     }
@@ -227,40 +330,34 @@ export async function adminCommand(args: string[]): Promise<void> {
         });
       }
 
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, apiHeaders);
       res.end(JSON.stringify(deployments));
-      return;
-    }
-
-    // CORS preflight
-    if (method === 'OPTIONS') {
-      res.writeHead(204, {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      });
-      res.end();
       return;
     }
 
     // ─── Serve Dashboard UI ───
     if (url.pathname === '/' || url.pathname === '/admin' || url.pathname.startsWith('/admin')) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(DASHBOARD_HTML);
+      res.writeHead(200, adminApiHeaders('text/html; charset=utf-8'));
+      res.end(renderDashboardHtml(adminToken));
       return;
     }
 
-    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.writeHead(404, apiHeaders);
     res.end(JSON.stringify({ error: 'Not found' }));
   });
 
-  server.listen(opts.port, () => {
+  server.listen(opts.port, opts.host, () => {
+    const displayHost = opts.host === '127.0.0.1' ? 'localhost' : opts.host;
+    const displayUrl = displayHost.includes(':')
+      ? `http://[${displayHost}]:${opts.port}`
+      : `http://${displayHost}:${opts.port}`;
     console.log(`
   ┌─────────────────────────────────────────┐
   │                                         │
   │   then admin                            │
   │                                         │
-  │   Dashboard: http://localhost:${String(opts.port).padEnd(5)}    │
+  │   Dashboard: ${displayUrl.padEnd(22)} │
+  │   Token:     ${adminToken.slice(0, 8).padEnd(25)} │
   │   Project:   ${projectName.slice(0, 25).padEnd(25)} │
   │                                         │
   │   ${manifest.api.length} API routes · ${manifest.pages.length} pages             │
@@ -274,7 +371,8 @@ export async function adminCommand(args: string[]): Promise<void> {
 
 // ─── Dashboard HTML ───
 
-const DASHBOARD_HTML = `<!DOCTYPE html>
+export function renderDashboardHtml(adminToken: string): string {
+return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -894,21 +992,35 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
 
 <script>
 const API = '/__admin/api';
+const ADMIN_TOKEN = '__THEN_ADMIN_TOKEN__';
 let state = { project: null, manifest: null, deployments: null, env: null };
 let currentPage = 'overview';
+const HTML_ESCAPE = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function h(value) { return String(value ?? '').replace(/[&<>"']/g, ch => HTML_ESCAPE[ch]); }
+
 
 // ─── Data Fetching ───
+function adminFetch(path, options = {}) {
+  return fetch(API + path, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      'X-Then-Admin-Token': ADMIN_TOKEN,
+    },
+  });
+}
+
 async function fetchAll() {
   const [project, manifest, deployments, env] = await Promise.all([
-    fetch(API + '/project').then(r => r.json()),
-    fetch(API + '/manifest').then(r => r.json()),
-    fetch(API + '/deployments').then(r => r.json()),
-    fetch(API + '/env').then(r => r.json()),
+    adminFetch('/project').then(r => r.json()),
+    adminFetch('/manifest').then(r => r.json()),
+    adminFetch('/deployments').then(r => r.json()),
+    adminFetch('/env').then(r => r.json()),
   ]);
   state = { project, manifest, deployments, env };
   document.getElementById('projectName').textContent = project.name;
-  document.getElementById('systemInfo').innerHTML =
-    'Node ' + project.nodeVersion + '<br>' + project.platform;
+  document.getElementById('systemInfo').textContent =
+    'Node ' + project.nodeVersion + ' · ' + project.platform;
   renderPage(currentPage);
 }
 
@@ -952,8 +1064,8 @@ function renderOverview() {
 
   return \`
     <div class="page-header">
-      <h2>\${p.name}</h2>
-      <p>\${p.root}</p>
+      <h2>\${h(p.name)}</h2>
+      <p>\${h(p.root)}</p>
     </div>
 
     <div class="stats-grid">
@@ -974,8 +1086,8 @@ function renderOverview() {
       </div>
       <div class="stat-card fade-in">
         <div class="stat-label">Adapter</div>
-        <div class="stat-value" style="font-size:16px">\${p.adapter || 'None'}</div>
-        <div class="stat-detail">\${Object.entries(p.adapterOutput).filter(([,v])=>v).map(([k])=>k).join(', ') || 'no adapter output'}</div>
+        <div class="stat-value" style="font-size:16px">\${h(p.adapter || 'None')}</div>
+        <div class="stat-detail">\${h(Object.entries(p.adapterOutput).filter(([,v])=>v).map(([k])=>k).join(', ') || 'no adapter output')}</div>
       </div>
     </div>
 
@@ -1027,16 +1139,16 @@ function renderDeployments() {
       <div class="deploy-card fade-in" style="animation-delay: \${i * 60}ms">
         <div class="deploy-icon" style="background: \${bgMap[d.type]}; color: \${colorMap[d.type]}">\${iconMap[d.type] || '?'}</div>
         <div class="deploy-info">
-          <h4>\${d.label}</h4>
-          <p>\${d.description}</p>
-          \${d.url ? '<div class="deploy-url">' + d.url + '</div>' : ''}
-          \${d.directory ? '<div class="deploy-url" style="background: var(--bg-elevated); color: var(--text-secondary)">' + d.directory + '</div>' : ''}
-          \${d.routes ? '<div class="deploy-routes">' + d.routes.map(r => '<span class="route-chip">' + r.methods.join(',') + ' ' + r.pattern + '</span>').join('') + '</div>' : ''}
-          \${d.pages ? '<div class="deploy-routes">' + d.pages.map(p => '<span class="route-chip">' + p + '</span>').join('') + '</div>' : ''}
-          \${d.functions ? '<div class="deploy-routes">' + d.functions.map(f => '<span class="route-chip">' + f.methods.join(',') + ' ' + f.pattern + '</span>').join('') + '</div>' : ''}
-          \${d.tasks ? '<div class="deploy-routes">' + d.tasks.map(t => '<span class="route-chip">' + t.pattern + (t.schedule ? ' (' + t.schedule + ')' : '') + '</span>').join('') + '</div>' : ''}
+          <h4>\${h(d.label)}</h4>
+          <p>\${h(d.description)}</p>
+          \${d.url ? '<div class="deploy-url">' + h(d.url) + '</div>' : ''}
+          \${d.directory ? '<div class="deploy-url" style="background: var(--bg-elevated); color: var(--text-secondary)">' + h(d.directory) + '</div>' : ''}
+          \${d.routes ? '<div class="deploy-routes">' + d.routes.map(r => '<span class="route-chip">' + r.methods.map(h).join(',') + ' ' + h(r.pattern) + '</span>').join('') + '</div>' : ''}
+          \${d.pages ? '<div class="deploy-routes">' + d.pages.map(p => '<span class="route-chip">' + h(p) + '</span>').join('') + '</div>' : ''}
+          \${d.functions ? '<div class="deploy-routes">' + d.functions.map(f => '<span class="route-chip">' + f.methods.map(h).join(',') + ' ' + h(f.pattern) + '</span>').join('') + '</div>' : ''}
+          \${d.tasks ? '<div class="deploy-routes">' + d.tasks.map(t => '<span class="route-chip">' + h(t.pattern) + (t.schedule ? ' (' + h(t.schedule) + ')' : '') + '</span>').join('') + '</div>' : ''}
         </div>
-        <span class="badge badge-green"><span class="dot"></span> \${d.status}</span>
+        <span class="badge badge-green"><span class="dot"></span> \${h(d.status)}</span>
       </div>
     \`).join('')}
   \`;
@@ -1065,10 +1177,10 @@ function renderRoutes() {
         <thead><tr><th>Pattern</th><th>Methods</th><th>Kind</th><th>File</th></tr></thead>
         <tbody>
           \${m.api.map(r => \`<tr>
-            <td class="mono">\${r.urlPattern}</td>
-            <td>\${r.methods.map(m => '<span class="badge badge-blue">' + m + '</span> ').join('')}</td>
-            <td><span class="badge \${kindBadge(r.kind)}">\${r.kind}</span></td>
-            <td class="mono" style="color: var(--text-tertiary); font-size: 11px">\${r.filePath}</td>
+            <td class="mono">\${h(r.urlPattern)}</td>
+            <td>\${r.methods.map(m => '<span class="badge badge-blue">' + h(m) + '</span> ').join('')}</td>
+            <td><span class="badge \${kindBadge(r.kind)}">\${h(r.kind)}</span></td>
+            <td class="mono" style="color: var(--text-tertiary); font-size: 11px">\${h(r.filePath)}</td>
           </tr>\`).join('')}
         </tbody>
       </table>
@@ -1083,10 +1195,10 @@ function renderRoutes() {
         <thead><tr><th>Pattern</th><th>Mode</th><th>SSR Data</th><th>File</th></tr></thead>
         <tbody>
           \${m.pages.map(p => \`<tr>
-            <td class="mono">\${p.urlPattern}</td>
-            <td><span class="badge \${modeBadge(p.mode)}">\${p.mode}</span></td>
+            <td class="mono">\${h(p.urlPattern)}</td>
+            <td><span class="badge \${modeBadge(p.mode)}">\${h(p.mode)}</span></td>
             <td>\${p.hasGetServerData ? '<span class="badge badge-green">getServerData</span>' : '<span style="color: var(--text-tertiary)">—</span>'}</td>
-            <td class="mono" style="color: var(--text-tertiary); font-size: 11px">\${p.filePath}</td>
+            <td class="mono" style="color: var(--text-tertiary); font-size: 11px">\${h(p.filePath)}</td>
           </tr>\`).join('')}
         </tbody>
       </table>
@@ -1100,8 +1212,8 @@ function renderEnv() {
 
   const renderVars = (vars, file) => vars.map((v, i) => \`
     <div class="env-row">
-      <input class="env-key" value="\${v.key}" data-file="\${file}" data-index="\${i}" data-field="key" spellcheck="false">
-      <input class="env-value" value="\${v.value}" data-file="\${file}" data-index="\${i}" data-field="value" spellcheck="false" type="\${v.key.includes('SECRET') || v.key.includes('KEY') || v.key.includes('TOKEN') ? 'password' : 'text'}">
+      <input class="env-key" value="\${h(v.key)}" data-file="\${file}" data-index="\${i}" data-field="key" spellcheck="false">
+      <input class="env-value" value="\${h(v.value)}" data-file="\${file}" data-index="\${i}" data-field="value" spellcheck="false" type="\${v.key.includes('SECRET') || v.key.includes('KEY') || v.key.includes('TOKEN') ? 'password' : 'text'}">
       <button class="env-btn" data-remove="\${file}:\${i}" title="Remove">✕</button>
     </div>
   \`).join('');
@@ -1146,26 +1258,36 @@ function renderEnv() {
   \`;
 }
 
+function quoteEnvValue(value) {
+  if (!/[\s#"'\\n\\r]/.test(value)) return value;
+  return '"' + value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r') + '"';
+}
+
 function collectEnvVars(containerId) {
   const rows = document.querySelectorAll('#' + containerId + ' .env-row');
   const lines = [];
   rows.forEach(row => {
     const key = row.querySelector('.env-key').value.trim();
     const value = row.querySelector('.env-value').value;
-    if (key) lines.push(key + '=' + value);
+    if (key) lines.push(key + '=' + quoteEnvValue(value));
   });
   return lines.join('\\n') + '\\n';
 }
 
 async function saveEnvFile(file, containerId) {
   const content = collectEnvVars(containerId);
-  await fetch(API + '/env', {
+  const response = await adminFetch('/env', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ file, content }),
   });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Save failed' }));
+    showToast(error.error || 'Save failed');
+    return;
+  }
   showToast('Saved ' + file);
-  const envData = await fetch(API + '/env').then(r => r.json());
+  const envData = await adminFetch('/env').then(r => r.json());
   state.env = envData;
 }
 
@@ -1246,7 +1368,7 @@ function renderDomains() {
           </tr>
           \${m.pages.filter(p => p.mode === 'server' || p.mode === 'hybrid').map(p => \`
             <tr>
-              <td class="mono">\${p.urlPattern}</td>
+              <td class="mono">\${h(p.urlPattern)}</td>
               <td style="color: var(--text-secondary)">SSR page\${p.hasGetServerData ? ' (getServerData)' : ''}</td>
               <td><span class="badge badge-green">SSR</span></td>
             </tr>
@@ -1296,4 +1418,5 @@ fetchAll();
 setInterval(fetchAll, 30000);
 </script>
 </body>
-</html>`;
+</html>`.replace('__THEN_ADMIN_TOKEN__', adminToken);
+}

@@ -13,22 +13,128 @@
  *   then dev --port 8080  — Start on custom port
  */
 
-import { buildManifest, matchRoute } from '@then/core';
-import type { PageRoute, ThenRequest, ThenReply } from '@then/core';
+import {
+  buildManifest,
+  matchRoute,
+  compileRoutes,
+  compilePageRoutes,
+  matchPageRoute,
+  getLogger,
+  builtinRenderToString,
+  wrapDocument,
+  escapeHtml,
+  parseNodeBody,
+  executeWithHooks,
+  finalizeNodeHandlerResult,
+  createHookRegistry,
+  validateRequest,
+  sendErrorResponse,
+  reportError,
+  formatErrorResponse,
+  HttpError,
+  getMimeType,
+} from '@then/core';
+import type {
+  PageRoute,
+  ThenRequest,
+  ThenReply,
+  CompiledRoute,
+  CompiledPageRoute,
+  HookRegistry,
+  RouteHooks,
+} from '@then/core';
 
 interface DevOptions {
   port: number;
+  host: string;
   projectRoot: string;
 }
 
-export async function devCommand(args: string[]): Promise<void> {
+export function parseDevOptions(args: string[], projectRoot: string = process.cwd()): DevOptions {
   const portArg = args.find((_, i) => args[i - 1] === '--port');
-  const opts: DevOptions = {
+  const hostArg = args.find((_, i) => args[i - 1] === '--host');
+  return {
     port: portArg ? parseInt(portArg, 10) : 3000,
-    projectRoot: process.cwd(),
+    host: hostArg || '127.0.0.1',
+    projectRoot,
   };
+}
+
+export function isLanDevHost(host: string): boolean {
+  return host === '0.0.0.0' || host === '::' || (!['127.0.0.1', 'localhost', '::1'].includes(host));
+}
+
+type TaskAdminHeaders = {
+  authorization?: string | string[];
+};
+
+function normalizeSocketRemoteAddress(remoteAddress: string | undefined): string {
+  const addr = remoteAddress || '';
+  return addr.startsWith('::ffff:') ? addr.slice(7) : addr;
+}
+
+export function isTaskAdminRequestAuthorized(
+  headers: TaskAdminHeaders,
+  remoteAddress: string | undefined,
+  env: { THEN_TASK_SECRET?: string; NODE_ENV?: string } = process.env,
+): boolean {
+  const taskSecret = (env.THEN_TASK_SECRET || '').trim();
+  const authHeader = headers.authorization;
+  const authorization = Array.isArray(authHeader) ? authHeader[0] : authHeader;
+  if (taskSecret && authorization === `Bearer ${taskSecret}`) return true;
+
+  const nodeEnv = (env.NODE_ENV || '').toLowerCase();
+  const isExplicitNonProduction = nodeEnv === 'development' || nodeEnv === 'dev' || nodeEnv === 'test';
+  const normalizedRemoteAddr = normalizeSocketRemoteAddress(remoteAddress);
+  const isLocal = normalizedRemoteAddr === '127.0.0.1' || normalizedRemoteAddr === '::1';
+  return !taskSecret && isExplicitNonProduction && isLocal;
+}
+
+/**
+ * Load .env files into process.env without overriding existing values.
+ * Priority order: .env.local > .env.{NODE_ENV} > .env
+ * (earlier files take precedence — later files don't override)
+ */
+async function loadEnvFiles(projectRoot: string): Promise<void> {
+  const { readFile: rf } = await import('node:fs/promises');
+  const { join: pjoin } = await import('node:path');
+
+  const nodeEnv = process.env.NODE_ENV || 'development';
+  const envFiles = ['.env.local', `.env.${nodeEnv}`, '.env'];
+
+  for (const envFile of envFiles) {
+    try {
+      const content = await rf(pjoin(projectRoot, envFile), 'utf-8');
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIndex = trimmed.indexOf('=');
+        if (eqIndex === -1) continue;
+        const key = trimmed.slice(0, eqIndex).trim();
+        let value = trimmed.slice(eqIndex + 1).trim();
+        // Strip surrounding quotes
+        if ((value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'"))) {
+          value = value.slice(1, -1);
+        }
+        // Don't override existing env vars (earlier files take precedence)
+        if (process.env[key] === undefined) {
+          process.env[key] = value;
+        }
+      }
+    } catch {
+      // File doesn't exist — skip silently
+    }
+  }
+}
+
+export async function devCommand(args: string[]): Promise<void> {
+  const opts = parseDevOptions(args);
 
   console.log('\n  then dev\n');
+
+  // Load .env files (.env.local > .env.{NODE_ENV} > .env)
+  await loadEnvFiles(opts.projectRoot);
 
   // Scan routes for initial info
   const manifest = await buildManifest(opts.projectRoot);
@@ -45,7 +151,7 @@ export async function devCommand(args: string[]): Promise<void> {
       root: opts.projectRoot,
       server: {
         port: opts.port,
-        host: true,
+        host: opts.host,
       },
       plugins: [
         thenPlugin({ root: opts.projectRoot }),
@@ -54,6 +160,9 @@ export async function devCommand(args: string[]): Promise<void> {
 
     await server.listen();
     server.printUrls();
+    if (isLanDevHost(opts.host)) {
+      console.warn(`  [vura] Dev server exposed on ${opts.host}. Only use --host for trusted LAN testing.`);
+    }
     console.log();
 
     // Print route table
@@ -131,9 +240,77 @@ async function startStandaloneServer(
     return import(pathToFileURL(outPath).href);
   }
 
+  const logger = getLogger();
+
+  // Hook registry for the dev server — routes can register hooks via exports
+  const hookRegistry = createHookRegistry();
+  hookRegistry.setLogger(logger);
+
+  // Pre-compile route regexes at startup — recompiled only on file change
+  let compiledRoutes: CompiledRoute[] = compileRoutes(manifest.api);
+  let compiledPages: CompiledPageRoute[] = compilePageRoutes(
+    manifest.pages.filter(p => p.mode === 'server' || p.mode === 'hybrid'),
+  );
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     const method = (req.method ?? 'GET').toUpperCase();
+    const reqCtx = logger.requestStart(method, url.pathname);
+    const log = logger.child(reqCtx.requestId);
+
+    // Track response to log at end
+    res.on("finish", () => {
+      logger.requestEnd(reqCtx, res.statusCode);
+    });
+
+    // CORS headers are opt-in for dev mode; no wildcard CORS by default.
+    const corsOrigin = process.env.THEN_CORS_ORIGIN;
+    if (corsOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+      res.setHeader('Access-Control-Max-Age', '86400');
+    }
+
+    // Handle CORS preflight
+    if (method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    // Static file serving from public/ directory
+    if (method === 'GET' || method === 'HEAD') {
+      const publicDir = join(opts.projectRoot, 'public');
+      const safePath = url.pathname.replace(/\.\./g, ''); // basic traversal guard
+      const staticPath = join(publicDir, safePath);
+      // Only serve if path is within publicDir (prevent traversal)
+      const { normalize: normPath, resolve: resolvePath } = await import('node:path');
+      const normalizedStatic = normPath(resolvePath(staticPath));
+      const normalizedPublic = normPath(resolvePath(publicDir));
+      if (normalizedStatic.startsWith(normalizedPublic + '/') || normalizedStatic === normalizedPublic) {
+        try {
+          const { stat: statAsync } = await import('node:fs/promises');
+          const fileStat = await statAsync(normalizedStatic);
+          if (fileStat.isFile()) {
+            const { createReadStream } = await import('node:fs');
+            const contentType = getMimeType(normalizedStatic);
+            res.writeHead(200, {
+              'Content-Type': contentType,
+              'Content-Length': fileStat.size.toString(),
+              'Cache-Control': 'no-cache',
+            });
+            if (method === 'HEAD') { res.end(); return; }
+            const stream = createReadStream(normalizedStatic);
+            stream.pipe(res);
+            stream.on('error', () => { if (!res.writableEnded) res.end(); });
+            return;
+          }
+        } catch {
+          // File doesn't exist — fall through to route matching
+        }
+      }
+    }
 
     // Health check
     if (url.pathname === '/__health') {
@@ -143,6 +320,14 @@ async function startStandaloneServer(
     }
 
     // Task management endpoints
+    if (url.pathname.startsWith('/__tasks')) {
+      if (!isTaskAdminRequestAuthorized(req.headers, req.socket?.remoteAddress)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Forbidden' }));
+        return;
+      }
+    }
+
     if (url.pathname === '/__tasks' && method === 'GET') {
       const taskRoutes = manifest.api.filter(r => r.kind === 'task');
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -168,12 +353,13 @@ async function startStandaloneServer(
         const body = await parseNodeBody(req);
         const result = await mod.POST({
           taskId: String(Date.now()),
-          input: body?.input,
+          input: (body as any)?.input,
           attempt: 1,
         });
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ status: 'completed', result }));
       } catch (err: any) {
+        reportError(err instanceof Error ? err : new Error(String(err.message)), { method, path: url.pathname, requestId: reqCtx.requestId }, logger);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: err.message }));
       }
@@ -191,62 +377,88 @@ async function startStandaloneServer(
       return;
     }
 
-    // Try API route matching
-    const match = matchRoute(manifest.api, method, url.pathname);
+    // Try API route matching (uses pre-compiled regexes)
+    const match = matchRoute(compiledRoutes, method, url.pathname);
     if (match) {
-      try {
-        const mod = await loadHandler(match.route.filePath);
-        const handlerFn = mod[method];
+      const mod = await loadHandler(match.route.filePath);
+      const handlerFn = mod[method];
 
-        if (typeof handlerFn !== 'function') {
-          res.writeHead(405, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: `Method ${method} not exported` }));
+      if (typeof handlerFn !== 'function') {
+        res.writeHead(405, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Method ${method} not exported` }));
+        return;
+      }
+
+      const body = await parseNodeBody(req);
+
+      const cReq: ThenRequest = {
+        method,
+        url: url.pathname,
+        headers: req.headers,
+        params: match.params,
+        query: Object.fromEntries(url.searchParams.entries()),
+        body,
+        parsedBody: body,
+      };
+
+      let statusCode = 200;
+      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      const cReply: ThenReply = {
+        status(code: number) { statusCode = code; return cReply; },
+        header(name: string, value: string) { headers[name] = value; return cReply; },
+        json(data: unknown) {
+          res.writeHead(statusCode, headers);
+          res.end(JSON.stringify(data));
+          return null;
+        },
+        send(data: string) {
+          res.writeHead(statusCode, headers);
+          res.end(data);
+          return null;
+        },
+        redirect(url: string, status?: number) {
+          res.writeHead(status || 302, { 'location': url });
+          res.end('Redirecting to ' + url);
+          return null;
+        },
+      };
+
+      // Extract route-level hooks if the module exports them
+      const routeHooks: RouteHooks | undefined = mod.hooks;
+
+      // Validate request if route exports a schema
+      if (mod.schema) {
+        const validationError = validateRequest(cReq, mod.schema);
+        if (validationError) {
+          res.writeHead(validationError.statusCode, { 'content-type': 'application/json' });
+          res.end(JSON.stringify(validationError.body));
           return;
         }
+      }
 
-        const body = await parseNodeBody(req);
+      // Execute handler with full hook lifecycle
+      const result = await executeWithHooks(hookRegistry, cReq, cReply, async () => {
+        return handlerFn(cReq, cReply);
+      }, routeHooks);
 
-        const cReq: ThenRequest = {
-          method,
-          url: url.pathname,
-          headers: req.headers,
-          params: match.params,
-          query: Object.fromEntries(url.searchParams.entries()),
-          parsedBody: body,
-        };
+      // If hooks/handler errored and response wasn't sent, send structured error
+      if (result.hadError && !res.writableEnded) {
+        const error = new HttpError(result.statusCode, 'HANDLER_ERROR', 'Internal Server Error');
+        const { statusCode: errStatus, body: errBody } = formatErrorResponse(error, 'development');
+        reportError(error, { method, path: url.pathname, requestId: reqCtx.requestId }, logger);
+        res.writeHead(errStatus, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(errBody));
+      }
 
-        let statusCode = 200;
-        const headers: Record<string, string> = { 'content-type': 'application/json' };
-        const cReply: ThenReply = {
-          status(code: number) { statusCode = code; return cReply; },
-          header(name: string, value: string) { headers[name] = value; return cReply; },
-          json(data: unknown) {
-            res.writeHead(statusCode, headers);
-            res.end(JSON.stringify(data));
-            return null;
-          },
-          send(data: string) {
-            res.writeHead(statusCode, headers);
-            res.end(data);
-            return null;
-          },
-        };
-
-        await handlerFn(cReq, cReply);
-      } catch (err: any) {
-        console.error(`  [then] Error in ${method} ${url.pathname}:`, err);
-        if (!res.writableEnded) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Internal Server Error', message: err.message }));
-        }
+      if (!result.hadError) {
+        await finalizeNodeHandlerResult(result.result, res, { statusCode, headers });
       }
       return;
     }
 
-    // Try server-mode page matching
+    // Try server-mode page matching (uses shared compilePageRoutes/matchPageRoute)
     if (method === 'GET' && !/\.\w+$/.test(url.pathname)) {
-      const serverPages = manifest.pages.filter(p => p.mode === 'server' || p.mode === 'hybrid');
-      const pageMatch = matchDevPageRoute(serverPages, url.pathname);
+      const pageMatch = matchPageRoute(compiledPages, url.pathname);
       if (pageMatch) {
         try {
           const mod = await loadHandler(pageMatch.page.filePath);
@@ -263,9 +475,22 @@ async function startStandaloneServer(
               });
             }
 
-            const vnode = Component({ ...serverData, params: pageMatch.params });
-            const bodyHtml = devRenderToString(vnode);
-            const html = devWrapDocument(bodyHtml, {
+            let vnode = Component({ ...serverData, params: pageMatch.params });
+
+            // Wrap in layout chain if layouts are defined (outermost first)
+            if (pageMatch.page.layouts && pageMatch.page.layouts.length > 0) {
+              // Load layouts innermost-last, wrap from inside out
+              for (let li = pageMatch.page.layouts.length - 1; li >= 0; li--) {
+                const layoutMod = await loadHandler(pageMatch.page.layouts[li]);
+                const LayoutComponent = layoutMod.default;
+                if (typeof LayoutComponent === 'function') {
+                  vnode = LayoutComponent({ children: vnode, params: pageMatch.params });
+                }
+              }
+            }
+
+            const bodyHtml = builtinRenderToString(vnode);
+            const html = wrapDocument(bodyHtml, {
               title: pageConfig.title ?? 'ThenJS App',
               meta: pageConfig.meta ?? [],
               styles: pageConfig.styles ?? [],
@@ -278,10 +503,12 @@ async function startStandaloneServer(
             return;
           }
         } catch (err: any) {
-          console.error(`  [then] Page render error ${url.pathname}:`, err);
+          const error = err instanceof Error ? err : new Error(String(err));
+          reportError(error, { method: 'GET', path: url.pathname, requestId: reqCtx.requestId }, logger);
+          log.error(`page render error ${url.pathname}`, { error: err.message });
           if (!res.writableEnded) {
             res.writeHead(500, { 'Content-Type': 'text/html' });
-            res.end(`<h1>500 — Server Error</h1><pre>${devEscapeHtml(err.message)}</pre>`);
+            res.end(`<h1>500 — Server Error</h1><pre>${escapeHtml(err.message)}</pre>`);
           }
           return;
         }
@@ -302,8 +529,12 @@ async function startStandaloneServer(
       const watcher = watch(dir, { recursive: true }, async (event, filename) => {
         const prefix = dir === apiDir ? 'src/api' : 'src/pages';
         console.log(`  [then] ${event}: ${prefix}/${filename} — re-scanning routes`);
-        const { buildManifest: rescan } = await import('@then/core');
+        const { buildManifest: rescan, compileRoutes: recompile, compilePageRoutes: recompilePages } = await import('@then/core');
         manifest = await rescan(opts.projectRoot);
+        compiledRoutes = recompile(manifest.api);
+        compiledPages = recompilePages(
+          manifest.pages.filter(p => p.mode === 'server' || p.mode === 'hybrid'),
+        );
       });
       process.on('SIGINT', () => { watcher.close(); process.exit(0); });
     } catch {
@@ -311,8 +542,12 @@ async function startStandaloneServer(
     }
   }
 
-  server.listen(opts.port, () => {
-    console.log(`  Server listening on http://localhost:${opts.port}\n`);
+  server.listen(opts.port, opts.host, () => {
+    console.log(`  Server listening on http://${opts.host}:${opts.port}\n`);
+    // Warn once at startup when the user explicitly exposes the dev server beyond loopback.
+    if (isLanDevHost(opts.host)) {
+      console.warn(`  [vura] Dev server exposed on ${opts.host}. Only use --host for trusted LAN testing.`);
+    }
     printRouteTable(manifest);
   });
 
@@ -320,124 +555,8 @@ async function startStandaloneServer(
   await new Promise(() => {});
 }
 
-// ─── Dev-mode Helpers ───
-
-function matchDevPageRoute(
-  pages: PageRoute[],
-  pathname: string,
-): { page: PageRoute; params: Record<string, string> } | null {
-  for (const page of pages) {
-    const paramNames: string[] = [];
-    let regexStr = '';
-    let i = 0;
-    const pattern = page.urlPattern;
-    while (i < pattern.length) {
-      if (pattern[i] === ':' && i > 0 && pattern[i - 1] === '/') {
-        let name = ''; i++;
-        while (i < pattern.length && /[a-zA-Z0-9_]/.test(pattern[i])) { name += pattern[i]; i++; }
-        paramNames.push(name); regexStr += '([^/]+)';
-      } else if (pattern[i] === '*') {
-        paramNames.push('*'); regexStr += '(.*)'; i++;
-      } else {
-        const ch = pattern[i];
-        if ('.+?^${}()|[]\\'.includes(ch)) regexStr += '\\' + ch;
-        else regexStr += ch;
-        i++;
-      }
-    }
-    const match = pathname.match(new RegExp(`^${regexStr}$`));
-    if (match) {
-      const params: Record<string, string> = {};
-      paramNames.forEach((name, idx) => { try { params[name] = decodeURIComponent(match[idx + 1]); } catch { params[name] = match[idx + 1]; } });
-      return { page, params };
-    }
-  }
-  return null;
-}
-
-function devRenderToString(vnode: any): string {
-  if (vnode == null || typeof vnode === 'boolean') return '';
-  if (typeof vnode === 'string') return devEscapeHtml(vnode);
-  if (typeof vnode === 'number') return String(vnode);
-  if (typeof vnode === 'function' && !vnode.type && !vnode.tag) return devRenderToString(vnode());
-  if (Array.isArray(vnode)) return vnode.map(devRenderToString).join('');
-  // Support both What Framework vnodes ({ tag }) and standard ({ type })
-  const type = vnode.type ?? vnode.tag;
-  const { props = {}, children } = vnode;
-  if (typeof type === 'function') return devRenderToString(type({ ...props, children }));
-  if (typeof type === 'string') {
-    const attrs = devRenderAttrs(props);
-    const VOID = new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);
-    if (VOID.has(type)) return `<${type}${attrs}>`;
-    let childHtml = '';
-    if (props.dangerouslySetInnerHTML) childHtml = props.dangerouslySetInnerHTML.__html ?? '';
-    else if (children != null) {
-      childHtml = Array.isArray(children) ? children.map(devRenderToString).join('') : devRenderToString(children);
-    }
-    return `<${type}${attrs}>${childHtml}</${type}>`;
-  }
-  if ((!type || typeof type === 'symbol') && children) {
-    return Array.isArray(children) ? children.map(devRenderToString).join('') : devRenderToString(children);
-  }
-  return '';
-}
-
-function devRenderAttrs(props: Record<string, any>): string {
-  let result = '';
-  for (const [key, value] of Object.entries(props)) {
-    if (key === 'children' || key === 'dangerouslySetInnerHTML') continue;
-    if (key.startsWith('on') && key.length > 2) continue;
-    if (value == null || value === false) continue;
-    const attrName = key === 'className' ? 'class' : key === 'htmlFor' ? 'for' : key;
-    if (value === true) result += ` ${attrName}`;
-    else if (key === 'style' && typeof value === 'object') {
-      const css = Object.entries(value).map(([p, v]) => `${p.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`)}: ${v}`).join('; ');
-      result += ` style="${devEscapeHtml(css)}"`;
-    } else result += ` ${attrName}="${devEscapeHtml(String(value))}"`;
-  }
-  return result;
-}
-
-function devEscapeHtml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-function devWrapDocument(bodyHtml: string, opts: { title: string; meta: any[]; styles: string[]; scripts: string[]; head: string }): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${devEscapeHtml(opts.title)}</title>
-    ${opts.head}
-</head>
-<body>
-    <div id="app">${bodyHtml}</div>
-</body>
-</html>`;
-}
-
-const DEV_MAX_BODY_SIZE = 1024 * 1024; // 1MB
-
-function parseNodeBody(req: any): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const method = (req.method ?? 'GET').toUpperCase();
-    if (method === 'GET' || method === 'HEAD') return resolve(null);
-    let size = 0;
-    const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > DEV_MAX_BODY_SIZE) { req.destroy(); reject(new Error('Body too large')); return; }
-      chunks.push(chunk);
-    });
-    req.on('error', () => resolve(null));
-    req.on('end', () => {
-      const data = Buffer.concat(chunks).toString();
-      if (!data) return resolve(null);
-      const ct = req.headers['content-type'] ?? '';
-      if (ct.includes('application/json')) {
-        try { resolve(JSON.parse(data)); } catch { resolve(null); }
-      } else { resolve(data); }
-    });
-  });
-}
+// All rendering, matching, parsing, and escaping utilities are now imported
+// from @then/core — no local copies needed. See:
+//   builtinRenderToString, wrapDocument, escapeHtml — from static-render.ts
+//   compilePageRoutes, matchPageRoute — from match.ts
+//   parseNodeBody — from body-parser.ts

@@ -1,13 +1,13 @@
 {
   "name": "@then/compiler-native",
   "version": "0.1.0",
-  "description": "Native Rust compiler for ThenJS — 10-50x faster route scanning and JSX transforms",
+  "description": "Unpublished native Rust compiler prototype for ThenJS \u2014 source-only until platform binaries are released",
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
     "name": "compiler-native",
     "triples": {
-      "defaults": true,
+      "defaults": false,
       "additional": [
         "aarch64-apple-darwin",
         "aarch64-unknown-linux-gnu",
@@ -32,7 +32,8 @@
     "@napi-rs/cli": "^2.18.4"
   },
   "engines": {
-    "node": ">= 18"
+    "node": ">=20 <23"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "private": true
 }

@@ -5,10 +5,56 @@
  * Produces a SAM template, per-function handler files, and samconfig.toml.
  */
 
-import { writeFile, mkdir, copyFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { writeFile, mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ThenAdapter, AdapterBuildContext } from '@then/core';
 import type { ApiRoute, HttpMethod } from '@then/core';
+
+
+const require = createRequire(import.meta.url);
+
+function resolveCorePackageDir(): string {
+  try {
+    return dirname(require.resolve('@then/core'));
+  } catch {
+    const localCore = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules', '@then', 'core');
+    return join(localCore, existsSync(join(localCore, 'src')) ? 'src' : 'dist');
+  }
+}
+
+const CORE_PACKAGE_DIR = resolveCorePackageDir();
+
+function coreModuleExt(moduleName: string): string {
+  return existsSync(join(CORE_PACKAGE_DIR, `${moduleName}.ts`)) ? 'ts' : 'js';
+}
+
+function thenCoreRuntimeShimPlugin() {
+  return {
+    name: 'then-core-runtime-shim',
+    setup(build: any) {
+      build.onResolve({ filter: /^@then\/core\/(jsx-runtime|jsx-dev-runtime)$/ }, () => ({
+        path: join(CORE_PACKAGE_DIR, `jsx-runtime.${coreModuleExt('jsx-runtime')}`),
+      }));
+      build.onResolve({ filter: /^@then\/core$/ }, () => ({
+        path: '@then/core',
+        namespace: 'then-core-runtime-shim',
+      }));
+      build.onLoad({ filter: /.*/, namespace: 'then-core-runtime-shim' }, () => ({
+        loader: 'js',
+        resolveDir: CORE_PACKAGE_DIR,
+        contents: `
+export { defineConfig } from './config.${coreModuleExt('config')}';
+export { HttpError, ErrorCode, badRequest, unauthorized, forbidden, notFound, methodNotAllowed, conflict, rateLimited, internalError, serviceUnavailable, formatErrorResponse, sendErrorResponse, renderErrorPage, setGlobalErrorHandler, getGlobalErrorHandler, reportError, getErrorMode } from './errors.${coreModuleExt('errors')}';
+export { defineSchema, validate, withValidation, validateRequest } from './validation.${coreModuleExt('validation')}';
+export { HookRegistry, createHookRegistry, getHookRegistry, setDefaultHookRegistry, executeWithHooks } from './hooks.${coreModuleExt('hooks')}';
+`,
+      }));
+    },
+  };
+}
 
 // ─── Public Types ───
 
@@ -373,12 +419,8 @@ confirm_changeset = true
  * No @celsian/core dependency — includes inline event conversion and req/reply shim.
  */
 function generateHandlerFile(route: ApiRoute): string {
-  const imports = route.methods
-    .map((m) => m)
-    .join(', ');
-
   return `// Auto-generated — self-contained Lambda handler
-import { ${imports} } from './route.js';
+import * as routeMod from './route.js';
 
 function eventToRequest(event) {
   const { rawPath, rawQueryString, headers, body, isBase64Encoded, requestContext } = event;
@@ -465,7 +507,64 @@ async function responseToResult(response) {
   return result;
 }
 
-const handlers = { ${route.methods.map(m => `${m}`).join(', ')} };
+function normalizeHooks(hooks) {
+  if (!hooks) return undefined;
+  return {
+    onRequest: hooks.onRequest ? (Array.isArray(hooks.onRequest) ? hooks.onRequest : [hooks.onRequest]) : undefined,
+    onError: hooks.onError ? (Array.isArray(hooks.onError) ? hooks.onError : [hooks.onError]) : undefined,
+    onResponse: hooks.onResponse ? (Array.isArray(hooks.onResponse) ? hooks.onResponse : [hooks.onResponse]) : undefined,
+  };
+}
+
+function validationIssues(target, error) {
+  const issues = (error && Array.isArray(error.issues)) ? error.issues : [{ path: [], message: error?.message || 'Invalid value' }];
+  return { target, issues: issues.map(i => ({ path: Array.isArray(i.path) ? i.path.join('.') : String(i.path || ''), message: i.message || 'Invalid value', ...(i.code ? { code: i.code } : {}) })) };
+}
+
+function validateRequest(req, schema) {
+  const errors = [];
+  if (schema.body) {
+    const r = schema.body.safeParse(req.parsedBody);
+    if (!r.success) errors.push(validationIssues('body', r.error));
+    else { req.parsedBody = r.data; req.body = r.data; }
+  }
+  if (schema.query) {
+    const r = schema.query.safeParse(req.query);
+    if (!r.success) errors.push(validationIssues('query', r.error));
+    else req.query = r.data;
+  }
+  if (schema.params) {
+    const r = schema.params.safeParse(req.params);
+    if (!r.success) errors.push(validationIssues('params', r.error));
+    else req.params = r.data;
+  }
+  if (errors.length > 0) {
+    const issueCount = errors.reduce((acc, e) => acc + e.issues.length, 0);
+    const message = 'Validation failed: ' + issueCount + ' issue' + (issueCount > 1 ? 's' : '') + ' in ' + errors.map(e => e.target).join(', ');
+    return { statusCode: 400, body: { error: message, code: 'VALIDATION_ERROR', details: errors } };
+  }
+  req.validated = { body: req.parsedBody, query: req.query, params: req.params };
+  return null;
+}
+
+async function runHooks(hooks, ...args) {
+  if (!hooks) return;
+  for (const hook of hooks) await hook(...args);
+}
+
+async function runOnError(err, req, reply, routeHooks) {
+  if (!routeHooks?.onError) return { handled: false, error: err };
+  let handled = false;
+  for (const hook of routeHooks.onError) {
+    try { await hook(err, req, reply); handled = true; }
+    catch (hookErr) { err = hookErr; }
+  }
+  return { handled, error: err };
+}
+
+const handlers = routeMod;
+const routeHooks = normalizeHooks(routeMod.hooks || { onRequest: routeMod.onRequest, onError: routeMod.onError, onResponse: routeMod.onResponse });
+const routeSchema = routeMod.schema;
 
 export async function handler(event, context) {
   // Detect EventBridge scheduled event (cron trigger)
@@ -498,6 +597,7 @@ export async function handler(event, context) {
     headers: Object.fromEntries(request.headers.entries()),
     params: event.pathParameters || {},
     query: event.queryStringParameters || {},
+    body,
     parsedBody: body,
     __lambda_context: context,
   };
@@ -510,9 +610,32 @@ export async function handler(event, context) {
     header(name, value) { responseHeaders[name] = value; return reply; },
     json(data) { responseBody = JSON.stringify(data); return null; },
     send(data) { responseBody = data; return null; },
+    redirect(url, status) { statusCode = status || 302; responseHeaders.location = url; responseBody = 'Redirecting to ' + url; return null; },
   };
 
-  const result = await handlerFn(req, reply);
+  if (routeSchema) {
+    const validationError = validateRequest(req, routeSchema);
+    if (validationError) return { statusCode: validationError.statusCode, headers: responseHeaders, body: JSON.stringify(validationError.body) };
+  }
+
+  const startedAt = performance.now();
+  let result;
+  let hadError = false;
+  try {
+    await runHooks(routeHooks?.onRequest, req, reply);
+    result = await handlerFn(req, reply);
+  } catch (err) {
+    hadError = true;
+    statusCode = err && err.statusCode ? err.statusCode : 500;
+    const errorResult = await runOnError(err, req, reply, routeHooks);
+    if (!errorResult.handled && responseBody === null) {
+      responseBody = JSON.stringify({ error: statusCode === 500 ? 'Internal Server Error' : (errorResult.error?.message || 'Request failed') });
+    }
+  } finally {
+    const durationMs = Math.round((performance.now() - startedAt) * 100) / 100;
+    try { await runHooks(routeHooks?.onResponse, req, reply, { statusCode, durationMs, hadError }); } catch {}
+  }
+
   if (result instanceof Response) return responseToResult(result);
   if (responseBody !== null) return { statusCode, headers: responseHeaders, body: responseBody };
   if (result && typeof result === 'object') return { statusCode, headers: responseHeaders, body: JSON.stringify(result) };
@@ -575,15 +698,10 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
           const funcDir = join(lambdaDir, `${routeDirName}_${method.toLowerCase()}`);
           await mkdir(funcDir, { recursive: true });
 
-          // Write the handler file and copy the route source
+          // Write the handler file and bundled route module.
           const handlerCode = generateHandlerFile(route);
           await writeFile(join(funcDir, 'index.js'), handlerCode);
-          const routeSrc = join(ctx.projectRoot, route.filePath);
-          const routeDest = join(funcDir, 'route.js');
-          try { await copyFile(routeSrc.replace(/\.ts$/, '.js'), routeDest); } catch {
-            // If compiled .js doesn't exist, copy the .ts and hope for transpilation
-            try { await copyFile(routeSrc, routeDest); } catch {}
-          }
+          await bundleRouteModule(route, ctx.projectRoot, join(funcDir, 'route.js'));
 
           samFunctions.push({
             name: funcName,
@@ -612,11 +730,7 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
 
         const handlerCode = generateHandlerFile(route);
         await writeFile(join(funcDir, 'index.js'), handlerCode);
-        const routeSrc = join(ctx.projectRoot, route.filePath);
-        const routeDest = join(funcDir, 'route.js');
-        try { await copyFile(routeSrc.replace(/\.ts$/, '.js'), routeDest); } catch {
-          try { await copyFile(routeSrc, routeDest); } catch {}
-        }
+        await bundleRouteModule(route, ctx.projectRoot, join(funcDir, 'route.js'));
 
         const funcName = 'Task' + route.urlPattern
           .replace(/^\/api\//, '')
@@ -651,6 +765,31 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
 }
 
 // ─── Utilities ───
+
+async function bundleRouteModule(route: ApiRoute, projectRoot: string, outfile: string): Promise<void> {
+  const absPath = join(projectRoot, route.filePath);
+  if (!existsSync(absPath)) {
+    throw new Error(`Route source not found for ${route.filePath}: ${absPath}`);
+  }
+
+  const { build: esbuild } = await import('esbuild');
+  await mkdir(dirname(outfile), { recursive: true });
+  await esbuild({
+    entryPoints: [absPath],
+    bundle: true,
+    format: 'esm',
+    target: 'es2022',
+    platform: 'node',
+    outfile,
+    nodePaths: [
+      join(projectRoot, 'node_modules'),
+      join(process.cwd(), 'node_modules'),
+      join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules'),
+    ],
+    plugins: [thenCoreRuntimeShimPlugin()],
+    external: ['what-framework', 'what-framework/*'],
+  });
+}
 
 /**
  * Convert a standard 5-field cron expression to AWS 6-field format.

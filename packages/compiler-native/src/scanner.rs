@@ -7,10 +7,8 @@
 //! - Default exports and getServerData exports
 
 use crate::ScanResult;
-use std::collections::HashMap;
 use swc_common::{
     input::StringInput,
-    BytePos, Span,
     sync::Lrc,
     SourceMap,
 };

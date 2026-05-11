@@ -1,0 +1,42 @@
+name: Security scanning
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '23 4 * * 1'
+
+permissions:
+  contents: read
+  actions: read
+  security-events: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+      # CodeQL upload requires GitHub Advanced Security on this repository. Keep
+      # this non-blocking until GHAS/code scanning is enabled.
+      - uses: github/codeql-action/analyze@v4
+        continue-on-error: true
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks CLI
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.24.3 detect --source=/repo --redact --verbose

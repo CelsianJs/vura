@@ -6,15 +6,43 @@
   "bin": {
     "create-then": "dist/index.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "tsc"
   },
-  "keywords": ["thenjs", "what-framework", "celsianjs", "scaffold", "create"],
+  "keywords": [
+    "vura",
+    "thenjs",
+    "scaffold",
+    "create",
+    "typescript"
+  ],
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zvndev/vura.git"
+  },
+  "homepage": "https://github.com/zvndev/vura#readme",
+  "bugs": {
+    "url": "https://github.com/zvndev/vura/issues"
+  },
+  "engines": {
+    "node": ">=20 <23"
+  },
+  "thenScaffold": {
+    "dependencies": {
+      "what-framework": "^0.8.1"
+    },
+    "thenPackages": [
+      "@then/core",
+      "@then/cli"
+    ]
   }
 }

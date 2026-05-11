@@ -4,8 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "then build",
-    "manifest": "then manifest",
-    "deploy": "then deploy"
+    "build": "vura build",
+    "manifest": "vura manifest"
+  },
+  "devDependencies": {
+    "@then/cli": "workspace:*",
+    "@then/core": "workspace:*"
   }
 }

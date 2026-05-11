@@ -278,9 +278,74 @@ export class CronScheduler {
 
 // ─── Cron Parsing ───
 
+/** Valid ranges for each cron field */
+const CRON_FIELD_RANGES: { name: string; min: number; max: number }[] = [
+  { name: 'minute', min: 0, max: 59 },
+  { name: 'hour', min: 0, max: 23 },
+  { name: 'dayOfMonth', min: 1, max: 31 },
+  { name: 'month', min: 1, max: 12 },
+  { name: 'dayOfWeek', min: 0, max: 7 },  // 0 and 7 are both Sunday
+];
+
+/**
+ * Validate a single cron field value is within the allowed range.
+ * Returns true if valid, false otherwise.
+ */
+function validateCronField(field: string, min: number, max: number): boolean {
+  if (field === '*') return true;
+
+  // Comma-separated list
+  if (field.includes(',')) {
+    return field.split(',').every(f => validateCronField(f.trim(), min, max));
+  }
+
+  // Step values: */5 or 1-30/5
+  if (field.includes('/')) {
+    if (field.split('/').length > 2) return false;
+    const [range, stepStr] = field.split('/');
+    const step = parseInt(stepStr, 10);
+    if (isNaN(step) || step <= 0) return false;
+
+    if (range === '*') return true;
+
+    if (range.includes('-') && range.indexOf('-') > 0) {
+      const dashIdx = range.indexOf('-');
+      const lo = Number(range.slice(0, dashIdx));
+      const hi = Number(range.slice(dashIdx + 1));
+      if (isNaN(lo) || isNaN(hi)) return false;
+      return lo >= min && hi <= max && lo <= hi;
+    }
+
+    const val = parseInt(range, 10);
+    return !isNaN(val) && val >= min && val <= max;
+  }
+
+  // Range: 1-5 (only if dash separates two values, not a leading negative)
+  if (field.includes('-') && field.indexOf('-') > 0) {
+    const dashIdx = field.indexOf('-');
+    const lo = Number(field.slice(0, dashIdx));
+    const hi = Number(field.slice(dashIdx + 1));
+    if (isNaN(lo) || isNaN(hi)) return false;
+    return lo >= min && hi <= max && lo <= hi;
+  }
+
+  // Exact value
+  const val = parseInt(field, 10);
+  return !isNaN(val) && val >= min && val <= max;
+}
+
 export function parseCron(expr: string): CronFields | null {
   const parts = expr.trim().split(/\s+/);
   if (parts.length !== 5) return null;
+
+  // Validate each field against its allowed range
+  for (let i = 0; i < 5; i++) {
+    const { min, max } = CRON_FIELD_RANGES[i];
+    if (!validateCronField(parts[i], min, max)) {
+      return null;
+    }
+  }
+
   return {
     minute: parts[0],
     hour: parts[1],

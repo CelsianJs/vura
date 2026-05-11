@@ -1,29 +1,22 @@
 /**
- * `then deploy` — Deploy the built project via Celsian or provider adapters.
+ * `then deploy` — reserved for the managed Vura deployment platform.
  *
- * For managed deployments, use Celsian (https://celsian.dev).
- * For self-managed deployments, use provider adapters directly:
- *   - @then/adapter-cloudflare
- *   - @then/adapter-lambda
+ * The OSS CLI can build deployable artifacts today. Real managed deployments
+ * are intentionally handled by the closed-source Vura Platform once enabled.
  */
 
 export async function deployCommand(args: string[]): Promise<void> {
-  console.log(`
-  then deploy
+  console.error(`
+  vura deploy is not available in the open-source CLI yet.
 
-  Deploy requires a Celsian account. Sign up at https://celsian.dev
+  What works today:
+    vura build      Build production artifacts locally
+    vura manifest   Inspect route/deployment classification
+    vura dev        Run the local development server
 
-  Celsian handles building, deploying, and scaling your ThenJS app
-  across edge workers, serverless functions, and hot servers.
-
-  To deploy locally without Celsian, use provider adapters directly:
-
-    # Cloudflare Workers
-    npx wrangler deploy
-
-    # AWS Lambda
-    npx @then/adapter-lambda deploy
-
-  Learn more: https://thenjs.dev/docs/deploy
+  Managed deployments are handled by Vura Platform and are not part of this
+  OSS package release. See https://github.com/zvndev/vura#readme for the
+  current self-hosted build and adapter guidance.
 `);
+  process.exitCode = 1;
 }
