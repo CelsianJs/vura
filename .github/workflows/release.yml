@@ -39,7 +39,7 @@ jobs:
       - run: pnpm audit
       - run: pnpm verify:publish
       - run: pnpm package:size
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: package-sizes-node-${{ matrix.node-version }}
           path: artifacts/package-sizes.json
@@ -67,7 +67,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - run: pnpm verify:registry
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: vura-registry-smoke
