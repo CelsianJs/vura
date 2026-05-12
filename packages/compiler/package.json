@@ -26,11 +26,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zvndev/vura.git"
+    "url": "git+https://github.com/CelsianJs/vura.git"
   },
-  "homepage": "https://github.com/zvndev/vura#readme",
+  "homepage": "https://github.com/CelsianJs/vura#readme",
   "bugs": {
-    "url": "https://github.com/zvndev/vura/issues"
+    "url": "https://github.com/CelsianJs/vura/issues"
   },
   "keywords": [
     "vura",

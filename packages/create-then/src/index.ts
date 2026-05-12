@@ -379,13 +379,11 @@ ${bold('Options:')}
   console.log(bold('  Next steps:\n'));
   console.log(`    cd ${projectName}`);
   console.log(`    ${pm === 'npm' ? 'npm run' : pm} dev\n`);
-  console.log(dim('  Docs: https://github.com/zvndev/vura#readme'));
+  console.log(dim('  Docs: https://github.com/CelsianJs/vura#readme'));
   console.log();
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main().catch((err) => {
-    console.error(red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
-    process.exit(1);
-  });
-}
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
