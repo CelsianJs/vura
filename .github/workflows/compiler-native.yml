@@ -25,19 +25,19 @@ jobs:
       matrix:
         include:
           - target: x86_64-apple-darwin
-            os: macos-latest
+            os: depot-macos-latest
           - target: aarch64-apple-darwin
-            os: macos-latest
+            os: depot-macos-latest
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: depot-ubuntu-latest
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: depot-ubuntu-latest
           - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
+            os: depot-ubuntu-latest
           - target: aarch64-unknown-linux-musl
-            os: ubuntu-latest
+            os: depot-ubuntu-latest
           - target: x86_64-pc-windows-msvc
-            os: windows-latest
+            os: depot-windows-latest
 
     runs-on: ${{ matrix.os }}
     name: Build - ${{ matrix.target }}
@@ -94,7 +94,7 @@ jobs:
   # Publish job (only on main branch push with version bump)
   publish:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
