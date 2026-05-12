@@ -1,5 +1,5 @@
 /**
- * Benchmark: @then/compiler-native vs @then/compiler
+ * Benchmark: @celsian/then-compiler-native vs @celsian/then-compiler
  *
  * Usage:
  *   node bench/bench.js

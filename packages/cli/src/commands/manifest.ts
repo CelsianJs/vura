@@ -5,7 +5,7 @@
  * and outputs the discovered routes with their kinds and methods.
  */
 
-import { buildManifest } from '@then/core';
+import { buildManifest } from '@celsian/then-core';
 import { loadConfig } from '../config-loader.js';
 
 export async function manifestCommand(args: string[]): Promise<void> {

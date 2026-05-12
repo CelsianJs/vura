@@ -132,11 +132,11 @@ try {
   assertHelpCommands(tmp);
 
   const importCheck = `
-    await import('@then/core');
-    await import('@then/compiler');
-    await import('@then/adapter-cloudflare');
-    await import('@then/adapter-lambda');
-    await import('@then/vite-plugin');
+    await import('@celsian/then-core');
+    await import('@celsian/then-compiler');
+    await import('@celsian/then-adapter-cloudflare');
+    await import('@celsian/then-adapter-lambda');
+    await import('@celsian/then-vite-plugin');
     console.log('VURA_REGISTRY_IMPORT_OK');
   `;
   const imported = run(process.execPath, ['--input-type=module', '-e', importCheck], { cwd: tmp });

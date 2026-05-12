@@ -1,3 +1,3 @@
-import { defineConfig } from '@then/core';
+import { defineConfig } from '@celsian/then-core';
 
 export default defineConfig({});

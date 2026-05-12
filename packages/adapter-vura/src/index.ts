@@ -1,5 +1,5 @@
 /**
- * @then/adapter-vura
+ * @celsian/then-adapter-vura
  *
  * Adapts ThenJS build output for deployment on Vura.io.
  *
@@ -10,8 +10,8 @@
  *
  * Usage in then.config.ts:
  * ```ts
- * import { defineConfig } from '@then/core';
- * import { vuraAdapter } from '@then/adapter-vura';
+ * import { defineConfig } from '@celsian/then-core';
+ * import { vuraAdapter } from '@celsian/then-adapter-vura';
  *
  * export default defineConfig({
  *   adapter: vuraAdapter({ team: 'my-team' }),
@@ -25,7 +25,7 @@ import { basename, dirname, join, relative } from 'node:path';
 import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { homedir, tmpdir } from 'node:os';
-import type { ThenAdapter, AdapterBuildContext } from '@then/core';
+import type { ThenAdapter, AdapterBuildContext } from '@celsian/then-core';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);

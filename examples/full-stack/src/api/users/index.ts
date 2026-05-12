@@ -1,7 +1,7 @@
 /**
  * /api/users — Serverless CRUD
  */
-import type { ThenRequest, ThenReply } from '@then/core';
+import type { ThenRequest, ThenReply } from '@celsian/then-core';
 
 export const route = { kind: 'serverless' as const };
 

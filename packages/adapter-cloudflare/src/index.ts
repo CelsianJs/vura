@@ -1,5 +1,5 @@
 /**
- * @then/adapter-cloudflare
+ * @celsian/then-adapter-cloudflare
  *
  * Adapts ThenJS build output for Cloudflare Workers deployment.
  *
@@ -16,17 +16,17 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ThenAdapter, AdapterBuildContext } from '@then/core';
-import type { RouteManifest, ApiRoute } from '@then/core';
+import type { ThenAdapter, AdapterBuildContext } from '@celsian/then-core';
+import type { RouteManifest, ApiRoute } from '@celsian/then-core';
 
 
 const require = createRequire(import.meta.url);
 
 function resolveCorePackageDir(): string {
   try {
-    return dirname(require.resolve('@then/core'));
+    return dirname(require.resolve('@celsian/then-core'));
   } catch {
-    const localCore = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules', '@then', 'core');
+    const localCore = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules', '@celsian', 'then-core');
     return join(localCore, existsSync(join(localCore, 'src')) ? 'src' : 'dist');
   }
 }
@@ -41,11 +41,11 @@ function thenCoreRuntimeShimPlugin() {
   return {
     name: 'then-core-runtime-shim',
     setup(build: any) {
-      build.onResolve({ filter: /^@then\/core\/(jsx-runtime|jsx-dev-runtime)$/ }, () => ({
+      build.onResolve({ filter: /^@celsian\/then-core\/(jsx-runtime|jsx-dev-runtime)$/ }, () => ({
         path: join(CORE_PACKAGE_DIR, `jsx-runtime.${coreModuleExt('jsx-runtime')}`),
       }));
-      build.onResolve({ filter: /^@then\/core$/ }, () => ({
-        path: '@then/core',
+      build.onResolve({ filter: /^@celsian\/then-core$/ }, () => ({
+        path: '@celsian/then-core',
         namespace: 'then-core-runtime-shim',
       }));
       build.onLoad({ filter: /.*/, namespace: 'then-core-runtime-shim' }, () => ({
@@ -198,7 +198,7 @@ export function generateWranglerToml(
 
 /**
  * Generate a self-contained Worker entry file that routes requests
- * to the appropriate handler using @then/core's req/reply pattern.
+ * to the appropriate handler using @celsian/then-core's req/reply pattern.
  * No CelsianJS dependency required — works standalone.
  */
 export function generateWorkerEntry(
@@ -442,7 +442,7 @@ ${taskTable.length > 0 ? `
  * @example
  * ```ts
  * import { createApp } from '@celsian/core';
- * import { createWorkerHandler } from '@then/adapter-cloudflare';
+ * import { createWorkerHandler } from '@celsian/then-adapter-cloudflare';
  *
  * const app = createApp();
  * app.get('/hello', (req) => new Response('Hello!'));
@@ -473,8 +473,8 @@ export function createWorkerHandler(app: CelsianApp): CloudflareWorkerHandler {
  * @example
  * ```ts
  * // then.config.ts
- * import { defineConfig } from '@then/core';
- * import { cloudflareAdapter } from '@then/adapter-cloudflare';
+ * import { defineConfig } from '@celsian/then-core';
+ * import { cloudflareAdapter } from '@celsian/then-adapter-cloudflare';
  *
  * export default defineConfig({
  *   adapter: cloudflareAdapter({

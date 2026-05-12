@@ -65,7 +65,7 @@ function getScaffoldDependencyVersions(): Record<string, string> {
     throw new Error(`${packageJsonPath} must define thenScaffold.dependencies["what-framework"]`);
   }
 
-  const thenPackages = packageJson.thenScaffold?.thenPackages ?? ['@then/core', '@then/cli'];
+  const thenPackages = packageJson.thenScaffold?.thenPackages ?? ['@celsian/then-core', '@celsian/then-cli'];
   const dependencies: Record<string, string> = { 'what-framework': whatFrameworkVersion };
   for (const packageName of thenPackages) {
     dependencies[packageName] = findWorkspacePackageVersion(packageName, packageJsonPath) ?? ownVersion;
@@ -153,7 +153,7 @@ export function getFiles(projectName: string): Record<string, string> {
       2
     ) + '\n',
 
-    'then.config.js': `import { defineConfig } from '@then/core';
+    'then.config.js': `import { defineConfig } from '@celsian/then-core';
 
 export default defineConfig({});
 `,
@@ -185,7 +185,7 @@ dist/
 .DS_Store
 `,
 
-    'src/api/hello.ts': `import type { ThenRequest, ThenReply } from '@then/core';
+    'src/api/hello.ts': `import type { ThenRequest, ThenReply } from '@celsian/then-core';
 
 export const route = { kind: 'serverless' };
 
@@ -194,7 +194,7 @@ export function GET(req: ThenRequest, reply: ThenReply) {
 }
 `,
 
-    'src/api/health.ts': `import type { ThenRequest, ThenReply } from '@then/core';
+    'src/api/health.ts': `import type { ThenRequest, ThenReply } from '@celsian/then-core';
 
 export const route = { kind: 'hot' };
 

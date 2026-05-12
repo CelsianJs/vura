@@ -1,5 +1,5 @@
 {
-  "name": "@then/compiler",
+  "name": "@celsian/then-compiler",
   "version": "0.1.0",
   "description": "Pure JS compiler fallback for ThenJS — route scanning and JSX transforms",
   "type": "module",

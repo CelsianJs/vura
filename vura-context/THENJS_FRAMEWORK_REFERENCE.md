@@ -24,13 +24,13 @@ ThenJS is a pnpm monorepo at `~/Desktop/Coding/ZVN/then/`:
 
 | Package | npm Name | Purpose |
 |---------|----------|---------|
-| `packages/core` | `@then/core` | Manifest scanner, build pipeline, SSR renderer, task system, route matching |
-| `packages/cli` | `@then/cli` | CLI commands: `then dev`, `then build`, `then deploy`, `then admin`, `then manifest` |
-| `packages/vite-plugin` | `@then/vite-plugin` | Vite integration for dev server with HMR |
-| `packages/adapter-cloudflare` | `@then/adapter-cloudflare` | Generates wrangler.toml + Worker entries |
-| `packages/adapter-lambda` | `@then/adapter-lambda` | Generates SAM template + Lambda handler files |
-| `packages/compiler` | `@then/compiler` | Pure JS route scanner (regex-based, fallback) |
-| `packages/compiler-native` | `@then/compiler-native` | Rust/napi-rs route scanner using swc (fast path) |
+| `packages/core` | `@celsian/then-core` | Manifest scanner, build pipeline, SSR renderer, task system, route matching |
+| `packages/cli` | `@celsian/then-cli` | CLI commands: `then dev`, `then build`, `then deploy`, `then admin`, `then manifest` |
+| `packages/vite-plugin` | `@celsian/then-vite-plugin` | Vite integration for dev server with HMR |
+| `packages/adapter-cloudflare` | `@celsian/then-adapter-cloudflare` | Generates wrangler.toml + Worker entries |
+| `packages/adapter-lambda` | `@celsian/then-adapter-lambda` | Generates SAM template + Lambda handler files |
+| `packages/compiler` | `@celsian/then-compiler` | Pure JS route scanner (regex-based, fallback) |
+| `packages/compiler-native` | `@celsian/then-compiler-native` | Rust/napi-rs route scanner using swc (fast path) |
 
 ---
 
@@ -226,14 +226,14 @@ export interface AdapterBuildContext {
 ```
 
 Adapters run after `then build` and produce platform-specific output:
-- `@then/adapter-cloudflare` → `dist/cloudflare/wrangler.toml` + `entry.js`
-- `@then/adapter-lambda` → `dist/template.yaml` + `dist/lambda/*/index.js`
-- `@then/adapter-vura` → packages dist/ and POSTs to `api.vura.io` (to be built)
+- `@celsian/then-adapter-cloudflare` → `dist/cloudflare/wrangler.toml` + `entry.js`
+- `@celsian/then-adapter-lambda` → `dist/template.yaml` + `dist/lambda/*/index.js`
+- `@celsian/then-adapter-vura` → packages dist/ and POSTs to `api.vura.io` (to be built)
 
 Config in `then.config.ts`:
 ```typescript
-import { defineConfig } from '@then/core';
-import { vuraAdapter } from '@then/adapter-vura';
+import { defineConfig } from '@celsian/then-core';
+import { vuraAdapter } from '@celsian/then-adapter-vura';
 
 export default defineConfig({
   adapter: vuraAdapter({ team: 'my-team' }),

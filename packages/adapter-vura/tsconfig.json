@@ -9,7 +9,7 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@then/core": ["../core/src/index.ts"]
+      "@celsian/then-core": ["../core/src/index.ts"]
     }
   },
   "include": ["src"],

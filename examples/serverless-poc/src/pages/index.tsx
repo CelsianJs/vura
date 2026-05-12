@@ -3,7 +3,7 @@
  *
  * Uses JSX with automatic transform (jsxImportSource).
  * When What Framework is installed: uses what-framework/jsx-runtime
- * Otherwise: uses @then/core/jsx-runtime (built-in fallback)
+ * Otherwise: uses @celsian/then-core/jsx-runtime (built-in fallback)
  */
 
 export const page = {

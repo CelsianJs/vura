@@ -1,5 +1,5 @@
 {
-  "name": "@then/cli",
+  "name": "@celsian/then-cli",
   "version": "0.1.0",
   "description": "ThenJS CLI — build and deploy full-stack apps",
   "type": "module",
@@ -21,7 +21,7 @@
     "prepack": "pnpm run build"
   },
   "dependencies": {
-    "@then/core": "workspace:0.1.0",
+    "@celsian/then-core": "workspace:0.1.0",
     "esbuild": "^0.27.3"
   },
   "license": "MIT",

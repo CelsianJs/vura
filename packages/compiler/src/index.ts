@@ -1,12 +1,12 @@
 /**
- * @then/compiler — Pure JS fallback compiler for ThenJS
+ * @celsian/then-compiler — Pure JS fallback compiler for ThenJS
  *
- * Same API surface as @then/compiler-native but uses regex-based
+ * Same API surface as @celsian/then-compiler-native but uses regex-based
  * static analysis instead of AST parsing. Good enough for most
  * projects, but the native compiler is 10-50x faster for large ones.
  */
 
-// ─── Types (matching @then/compiler-native) ───
+// ─── Types (matching @celsian/then-compiler-native) ───
 
 export interface ScanResult {
   methods: string[];
@@ -28,7 +28,7 @@ const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'
 
 /**
  * Scan a route or page file using regex-based static analysis.
- * Extracted from @then/core's manifest.ts for standalone use.
+ * Extracted from @celsian/then-core's manifest.ts for standalone use.
  */
 export function scanRoute(source: string, _fileType: string): ScanResult {
   const methods: string[] = [];

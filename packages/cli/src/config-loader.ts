@@ -12,7 +12,7 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { ThenConfig } from '@then/core';
+import type { ThenConfig } from '@celsian/then-core';
 
 const CONFIG_FILES = ['then.config.js', 'then.config.mjs', 'then.config.ts'];
 

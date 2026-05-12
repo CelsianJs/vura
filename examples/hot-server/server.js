@@ -24,7 +24,7 @@ const ROUTES = [
 ];
 
 // ─── CelsianJS-compatible req/reply shim ───
-// Same pattern used by @then/cli deploy for Cloudflare Workers and Lambda
+// Same pattern used by @celsian/then-cli deploy for Cloudflare Workers and Lambda
 
 function createReq(method, url, headers, params, query, parsedBody) {
   return {

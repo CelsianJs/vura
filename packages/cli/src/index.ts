@@ -1,7 +1,7 @@
 /**
  * ThenJS CLI
  *
- * Minimal CLI that wires together @then/core's build pipeline
+ * Minimal CLI that wires together @celsian/then-core's build pipeline
  * with project configuration and deployment providers.
  */
 

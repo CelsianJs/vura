@@ -132,7 +132,7 @@ Each copy is slightly different. The one in `build.ts` is emitted as strings of 
 The example config file is:
 
 ```typescript
-import { defineConfig } from '@then/core';
+import { defineConfig } from '@celsian/then-core';
 export default defineConfig({});
 ```
 
@@ -148,10 +148,10 @@ The `https://thenjs.dev/docs/deploy` URL referenced in the deploy command does n
 
 ### 6. The Rust Compiler is Not Built
 
-`packages/compiler-native/index.js` tries to load a platform-specific `.node` binary that does not exist. The JS fallback (`packages/compiler/src/index.ts`) works fine, but the native compiler is listed as a feature. If I tried to use `@then/compiler-native`, I would get:
+`packages/compiler-native/index.js` tries to load a platform-specific `.node` binary that does not exist. The JS fallback (`packages/compiler/src/index.ts`) works fine, but the native compiler is listed as a feature. If I tried to use `@celsian/then-compiler-native`, I would get:
 
 ```
-Error: @then/compiler-native: No native addon found for darwin-arm64.
+Error: @celsian/then-compiler-native: No native addon found for darwin-arm64.
 ```
 
 No binaries are included in the repo, and there is no `Cargo.toml` or build script to compile it from source.

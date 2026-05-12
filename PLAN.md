@@ -20,8 +20,8 @@ ThenJS is a full-stack meta-framework that combines:
 
 ### Deployment Options
 - **Celsian (managed)** — `then deploy` or connect your GitHub repo at [celsian.dev](https://celsian.dev)
-- **Self-hosted Cloudflare** — use `@then/adapter-cloudflare` with your own Cloudflare account
-- **Self-hosted AWS Lambda** — use `@then/adapter-lambda` with your own AWS account
+- **Self-hosted Cloudflare** — use `@celsian/then-adapter-cloudflare` with your own Cloudflare account
+- **Self-hosted AWS Lambda** — use `@celsian/then-adapter-lambda` with your own AWS account
 - **Any Node.js server** — use the built output directly
 
 ---

@@ -15,10 +15,13 @@
 │  (frontend)        (backend)      (meta-framework)    │
 │                                                       │
 │  Packages:                                            │
-│    @then/core, @then/cli, @then/vite-plugin          │
-│    @then/adapter-cloudflare, @then/adapter-lambda    │
-│    @then/adapter-vura (to be built)                  │
-│    @then/compiler, @then/compiler-native             │
+│    @celsian/then-core, @celsian/then-cli,            │
+│    @celsian/then-vite-plugin                         │
+│    @celsian/then-adapter-cloudflare,                 │
+│    @celsian/then-adapter-lambda                      │
+│    @celsian/then-adapter-vura (to be built)          │
+│    @celsian/then-compiler,                           │
+│    @celsian/then-compiler-native                     │
 └──────────────────────┬───────────────────────────────┘
                        │
                        ▼
@@ -129,7 +132,7 @@ dist/static/**/*.html     ──►  R2 bucket → CDN edge
 dist/manifest.json        ──►  Parsed by Vura to configure routing
 ```
 
-The `@then/adapter-vura` package (to be built, lives in the ThenJS repo) will:
+The `@celsian/then-adapter-vura` package (to be built, lives in the ThenJS repo) will:
 1. Package `dist/` into a tarball
 2. POST it to `api.vura.io/v1/deployments`
 3. Stream deployment logs back to the CLI
@@ -162,7 +165,7 @@ vura/
 
 Meanwhile, the open-source ThenJS repo gets a new package:
 ```
-then/packages/adapter-vura/   ← @then/adapter-vura (open-source)
+then/packages/adapter-vura/   ← @celsian/then-adapter-vura (open-source)
 ```
 
 ---

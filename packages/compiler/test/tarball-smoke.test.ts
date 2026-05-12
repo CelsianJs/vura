@@ -29,7 +29,7 @@ describe('compiler clean tarball smoke', () => {
         stdio: 'pipe',
       });
 
-      const packageRoot = join(app, 'node_modules/@then/compiler');
+      const packageRoot = join(app, 'node_modules/@celsian/then-compiler');
       expect(existsSync(join(packageRoot, 'dist/index.js'))).toBe(true);
       expect(existsSync(join(packageRoot, 'dist/index.d.ts'))).toBe(true);
       expect(existsSync(join(packageRoot, 'src/index.ts'))).toBe(false);

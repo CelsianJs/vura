@@ -17,8 +17,8 @@
  *   - packages/core/src/body-parser.ts (parseNodeBody)
  *
  * This duplication is INTENTIONAL. The generated server entry must be fully self-contained
- * with zero @then/core dependency — it runs on bare Fly/Railway/VPS/Lambda where only
- * the dist/ bundle is deployed. The dev server and Vite plugin import from @then/core
+ * with zero @celsian/then-core dependency — it runs on bare Fly/Railway/VPS/Lambda where only
+ * the dist/ bundle is deployed. The dev server and Vite plugin import from @celsian/then-core
  * directly (no duplication there), but build output must inline everything.
  */
 
@@ -42,11 +42,11 @@ function thenCoreSelfResolvePlugin() {
   return {
     name: 'then-core-self-resolve',
     setup(build: any) {
-      build.onResolve({ filter: /^@then\/core\/(jsx-runtime|jsx-dev-runtime)$/ }, (args: any) => ({
+      build.onResolve({ filter: /^@celsian\/then-core\/(jsx-runtime|jsx-dev-runtime)$/ }, (args: any) => ({
         path: coreModuleFile('jsx-runtime'),
       }));
-      build.onResolve({ filter: /^@then\/core$/ }, () => ({
-        path: '@then/core',
+      build.onResolve({ filter: /^@celsian\/then-core$/ }, () => ({
+        path: '@celsian/then-core',
         namespace: 'then-core-runtime-shim',
       }));
       build.onLoad({ filter: /.*/, namespace: 'then-core-runtime-shim' }, () => ({

@@ -20,8 +20,8 @@ if (args[0] === 'whoami') {
   console.log('scope-tester');
   process.exit(0);
 }
-if (args.join(' ') === 'access list packages @then --json') {
-  console.error('403 Forbidden - simulated @then scope denial');
+if (args.join(' ') === 'access list packages @celsian --json') {
+  console.error('403 Forbidden - simulated @celsian scope denial');
   process.exit(1);
 }
 console.error('unexpected npm command: ' + args.join(' '));
@@ -42,7 +42,7 @@ describe('publish-packages npm scope preflight', () => {
       },
     })).rejects.toMatchObject({
       code: 1,
-      stderr: expect.stringContaining('does not have confirmed access to @then'),
+      stderr: expect.stringContaining('does not have confirmed access to @celsian'),
     });
 
     const calls = (await readFile(fakeNpm.callsPath, 'utf8'))
@@ -52,7 +52,7 @@ describe('publish-packages npm scope preflight', () => {
 
     expect(calls).toEqual([
       ['whoami'],
-      ['access', 'list', 'packages', '@then', '--json'],
+      ['access', 'list', 'packages', '@celsian', '--json'],
     ]);
   });
 });

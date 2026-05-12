@@ -10,7 +10,7 @@
  *   then admin --host 127.0.0.1 — Bind explicitly to loopback
  */
 
-import { buildManifest } from '@then/core';
+import { buildManifest } from '@celsian/then-core';
 import { loadConfig } from '../config-loader.js';
 
 export const ADMIN_ENV_MAX_BODY_BYTES = 128 * 1024;

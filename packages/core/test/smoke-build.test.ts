@@ -63,7 +63,7 @@ function createTestProject(): string {
   mkdirSync(apiDir, { recursive: true });
   writeFileSync(
     join(apiDir, 'hello.ts'),
-    `import { HttpError } from '@then/core';
+    `import { HttpError } from '@celsian/then-core';
 
 export async function GET(req: any, reply: any) {
   const marker = new HttpError(418, 'INTERNAL_ERROR', 'teapot');
@@ -206,12 +206,12 @@ describe('smoke-build: end-to-end build pipeline', () => {
   });
 
 
-  it('bundles @then/core imports into serverless route artifacts', async () => {
+  it('bundles @celsian/then-core imports into serverless route artifacts', async () => {
     const helloFunction = buildResult.functions.find(fn => fn.route.urlPattern === '/api/hello');
     expect(helloFunction).toBeDefined();
     const routeArtifact = readFileSync(join(dirname(helloFunction!.entryPath), 'route.js'), 'utf-8');
-    expect(routeArtifact).not.toContain("from '@then/core'");
-    expect(routeArtifact).not.toContain('from "@then/core"');
+    expect(routeArtifact).not.toContain("from '@celsian/then-core'");
+    expect(routeArtifact).not.toContain('from "@celsian/then-core"');
     const result = runModuleJson(helloFunction!.entryPath, `
 const response = await mod.default.fetch(new Request('https://example.com/api/hello'));
 console.log(JSON.stringify({ status: response.status, body: await response.json() }));
@@ -391,9 +391,8 @@ console.log(JSON.stringify({ status: response.status, body: await response.json(
 
   // ── 18. Self-contained — no framework dependency ──
 
-  it('has no runtime dependency on @then/core or @celsian/core', () => {
-    expect(serverCode).not.toContain('@then/core');
-    expect(serverCode).not.toContain('@celsian/core');
+  it('has no runtime dependency on @celsian/then-core', () => {
+    expect(serverCode).not.toContain('@celsian/then-core');
   });
 
   // ── 19. Page route table is present ──

@@ -1,5 +1,5 @@
 {
-  "name": "@then/vite-plugin",
+  "name": "@celsian/then-vite-plugin",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -10,7 +10,7 @@
     }
   },
   "dependencies": {
-    "@then/core": "workspace:0.1.0"
+    "@celsian/then-core": "workspace:0.1.0"
   },
   "peerDependencies": {
     "vite": "^5.0.0 || ^6.0.0"

@@ -2,7 +2,7 @@
 
 **Reviewer:** Senior Engineer (Adversarial Review #2)
 **Date:** 2026-03-12
-**Scope:** `@then/core`, `@then/cli`, `@then/vite-plugin`, `@then/adapter-cloudflare`, `@then/adapter-lambda`
+**Scope:** `@celsian/then-core`, `@celsian/then-cli`, `@celsian/then-vite-plugin`, `@celsian/then-adapter-cloudflare`, `@celsian/then-adapter-lambda`
 **Method:** Line-by-line analysis of all key source files, focused on what breaks under pressure
 
 ---

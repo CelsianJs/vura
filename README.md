@@ -4,10 +4,8 @@ Vura is the OSS distribution of the ThenJS full-stack framework: file-based API 
 
 ## Install
 
-> **Namespace status:** the code and package tarballs are locally verified, but the public `@then/*` npm scope is not releasable until scope authority is granted or the packages are intentionally renamed. Treat the install and create commands below as the intended public UX after that release blocker is resolved.
-
 ```sh
-pnpm add @then/core @then/cli
+pnpm add @celsian/then-core @celsian/then-cli
 ```
 
 The CLI exposes `vura` and `thenjs` as safe command names. The legacy `then` bin is still shipped for compatibility, but new npm scripts should use `vura` or `thenjs` because `then` is a shell reserved word.
@@ -34,7 +32,7 @@ pnpm dev
 pnpm build
 ```
 
-`create-then` treats dependency installation as part of a successful scaffold. If install fails, the command exits non-zero after writing the files so registry or namespace-access problems cannot be missed. Until the public `@then/*` scope is resolved, pass `--no-install` explicitly to inspect or test the starter shape without installing:
+`create-then` treats dependency installation as part of a successful scaffold. If install fails, the command exits non-zero after writing the files so registry or namespace-access problems cannot be missed. Pass `--no-install` explicitly to inspect or test the starter shape without installing:
 
 ```sh
 npx create-then my-app --no-install
@@ -74,7 +72,7 @@ Set runtime environment variables in your host dashboard, then health-check your
 Use the Cloudflare adapter when you want Worker artifacts instead of the Node server:
 
 ```sh
-pnpm add @then/adapter-cloudflare
+pnpm add @celsian/then-adapter-cloudflare
 # configure then.config.js with the adapter
 pnpm build
 wrangler deploy
@@ -87,7 +85,7 @@ Cloudflare route handlers intentionally receive the same conservative `req`/`rep
 Use the Lambda adapter for API Gateway/Lambda packaging:
 
 ```sh
-pnpm add @then/adapter-lambda
+pnpm add @celsian/then-adapter-lambda
 # configure then.config.js with the adapter
 pnpm build
 sam deploy --guided
@@ -107,12 +105,12 @@ The generated hot server serves API routes first, server/hybrid runtime pages ne
 
 ## Packages
 
-- `@then/core` — manifest scanning, build pipeline, generated production server, and runtime helpers.
-- `@then/cli` — `vura`, `thenjs`, and legacy `then` command-line interface.
-- `@then/adapter-lambda` — AWS Lambda/API Gateway deployment artifacts.
-- `@then/adapter-cloudflare` — Cloudflare Workers deployment artifacts.
-- `@then/vite-plugin` — Vite integration.
-- `@then/compiler` — pure JavaScript compiler fallback.
+- `@celsian/then-core` — manifest scanning, build pipeline, generated production server, and runtime helpers.
+- `@celsian/then-cli` — `vura`, `thenjs`, and legacy `then` command-line interface.
+- `@celsian/then-adapter-lambda` — AWS Lambda/API Gateway deployment artifacts.
+- `@celsian/then-adapter-cloudflare` — Cloudflare Workers deployment artifacts.
+- `@celsian/then-vite-plugin` — Vite integration.
+- `@celsian/then-compiler` — pure JavaScript compiler fallback.
 
 ## Release checks
 
@@ -134,4 +132,4 @@ npx -p node@22 -p pnpm@10.11.0 pnpm release:check
 
 `pnpm release:check` runs the full local gate: private-package assertions, hygiene lint, build, tests, production audit, packed publish smoke, tracked tarball-size limits, npm publish dry-run, whitespace checks, and a clean git tree assertion.
 
-Do not publish from an unverified or dirty release tree. Manual release means running `pnpm release:check` locally first, then using the tag/manual GitHub release workflow or `node scripts/publish-packages.mjs` only after npm namespace authority is resolved. If npm returns `E403`, `E404`, or any permission/scope uncertainty for `@then/*`, stop: either obtain/admin the `@then` scope or intentionally rename the packages, then rerun the full release check before any real publish. Real publishing always runs a namespace-authority preflight for scoped packages before uploading tarballs; it cannot be bypassed with `VURA_SKIP_NPM_SCOPE_PREFLIGHT`.
+Do not publish from an unverified or dirty release tree. Manual release means running `pnpm release:check` locally first, then using the tag/manual GitHub release workflow or `node scripts/publish-packages.mjs` only after npm namespace authority is resolved. If npm returns `E403`, `E404`, or any permission/scope uncertainty for `@celsian/*`, stop: either obtain/admin the `@celsian` scope or intentionally rename the packages, then rerun the full release check before any real publish. Real publishing always runs a namespace-authority preflight for scoped packages before uploading tarballs; it cannot be bypassed with `VURA_SKIP_NPM_SCOPE_PREFLIGHT`.

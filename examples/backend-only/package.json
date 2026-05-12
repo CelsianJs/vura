@@ -8,7 +8,7 @@
     "manifest": "vura manifest"
   },
   "devDependencies": {
-    "@then/cli": "workspace:*",
-    "@then/core": "workspace:*"
+    "@celsian/then-cli": "workspace:*",
+    "@celsian/then-core": "workspace:*"
   }
 }

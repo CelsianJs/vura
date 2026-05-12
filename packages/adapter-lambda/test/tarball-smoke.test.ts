@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { AdapterBuildContext, ApiRoute, RouteManifest } from '@then/core';
+import type { AdapterBuildContext, ApiRoute, RouteManifest } from '@celsian/then-core';
 
 const repoRoot = resolve(__dirname, '../../..');
 
@@ -27,7 +27,7 @@ function manifest(api: ApiRoute[]): RouteManifest {
 }
 
 describe('lambda adapter clean tarball smoke', () => {
-  it('resolves @then/core from flattened clean installs', async () => {
+  it('resolves @celsian/then-core from flattened clean installs', async () => {
     const root = mkdtempSync(join(tmpdir(), 'vura-lambda-pack-'));
     try {
       const tarballs = join(root, 'tarballs');
@@ -43,14 +43,14 @@ describe('lambda adapter clean tarball smoke', () => {
         stdio: 'pipe',
       });
 
-      const nestedCore = join(app, 'node_modules/@then/adapter-lambda/node_modules/@then/core');
+      const nestedCore = join(app, 'node_modules/@celsian/then-adapter-lambda/node_modules/@celsian/then-core');
       rmSync(nestedCore, { recursive: true, force: true });
-      expect(existsSync(join(app, 'node_modules/@then/core/dist/index.js'))).toBe(true);
+      expect(existsSync(join(app, 'node_modules/@celsian/then-core/dist/index.js'))).toBe(true);
       expect(existsSync(nestedCore)).toBe(false);
 
       const project = join(root, 'project');
       mkdirSync(join(project, 'src/api'), { recursive: true });
-      writeFileSync(join(project, 'src/api/echo.ts'), `import { HttpError } from '@then/core';
+      writeFileSync(join(project, 'src/api/echo.ts'), `import { HttpError } from '@celsian/then-core';
 export async function POST(req: { body: unknown }) {
   return { body: req.body, marker: new HttpError(418, 'INTERNAL_ERROR', 'teapot').name };
 }
@@ -65,7 +65,7 @@ export async function POST(req: { body: unknown }) {
       };
 
       execFileSync(process.execPath, ['--input-type=module', '-e', `
-const mod = await import(${JSON.stringify('file://' + join(app, 'node_modules/@then/adapter-lambda/dist/index.js'))});
+const mod = await import(${JSON.stringify('file://' + join(app, 'node_modules/@celsian/then-adapter-lambda/dist/index.js'))});
 const ctx = ${JSON.stringify(ctx)};
 await mod.lambdaAdapter().buildEnd(ctx);
 `], { encoding: 'utf8' });

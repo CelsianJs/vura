@@ -1,5 +1,5 @@
 /**
- * @then/adapter-lambda
+ * @celsian/then-adapter-lambda
  *
  * Generates AWS Lambda + API Gateway deployment artifacts from ThenJS build output.
  * Produces a SAM template, per-function handler files, and samconfig.toml.
@@ -10,17 +10,17 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ThenAdapter, AdapterBuildContext } from '@then/core';
-import type { ApiRoute, HttpMethod } from '@then/core';
+import type { ThenAdapter, AdapterBuildContext } from '@celsian/then-core';
+import type { ApiRoute, HttpMethod } from '@celsian/then-core';
 
 
 const require = createRequire(import.meta.url);
 
 function resolveCorePackageDir(): string {
   try {
-    return dirname(require.resolve('@then/core'));
+    return dirname(require.resolve('@celsian/then-core'));
   } catch {
-    const localCore = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules', '@then', 'core');
+    const localCore = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules', '@celsian', 'then-core');
     return join(localCore, existsSync(join(localCore, 'src')) ? 'src' : 'dist');
   }
 }
@@ -35,11 +35,11 @@ function thenCoreRuntimeShimPlugin() {
   return {
     name: 'then-core-runtime-shim',
     setup(build: any) {
-      build.onResolve({ filter: /^@then\/core\/(jsx-runtime|jsx-dev-runtime)$/ }, () => ({
+      build.onResolve({ filter: /^@celsian\/then-core\/(jsx-runtime|jsx-dev-runtime)$/ }, () => ({
         path: join(CORE_PACKAGE_DIR, `jsx-runtime.${coreModuleExt('jsx-runtime')}`),
       }));
-      build.onResolve({ filter: /^@then\/core$/ }, () => ({
-        path: '@then/core',
+      build.onResolve({ filter: /^@celsian\/then-core$/ }, () => ({
+        path: '@celsian/then-core',
         namespace: 'then-core-runtime-shim',
       }));
       build.onLoad({ filter: /.*/, namespace: 'then-core-runtime-shim' }, () => ({
@@ -249,7 +249,7 @@ export async function responseToResult(response: Response): Promise<APIGatewayPr
  * @example
  * ```ts
  * import { createApp } from '@celsian/core';
- * import { createLambdaHandler } from '@then/adapter-lambda';
+ * import { createLambdaHandler } from '@celsian/then-adapter-lambda';
  *
  * const app = createApp();
  * app.get('/api/hello', (req, reply) => reply.json({ hello: 'world' }));
@@ -652,8 +652,8 @@ export async function handler(event, context) {
  * @example
  * ```ts
  * // then.config.ts
- * import { defineConfig } from '@then/core';
- * import { lambdaAdapter } from '@then/adapter-lambda';
+ * import { defineConfig } from '@celsian/then-core';
+ * import { lambdaAdapter } from '@celsian/then-adapter-lambda';
  *
  * export default defineConfig({
  *   adapter: lambdaAdapter({

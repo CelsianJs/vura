@@ -2,15 +2,15 @@
 
 ## Package map
 
-- `packages/core` — `@then/core`: manifest scanning, build pipeline, runtime/server helpers.
-- `packages/cli` — `@then/cli`: `vura`, `thenjs`, and legacy `then` command bins.
+- `packages/core` — `@celsian/then-core`: manifest scanning, build pipeline, runtime/server helpers.
+- `packages/cli` — `@celsian/then-cli`: `vura`, `thenjs`, and legacy `then` command bins.
 - `packages/create-then` — `create-then`: project scaffolder.
-- `packages/compiler` — `@then/compiler`: JavaScript compiler package.
-- `packages/vite-plugin` — `@then/vite-plugin`: Vite integration.
-- `packages/adapter-cloudflare` — `@then/adapter-cloudflare`: Cloudflare Worker build adapter.
-- `packages/adapter-lambda` — `@then/adapter-lambda`: AWS Lambda/API Gateway build adapter.
-- `packages/compiler-native` — `@then/compiler-native`: private native compiler placeholder until artifacts/policy are ready.
-- `packages/adapter-vura` — `@then/adapter-vura`: private managed Vura Platform adapter until live smoke/policy are ready.
+- `packages/compiler` — `@celsian/then-compiler`: JavaScript compiler package.
+- `packages/vite-plugin` — `@celsian/then-vite-plugin`: Vite integration.
+- `packages/adapter-cloudflare` — `@celsian/then-adapter-cloudflare`: Cloudflare Worker build adapter.
+- `packages/adapter-lambda` — `@celsian/then-adapter-lambda`: AWS Lambda/API Gateway build adapter.
+- `packages/compiler-native` — `@celsian/then-compiler-native`: private native compiler placeholder until artifacts/policy are ready.
+- `packages/adapter-vura` — `@celsian/then-adapter-vura`: private managed Vura Platform adapter until live smoke/policy are ready.
 - `examples/*` — private example/smoke apps only; never publish them.
 
 ## Commands
@@ -46,4 +46,4 @@ git diff --check
 
 ## Namespace/name blocker
 
-The public `@then/*` package names are blocked until npm scope authority is granted or a separate intentional rename decision is made. Do not make naming decisions opportunistically in unrelated fixes. Keep current names stable in code, docs, and tests unless the task explicitly approves a rename.
+All packages are published under the `@celsian` npm scope (e.g. `@celsian/then-core`). The `create-then` package name is unscoped and stays as-is.

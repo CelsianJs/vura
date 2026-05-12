@@ -10,7 +10,7 @@ import {
   createWorkerHandler,
   cloudflareAdapter,
 } from '../src/index.js';
-import type { ApiRoute, RouteManifest } from '@then/core';
+import type { ApiRoute, RouteManifest } from '@celsian/then-core';
 
 function runModuleJson(entryPath: string, body: string): any {
   const source = `const mod = await import(${JSON.stringify(pathToFileURL(entryPath).href)});

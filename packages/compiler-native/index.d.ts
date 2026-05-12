@@ -1,8 +1,8 @@
 /**
- * @then/compiler-native — Rust-powered compiler for ThenJS
+ * @celsian/then-compiler-native — Rust-powered compiler for ThenJS
  *
  * Provides 10-50x faster route scanning, JSX transforms, and file watching
- * compared to the pure JS fallback (@then/compiler).
+ * compared to the pure JS fallback (@celsian/then-compiler).
  */
 
 export interface ScanResult {

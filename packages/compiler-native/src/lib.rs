@@ -1,4 +1,4 @@
-//! @then/compiler-native — Rust-powered compiler for ThenJS
+//! @celsian/then-compiler-native — Rust-powered compiler for ThenJS
 //!
 //! Provides AST-based route scanning, JSX transformation, and native file watching.
 //! Exposed to Node.js via napi-rs.

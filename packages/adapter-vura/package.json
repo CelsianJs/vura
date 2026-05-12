@@ -1,5 +1,5 @@
 {
-  "name": "@then/adapter-vura",
+  "name": "@celsian/then-adapter-vura",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -20,7 +20,7 @@
     "prepack": "pnpm run build"
   },
   "dependencies": {
-    "@then/core": "workspace:0.1.0"
+    "@celsian/then-core": "workspace:0.1.0"
   },
   "license": "MIT",
   "description": "Vura Platform deployment adapter for Vura applications",

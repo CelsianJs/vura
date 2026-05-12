@@ -58,8 +58,8 @@ export interface ThenConfig {
  * @example
  * ```ts
  * // then.config.js
- * import { defineConfig } from '@then/core';
- * import { lambdaAdapter } from '@then/adapter-lambda';
+ * import { defineConfig } from '@celsian/then-core';
+ * import { lambdaAdapter } from '@celsian/then-adapter-lambda';
  *
  * export default defineConfig({
  *   api: { defaultKind: 'serverless' },

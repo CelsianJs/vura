@@ -154,7 +154,7 @@ try {
   assertHelpCommands(smoke);
 
   const check = `
-    import('@then/core').then(() => import('@then/compiler')).then(() => import('@then/adapter-cloudflare')).then(() => import('@then/adapter-lambda')).then(() => import('@then/vite-plugin')).then(() => console.log('VURA_PUBLISH_VERIFY_OK'));
+    import('@celsian/then-core').then(() => import('@celsian/then-compiler')).then(() => import('@celsian/then-adapter-cloudflare')).then(() => import('@celsian/then-adapter-lambda')).then(() => import('@celsian/then-vite-plugin')).then(() => console.log('VURA_PUBLISH_VERIFY_OK'));
   `;
   const node = run(process.execPath, ['--input-type=module', '-e', check], { cwd: smoke });
   if (!node.stdout.includes('VURA_PUBLISH_VERIFY_OK')) throw new Error('publish smoke import did not complete');
@@ -170,8 +170,8 @@ try {
 
   const { getFiles } = await import(join(smoke, 'node_modules/create-then/dist/index.js'));
   const scaffoldPackage = JSON.parse(getFiles('smoke-app')['package.json']);
-  for (const name of ['@then/core', '@then/cli']) {
-    const expectedVersion = JSON.parse(await readFile(join(root, name === '@then/core' ? 'packages/core/package.json' : 'packages/cli/package.json'), 'utf8')).version;
+  for (const name of ['@celsian/then-core', '@celsian/then-cli']) {
+    const expectedVersion = JSON.parse(await readFile(join(root, name === '@celsian/then-core' ? 'packages/core/package.json' : 'packages/cli/package.json'), 'utf8')).version;
     if (scaffoldPackage.dependencies[name] !== expectedVersion) {
       throw new Error(`create-then scaffold dependency ${name}=${scaffoldPackage.dependencies[name]} does not match package version ${expectedVersion}`);
     }
@@ -190,7 +190,7 @@ try {
 
   if (existsSync(join(root, 'packages/compiler-native/package.json'))) {
     const nativeJson = JSON.parse(await readFile(join(root, 'packages/compiler-native/package.json'), 'utf8'));
-    if (!nativeJson.private) throw new Error('@then/compiler-native must remain private until native artifacts exist');
+    if (!nativeJson.private) throw new Error('@celsian/then-compiler-native must remain private until native artifacts exist');
   }
   console.log(`OK: verified ${tarballs.length} tarball(s); no workspace refs; installed CLI bins/direct help; clean npm install/import and real create-then scaffold build/run smoke passed`);
 } finally {

@@ -7,7 +7,7 @@
  *
  * Usage:
  *   import { z } from 'zod';
- *   import { defineSchema, validate } from '@then/core';
+ *   import { defineSchema, validate } from '@celsian/then-core';
  *
  *   export const schema = defineSchema({
  *     body: z.object({ name: z.string(), email: z.string().email() }),
@@ -109,7 +109,7 @@ export interface ValidationResult<
  * @example
  * ```ts
  * import { z } from 'zod';
- * import { defineSchema } from '@then/core';
+ * import { defineSchema } from '@celsian/then-core';
  *
  * export const schema = defineSchema({
  *   body: z.object({

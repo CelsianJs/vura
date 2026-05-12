@@ -91,7 +91,7 @@ describe('transformJsx', () => {
   });
 
   it('uses custom jsxImportSource', () => {
-    const result = transformJsx('<div/>', { jsxImportSource: '@then/core' });
-    expect(result.code).toContain("from '@then/core/jsx-runtime'");
+    const result = transformJsx('<div/>', { jsxImportSource: '@celsian/then-core' });
+    expect(result.code).toContain("from '@celsian/then-core/jsx-runtime'");
   });
 });

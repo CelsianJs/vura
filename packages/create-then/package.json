@@ -41,8 +41,8 @@
       "what-framework": "^0.8.1"
     },
     "thenPackages": [
-      "@then/core",
-      "@then/cli"
+      "@celsian/then-core",
+      "@celsian/then-cli"
     ]
   }
 }
