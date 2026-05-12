@@ -21,7 +21,7 @@
   },
   "devDependencies": {
     "@types/node": ">=20 <23",
-    "esbuild": "^0.27.3",
+    "esbuild": "^0.28.0",
     "typescript": "^5.7.0",
     "vite": "^6.4.1",
     "vitest": "^3.0.0",
@@ -36,7 +36,7 @@
     }
   },
   "dependencies": {
-    "what-core": "^0.8.1",
+    "what-core": "^0.8.4",
     "what-framework": "^0.8.1"
   },
   "license": "MIT",
