@@ -1,7 +1,7 @@
 /**
  * What Framework Integration Tests
  *
- * Proves that each ThenJS page mode works with the real What Framework.
+ * Proves that each Vura page mode works with the real What Framework.
  * No faking — imports what-framework directly and renders real components.
  */
 
@@ -21,14 +21,14 @@ describe('What Framework Integration — Page Modes', () => {
     it('renders a simple component to HTML string', () => {
       function HomePage() {
         return h('div', { class: 'home' },
-          h('h1', null, 'Welcome to ThenJS'),
+          h('h1', null, 'Welcome to Vura'),
           h('p', null, 'Signal-based UI with SSR'),
         );
       }
 
       const html = renderToString(h(HomePage, null));
       expect(html).toContain('<div class="home">');
-      expect(html).toContain('<h1>Welcome to ThenJS</h1>');
+      expect(html).toContain('<h1>Welcome to Vura</h1>');
       expect(html).toContain('<p>Signal-based UI with SSR</p>');
       expect(html).toContain('</div>');
     });
@@ -63,15 +63,15 @@ describe('What Framework Integration — Page Modes', () => {
 
       const page = definePage({
         mode: 'static',
-        title: 'About — ThenJS',
-        meta: { description: 'About ThenJS framework' },
+        title: 'About — Vura',
+        meta: { description: 'About Vura framework' },
         component: AboutPage,
       });
 
       const fullHtml = generateStaticPage(page);
       expect(fullHtml).toContain('<!DOCTYPE html>');
-      expect(fullHtml).toContain('<title>About — ThenJS</title>');
-      expect(fullHtml).toContain('<meta name="description" content="About ThenJS framework">');
+      expect(fullHtml).toContain('<title>About — Vura</title>');
+      expect(fullHtml).toContain('<meta name="description" content="About Vura framework">');
       expect(fullHtml).toContain('<h1>About</h1>');
       // Static mode should NOT include client JS
       expect(fullHtml).not.toContain('client.js');
@@ -127,14 +127,14 @@ describe('What Framework Integration — Page Modes', () => {
       }
 
       const posts = [
-        { id: 1, title: 'Getting Started with ThenJS' },
+        { id: 1, title: 'Getting Started with Vura' },
         { id: 2, title: 'Server-Side Rendering Guide' },
         { id: 3, title: 'Deploying with Celsian' },
       ];
 
       const html = renderToString(h(PostList, { posts }));
       expect(html).toContain('<ul>');
-      expect(html).toContain('<li>Getting Started with ThenJS</li>');
+      expect(html).toContain('<li>Getting Started with Vura</li>');
       expect(html).toContain('<li>Server-Side Rendering Guide</li>');
       expect(html).toContain('<li>Deploying with Celsian</li>');
     });
@@ -222,14 +222,14 @@ describe('What Framework Integration — Page Modes', () => {
 
       const page = definePage({
         mode: 'client',
-        title: 'Dashboard — ThenJS',
+        title: 'Dashboard — Vura',
         component: App,
         scripts: ['/assets/app.js'],
       });
 
       const fullHtml = generateStaticPage(page);
       expect(fullHtml).toContain('<!DOCTYPE html>');
-      expect(fullHtml).toContain('<title>Dashboard — ThenJS</title>');
+      expect(fullHtml).toContain('<title>Dashboard — Vura</title>');
       // Client mode should include the client bootstrap script
       expect(fullHtml).toContain('client.js');
       // Should also include custom scripts

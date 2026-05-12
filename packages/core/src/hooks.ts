@@ -1,5 +1,5 @@
 /**
- * ThenJS Lifecycle Hooks — Global and route-level middleware system.
+ * Vura Lifecycle Hooks — Global and route-level middleware system.
  *
  * Hook types:
  *   - onRequest(fn)  — runs before route matching (modify req, add auth, etc.)
@@ -10,7 +10,7 @@
  *   - Async handlers with proper error propagation
  *   - Multiple handlers (executed in registration order)
  *   - Global scope (all routes) and route-level scope
- *   - Integration with ThenJS Logger
+ *   - Integration with Vura Logger
  */
 
 import type { ThenRequest, ThenReply } from './handler.js';

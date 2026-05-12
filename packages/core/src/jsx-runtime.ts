@@ -1,5 +1,5 @@
 /**
- * ThenJS JSX Runtime
+ * Vura JSX Runtime
  *
  * Minimal JSX runtime for static page rendering at build time.
  * When What Framework is installed, its jsx-runtime takes precedence.

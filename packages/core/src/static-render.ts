@@ -89,7 +89,7 @@ export async function renderStaticPages(
 
     // Wrap in full HTML document
     const html = wrapDocument(bodyHtml, {
-      title: pageConfig.title ?? 'ThenJS App',
+      title: pageConfig.title ?? 'Vura App',
       meta: pageConfig.meta ?? [],
       styles: pageConfig.styles ?? [],
       scripts,

@@ -253,7 +253,7 @@ describe('renderErrorPage', () => {
 
     expect(statusCode).toBe(500);
     expect(html).toContain('Component render failed');
-    expect(html).toContain('ThenJS Dev Error');
+    expect(html).toContain('Vura Dev Error');
     expect(html).toContain('/blog/:slug');
   });
 
@@ -306,7 +306,7 @@ describe('renderErrorPage', () => {
       customHandler,
     });
 
-    expect(html).toContain('ThenJS Dev Error');
+    expect(html).toContain('Vura Dev Error');
   });
 
   it('falls back to default when custom handler throws', () => {
@@ -320,7 +320,7 @@ describe('renderErrorPage', () => {
       customHandler,
     });
 
-    expect(html).toContain('ThenJS Dev Error');
+    expect(html).toContain('Vura Dev Error');
   });
 });
 

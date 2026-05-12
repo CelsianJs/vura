@@ -1,5 +1,5 @@
 /**
- * ThenJS Build Pipeline
+ * Vura Build Pipeline
  *
  * Takes a route manifest and produces deployment-ready output:
  * 1. Server bundle (Node.js app that handles API routes + SSR pages + tasks)
@@ -318,7 +318,7 @@ const WRAP_DOCUMENT_CODE = [
   '  const metaTags = (opts.meta || []).map(m => \'<meta \' + Object.entries(m).map(([k, v]) => k + \'="\' + escapeHtml(v) + \'"\').join(\' \') + \'>\').join(\'\\n    \');',
   '  const styleTags = (opts.styles || []).map(s => s.startsWith(\'http\') ? \'<link rel="stylesheet" href="\' + s + \'">\' : \'<style>\' + s + \'</style>\').join(\'\\n    \');',
   '  const scriptTags = (opts.scripts || []).map(s => \'<script type="module" src="\' + s + \'"></script>\').join(\'\\n    \');',
-  "  return '<!DOCTYPE html>\\n<html lang=\"en\">\\n<head>\\n    <meta charset=\"UTF-8\">\\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\\n    <title>' + escapeHtml(opts.title || 'ThenJS App') + '</title>\\n    ' + metaTags + '\\n    ' + styleTags + '\\n    ' + (opts.head || '') + '\\n</head>\\n<body>\\n    <div id=\"app\">' + bodyHtml + '</div>\\n    ' + scriptTags + '\\n</body>\\n</html>';",
+  "  return '<!DOCTYPE html>\\n<html lang=\"en\">\\n<head>\\n    <meta charset=\"UTF-8\">\\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\\n    <title>' + escapeHtml(opts.title || 'Vura App') + '</title>\\n    ' + metaTags + '\\n    ' + styleTags + '\\n    ' + (opts.head || '') + '\\n</head>\\n<body>\\n    <div id=\"app\">' + bodyHtml + '</div>\\n    ' + scriptTags + '\\n</body>\\n</html>';",
   '}',
 ].join('\n');
 
@@ -819,7 +819,7 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
   lines.push('');
   lines.push("  if (url.pathname === '/__health') {");
   lines.push("    nodeRes.writeHead(200, { 'content-type': 'application/json' });");
-  lines.push("    nodeRes.end(JSON.stringify({ ok: true, framework: 'ThenJS' }));");
+  lines.push("    nodeRes.end(JSON.stringify({ ok: true, framework: 'Vura' }));");
   lines.push('    return;');
   lines.push('  }');
   lines.push('');
@@ -993,7 +993,7 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
     lines.push("        nodeRes.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });");
     lines.push('        nodeRes.end(html);');
     lines.push('      } catch (err) {');
-    lines.push("        console.error('[ThenJS] Page render error ' + url.pathname + ':', err);");
+    lines.push("        console.error('[Vura] Page render error ' + url.pathname + ':', err);");
     lines.push('        if (!nodeRes.writableEnded) {');
     lines.push("          nodeRes.writeHead(500, { 'content-type': 'text/html' });");
     lines.push("          nodeRes.end('<h1>500 — Internal Server Error</h1>');");
@@ -1017,7 +1017,7 @@ function generateServerCode(hasPages: boolean, hasTasks: boolean): string {
   lines.push('});');
   lines.push('');
   lines.push('server.listen(port, () => {');
-  lines.push("  console.log('ThenJS server listening on :' + port);");
+  lines.push("  console.log('Vura server listening on :' + port);");
   lines.push('});');
   lines.push('');
   lines.push('// ─── Graceful Shutdown ───');
@@ -1096,7 +1096,7 @@ const RENDER_PAGE_CODE = [
   '  const bodyHtml = renderToString(vnode);',
   '',
   '  return wrapDocument(bodyHtml, {',
-  "    title: pageConfig.title || 'ThenJS App',",
+  "    title: pageConfig.title || 'Vura App',",
   '    meta: pageConfig.meta || [],',
   '    styles: pageConfig.styles || [],',
   '    scripts: pageConfig.scripts || [],',
@@ -1421,7 +1421,7 @@ export interface BuildResult {
 }
 
 /**
- * Run the ThenJS build pipeline.
+ * Run the Vura build pipeline.
  *
  * 1. Generate server entry (for hot server deployment)
  * 2. Generate function entries (for serverless deployment)

@@ -1,7 +1,7 @@
 /**
  * @celsian/then-adapter-cloudflare
  *
- * Adapts ThenJS build output for Cloudflare Workers deployment.
+ * Adapts Vura build output for Cloudflare Workers deployment.
  *
  * Because Cloudflare Workers natively use the Web Standard Request/Response API
  * (the same as CelsianJS), this adapter is thin — it mainly generates:
@@ -338,7 +338,7 @@ export default {
     const method = request.method.toUpperCase();
 
     if (url.pathname === '/__health') {
-      return new Response(JSON.stringify({ ok: true, framework: 'ThenJS' }), { headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ ok: true, framework: 'Vura' }), { headers: { 'Content-Type': 'application/json' } });
     }
 
     const match = matchRoute(url.pathname, method);
@@ -468,7 +468,7 @@ export function createWorkerHandler(app: CelsianApp): CloudflareWorkerHandler {
 // ─── Adapter Factory ───
 
 /**
- * Create a ThenJS adapter for Cloudflare Workers deployment.
+ * Create a Vura adapter for Cloudflare Workers deployment.
  *
  * @example
  * ```ts

@@ -1,6 +1,6 @@
 # @celsian/then-compiler-native
 
-Native Rust compiler for ThenJS (NAPI-RS). This is an unpublished prototype -- source-only until platform binaries are released.
+Native Rust compiler for Vura (NAPI-RS). This is an unpublished prototype -- source-only until platform binaries are released.
 
 ## Status
 

@@ -1,7 +1,7 @@
 /**
  * @celsian/then-vite-plugin
  *
- * Vite plugin for ThenJS that:
+ * Vite plugin for Vura that:
  * 1. Adds dev middleware for API routes (CelsianJS-compatible req/reply)
  * 2. Adds dev middleware for server-mode pages (SSR with getServerData)
  * 3. Adds dev middleware for task management (/__tasks/*)
@@ -363,7 +363,7 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
           const bodyHtml = builtinRenderToString(vnode);
 
           const html = wrapDocument(bodyHtml, {
-            title: pageConfig.title ?? 'ThenJS App',
+            title: pageConfig.title ?? 'Vura App',
             meta: pageConfig.meta ?? [],
             styles: pageConfig.styles ?? [],
             scripts: pageConfig.scripts ?? [],

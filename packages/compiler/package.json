@@ -1,7 +1,7 @@
 {
   "name": "@celsian/then-compiler",
-  "version": "0.1.1",
-  "description": "Pure JS compiler fallback for ThenJS — route scanning and JSX transforms",
+  "version": "0.1.2",
+  "description": "Pure JS compiler fallback for Vura — route scanning and JSX transforms",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

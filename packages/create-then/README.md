@@ -1,6 +1,6 @@
 # create-then
 
-Scaffold a new ThenJS project.
+Scaffold a new Vura project.
 
 ## Usage
 
@@ -15,7 +15,7 @@ Then:
 ```bash
 cd my-app
 npm install
-npx thenjs dev
+npx vura dev
 ```
 
 ## Templates

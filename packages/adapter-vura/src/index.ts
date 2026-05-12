@@ -1,7 +1,7 @@
 /**
  * @celsian/then-adapter-vura
  *
- * Adapts ThenJS build output for deployment on Vura.io.
+ * Adapts Vura build output for deployment on Vura.io.
  *
  * This adapter runs after `then build` and:
  *   1. Packages the dist/ directory into a tarball
@@ -61,7 +61,7 @@ interface VuraProjectLink {
 // ─── Adapter Factory ───
 
 /**
- * Create a ThenJS adapter for Vura.io deployment.
+ * Create a Vura adapter for Vura.io deployment.
  */
 export function vuraAdapter(options: VuraAdapterOptions = {}): ThenAdapter {
   return {

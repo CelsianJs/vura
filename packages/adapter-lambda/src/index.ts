@@ -1,7 +1,7 @@
 /**
  * @celsian/then-adapter-lambda
  *
- * Generates AWS Lambda + API Gateway deployment artifacts from ThenJS build output.
+ * Generates AWS Lambda + API Gateway deployment artifacts from Vura build output.
  * Produces a SAM template, per-function handler files, and samconfig.toml.
  */
 
@@ -278,7 +278,7 @@ interface SamFunction {
 }
 
 /**
- * Convert a route URL pattern from ThenJS format (:param) to API Gateway format ({param}).
+ * Convert a route URL pattern from Vura format (:param) to API Gateway format ({param}).
  */
 function toApiGatewayPath(urlPattern: string): string {
   return urlPattern.replace(/:(\w+)/g, '{$1}').replace(/\*(\w+)/g, '{$1+}');
@@ -375,7 +375,7 @@ ${corsHeaders}` : '';
 
   return `AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: ThenJS Application
+Description: Vura Application
 
 Globals:
   Function:
@@ -647,7 +647,7 @@ export async function handler(event, context) {
 // ─── Adapter Factory ───
 
 /**
- * Create a ThenJS adapter for AWS Lambda + API Gateway (SAM).
+ * Create a Vura adapter for AWS Lambda + API Gateway (SAM).
  *
  * @example
  * ```ts

@@ -469,7 +469,7 @@ export default function BrokenPage() {
     expect(res.body).toContain('Internal Server Error');
     expect(res.body).not.toContain('layout explosion');
     expect(health.statusCode).toBe(200);
-    expect(health.body).toContain('ThenJS');
+    expect(health.body).toContain('Vura');
   }, 10000);
 
   it('lets an in-flight request complete before SIGTERM exits the process', async () => {

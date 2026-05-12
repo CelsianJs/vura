@@ -77,7 +77,7 @@ async function runBenchmark(scanFn, name, iterations = 1000) {
 }
 
 async function main() {
-  console.log('ThenJS Compiler Benchmark\n');
+  console.log('Vura Compiler Benchmark\n');
 
   // JS fallback
   let jsScan;

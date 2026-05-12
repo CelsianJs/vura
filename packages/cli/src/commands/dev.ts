@@ -315,7 +315,7 @@ async function startStandaloneServer(
     // Health check
     if (url.pathname === '/__health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, framework: 'ThenJS', mode: 'dev' }));
+      res.end(JSON.stringify({ ok: true, framework: 'Vura', mode: 'dev' }));
       return;
     }
 
@@ -370,7 +370,7 @@ async function startStandaloneServer(
     if (url.pathname === '/' && manifest.pages.length === 0) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
-        framework: 'ThenJS',
+        framework: 'Vura',
         mode: 'dev',
         routes: manifest.api.map(r => r.methods.map(m => `${m} ${r.urlPattern}`)).flat(),
       }));
@@ -491,7 +491,7 @@ async function startStandaloneServer(
 
             const bodyHtml = builtinRenderToString(vnode);
             const html = wrapDocument(bodyHtml, {
-              title: pageConfig.title ?? 'ThenJS App',
+              title: pageConfig.title ?? 'Vura App',
               meta: pageConfig.meta ?? [],
               styles: pageConfig.styles ?? [],
               scripts: pageConfig.scripts ?? [],

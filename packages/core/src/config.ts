@@ -1,5 +1,5 @@
 /**
- * ThenJS Configuration
+ * Vura Configuration
  *
  * then.config.js defines the project's deployment target, page defaults, and API settings.
  */
@@ -53,7 +53,7 @@ export interface ThenConfig {
 }
 
 /**
- * Define a ThenJS config with type safety.
+ * Define a Vura config with type safety.
  *
  * @example
  * ```ts

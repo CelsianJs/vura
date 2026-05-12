@@ -1,6 +1,6 @@
 # @celsian/then-vite-plugin
 
-Vite plugin for ThenJS — enables hot module replacement, route compilation, and development tooling.
+Vite plugin for Vura — enables hot module replacement, route compilation, and development tooling.
 
 ## Install
 

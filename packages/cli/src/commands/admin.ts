@@ -1,5 +1,5 @@
 /**
- * `then admin` — Launch the ThenJS admin dashboard.
+ * `then admin` — Launch the Vura admin dashboard.
  *
  * A local web UI for managing deployments, routes, environment
  * variables, and domain configuration. Inspired by Vercel's dashboard.

@@ -1,5 +1,5 @@
 /**
- * ThenJS Logger — Structured logging with request tracing.
+ * Vura Logger — Structured logging with request tracing.
  *
  * Features:
  * - Log levels: debug, info, warn, error

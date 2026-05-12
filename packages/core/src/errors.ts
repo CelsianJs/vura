@@ -1,5 +1,5 @@
 /**
- * ThenJS Error Handling — Structured error system with dev/prod modes.
+ * Vura Error Handling — Structured error system with dev/prod modes.
  *
  * Features:
  *   - Structured error codes (like CelsianJS)
@@ -230,7 +230,7 @@ function devErrorPage(error: Error, route?: string): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Error - ThenJS</title>
+  <title>Error - Vura</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; max-width: 800px; margin: 40px auto; padding: 0 20px; background: #1a1a2e; color: #e0e0e0; }
     h1 { color: #ff6b6b; font-size: 24px; border-bottom: 2px solid #333; padding-bottom: 12px; }
@@ -240,7 +240,7 @@ function devErrorPage(error: Error, route?: string): string {
   </style>
 </head>
 <body>
-  <span class="badge">ThenJS Dev Error</span>
+  <span class="badge">Vura Dev Error</span>
   <h1>${errorName}: ${errorMessage}</h1>
   ${routeInfo}
   <pre>${stack}</pre>

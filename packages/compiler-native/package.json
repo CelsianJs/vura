@@ -1,7 +1,7 @@
 {
   "name": "@celsian/then-compiler-native",
-  "version": "0.1.1",
-  "description": "Unpublished native Rust compiler prototype for ThenJS \u2014 source-only until platform binaries are released",
+  "version": "0.1.2",
+  "description": "Unpublished native Rust compiler prototype for Vura \u2014 source-only until platform binaries are released",
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {

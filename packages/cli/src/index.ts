@@ -1,5 +1,5 @@
 /**
- * ThenJS CLI
+ * Vura CLI
  *
  * Minimal CLI that wires together @celsian/then-core's build pipeline
  * with project configuration and deployment providers.
@@ -39,7 +39,7 @@ export async function run(args: string[]): Promise<void> {
 
 function printHelp(): void {
   console.log(`
-  vura / thenjs — Vura CLI
+  vura — Vura CLI
 
   Commands:
     dev         Start local development server

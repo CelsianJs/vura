@@ -1,5 +1,5 @@
 /**
- * ThenJS Streaming Response Helpers
+ * Vura Streaming Response Helpers
  *
  * Utilities for common streaming patterns:
  *   - reply.stream(readableStream)  — pipe a readable stream to response

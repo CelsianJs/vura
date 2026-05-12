@@ -1,6 +1,6 @@
 # @celsian/then-adapter-cloudflare
 
-Cloudflare Workers adapter for ThenJS applications.
+Cloudflare Workers adapter for Vura applications.
 
 ## Install
 
@@ -18,7 +18,7 @@ export default {
 }
 ```
 
-Then deploy with `thenjs deploy`.
+Then deploy with `vura deploy`.
 
 ## License
 

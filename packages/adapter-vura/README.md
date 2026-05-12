@@ -1,6 +1,6 @@
 # @celsian/then-adapter-vura
 
-Vura Platform adapter for ThenJS applications. Deploys to the native Vura hosting platform.
+Vura Platform adapter for Vura applications. Deploys to the native Vura hosting platform.
 
 ## Install
 

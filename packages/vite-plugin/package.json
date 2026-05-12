@@ -1,6 +1,6 @@
 {
   "name": "@celsian/then-vite-plugin",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "exports": {
     ".": {
@@ -10,7 +10,7 @@
     }
   },
   "dependencies": {
-    "@celsian/then-core": "workspace:0.1.1"
+    "@celsian/then-core": "workspace:0.1.2"
   },
   "peerDependencies": {
     "vite": "^5.0.0 || ^6.0.0"

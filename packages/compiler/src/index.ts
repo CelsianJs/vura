@@ -1,5 +1,5 @@
 /**
- * @celsian/then-compiler — Pure JS fallback compiler for ThenJS
+ * @celsian/then-compiler — Pure JS fallback compiler for Vura
  *
  * Same API surface as @celsian/then-compiler-native but uses regex-based
  * static analysis instead of AST parsing. Good enough for most

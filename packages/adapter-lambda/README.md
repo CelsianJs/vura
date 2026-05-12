@@ -1,6 +1,6 @@
 # @celsian/then-adapter-lambda
 
-AWS Lambda adapter for ThenJS applications.
+AWS Lambda adapter for Vura applications.
 
 ## Install
 

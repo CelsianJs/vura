@@ -190,7 +190,7 @@ dist/
 export const route = { kind: 'serverless' };
 
 export function GET(req: ThenRequest, reply: ThenReply) {
-  return reply.json({ message: 'Hello from ThenJS!' });
+  return reply.json({ message: 'Hello from Vura!' });
 }
 `,
 
@@ -208,8 +208,8 @@ export function GET(req: ThenRequest, reply: ThenReply) {
 export default function HomePage() {
   return (
     <div class="home">
-      <h1>Welcome to ThenJS</h1>
-      <p>Built with What Framework + ThenJS API routes</p>
+      <h1>Welcome to Vura</h1>
+      <p>Built with What Framework + Vura API routes</p>
       <nav>
         <a href="/about">About</a>
         {' | '}
@@ -228,7 +228,7 @@ export default function AboutPage() {
       <h1>About</h1>
       <p>This project was scaffolded with <code>create-then</code>.</p>
       <p>
-        ThenJS is a full-stack meta-framework combining{' '}
+        Vura is a full-stack meta-framework combining{' '}
         <strong>What Framework</strong> for the UI with file-based API routes.
       </p>
       <nav>
@@ -275,7 +275,7 @@ async function main() {
 
   if (args.help) {
     console.log(`
-${bold('create-then')} — Scaffold a new ThenJS project
+${bold('create-then')} — Scaffold a new Vura project
 
 ${bold('Usage:')}
   npm create then@latest ${dim('[project-name]')}
@@ -291,7 +291,7 @@ ${bold('Options:')}
   }
 
   console.log();
-  console.log(bold(cyan('  create-then')) + dim(' — scaffold a new ThenJS project'));
+  console.log(bold(cyan('  create-then')) + dim(' — scaffold a new Vura project'));
   console.log();
 
   // 1. Get project name
@@ -375,7 +375,7 @@ ${bold('Options:')}
 
   // 5. Print next steps
   console.log();
-  console.log(bold(green('  Done! ')) + `Your ThenJS project is ready.\n`);
+  console.log(bold(green('  Done! ')) + `Your Vura project is ready.\n`);
   console.log(bold('  Next steps:\n'));
   console.log(`    cd ${projectName}`);
   console.log(`    ${pm === 'npm' ? 'npm run' : pm} dev\n`);

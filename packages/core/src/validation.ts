@@ -1,5 +1,5 @@
 /**
- * ThenJS Input Validation — Optional Zod Integration
+ * Vura Input Validation — Optional Zod Integration
  *
  * Provides schema-based request validation for route handlers.
  * Uses Zod as a peer dependency — validation works with any Zod-compatible

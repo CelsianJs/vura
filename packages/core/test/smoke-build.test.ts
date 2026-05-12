@@ -386,7 +386,7 @@ console.log(JSON.stringify({ status: response.status, body: await response.json(
 
   it('includes health check endpoint', () => {
     expect(serverCode).toContain('/__health');
-    expect(serverCode).toContain("framework: 'ThenJS'");
+    expect(serverCode).toContain("framework: 'Vura'");
   });
 
   // ── 18. Self-contained — no framework dependency ──
@@ -636,7 +636,7 @@ describe('smoke-build: live server integration', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(body.framework).toBe('ThenJS');
+    expect(body.framework).toBe('Vura');
   });
 
   it('GET /api/hello returns { message: "hello" }', async () => {

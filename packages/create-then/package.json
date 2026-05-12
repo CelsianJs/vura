@@ -1,7 +1,7 @@
 {
   "name": "create-then",
-  "version": "0.1.1",
-  "description": "Scaffold a new ThenJS project",
+  "version": "0.1.2",
+  "description": "Scaffold a new Vura project",
   "type": "module",
   "bin": {
     "create-then": "dist/index.js"
@@ -15,7 +15,6 @@
   },
   "keywords": [
     "vura",
-    "thenjs",
     "scaffold",
     "create",
     "typescript"

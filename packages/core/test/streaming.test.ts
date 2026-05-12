@@ -71,7 +71,7 @@ function createMockRequest(headers: Record<string, string> = {}): StreamableRequ
 
 // ─── Temp File Helpers ───
 
-const TEST_DIR = join(tmpdir(), 'thenjs-streaming-test-' + Date.now());
+const TEST_DIR = join(tmpdir(), 'vura-streaming-test-' + Date.now());
 
 beforeEach(() => {
   mkdirSync(TEST_DIR, { recursive: true });

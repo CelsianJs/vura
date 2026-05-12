@@ -1,6 +1,6 @@
 # @celsian/then-compiler
 
-Compiler for ThenJS — transforms routes, pages, and API endpoints into optimized build output.
+Compiler for Vura — transforms routes, pages, and API endpoints into optimized build output.
 
 ## Install
 

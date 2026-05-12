@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * ThenJS CLI Entry Point
+ * Vura CLI Entry Point
  *
  * Usage:
  *   then build     — Scan routes, generate manifests, bundle for deployment

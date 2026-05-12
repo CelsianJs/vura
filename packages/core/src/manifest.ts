@@ -3,7 +3,7 @@
  *
  * Scans src/api/ and src/pages/ directories to build a unified route manifest.
  * Each route gets a `kind` (serverless | hot | task) that determines WHERE it
- * gets deployed. This is the core abstraction that makes ThenJS multi-target.
+ * gets deployed. This is the core abstraction that makes Vura multi-target.
  *
  * API routes: export named HTTP method functions (GET, POST, PUT, DELETE, etc.)
  * Pages: export default component + optional `page` config

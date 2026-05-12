@@ -1,5 +1,5 @@
 /**
- * ThenJS Task System
+ * Vura Task System
  *
  * Self-contained task runner for background job processing.
  * Zero external dependencies — works in hot server or standalone.
