@@ -8,8 +8,8 @@ describe('create-then templates', () => {
 
     expect(packageJson.dependencies).toEqual({
       'what-framework': '^0.8.1',
-      '@celsian/then-core': '0.1.0',
-      '@celsian/then-cli': '0.1.0',
+      '@celsian/then-core': '0.1.1',
+      '@celsian/then-cli': '0.1.1',
     });
     expect(JSON.stringify(packageJson.dependencies)).not.toContain('latest');
   });
