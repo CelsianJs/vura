@@ -1,13 +1,13 @@
 /**
- * `then admin` — Launch the Vura admin dashboard.
+ * `vura admin` — Launch the Vura admin dashboard.
  *
  * A local web UI for managing deployments, routes, environment
  * variables, and domain configuration. Inspired by Vercel's dashboard.
  *
  * Usage:
- *   then admin                    — Start on 127.0.0.1:4000
- *   then admin --port 9000        — Start on 127.0.0.1:9000
- *   then admin --host 127.0.0.1 — Bind explicitly to loopback
+ *   vura admin                    — Start on 127.0.0.1:4000
+ *   vura admin --port 9000        — Start on 127.0.0.1:9000
+ *   vura admin --host 127.0.0.1 — Bind explicitly to loopback
  */
 
 import { buildManifest } from '@celsian/then-core';
@@ -39,7 +39,7 @@ export function isLocalAdminHost(host: string): boolean {
 export function assertSafeAdminBindHost(host: string): void {
   if (!isLocalAdminHost(host)) {
     throw new Error(
-      `then admin must bind to localhost/loopback. Refusing unsafe host "${host}" because the dashboard manages local secrets.`,
+      `vura admin must bind to localhost/loopback. Refusing unsafe host "${host}" because the dashboard manages local secrets.`,
     );
   }
 }
@@ -354,7 +354,7 @@ export async function adminCommand(args: string[]): Promise<void> {
     console.log(`
   ┌─────────────────────────────────────────┐
   │                                         │
-  │   then admin                            │
+  │   vura admin                            │
   │                                         │
   │   Dashboard: ${displayUrl.padEnd(22)} │
   │   Token:     ${adminToken.slice(0, 8).padEnd(25)} │
@@ -377,7 +377,7 @@ return `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>then · admin</title>
+<title>vura · admin</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -950,7 +950,7 @@ return `<!DOCTYPE html>
   <!-- Sidebar -->
   <nav class="sidebar">
     <div class="sidebar-logo">
-      <h1><span class="logo-mark">t</span> then</h1>
+      <h1><span class="logo-mark">v</span> vura</h1>
       <div class="project-name" id="projectName">loading...</div>
     </div>
 
@@ -1112,8 +1112,8 @@ function renderOverview() {
       </div>
       <div class="card-body">
         <div class="btn-group">
-          <button class="btn" onclick="navigator.clipboard.writeText('then build').then(()=>showToast('Copied: then build'))">Copy Build Command</button>
-          <button class="btn" onclick="navigator.clipboard.writeText('then dev').then(()=>showToast('Copied: then dev'))">Copy Dev Command</button>
+          <button class="btn" onclick="navigator.clipboard.writeText('vura build').then(()=>showToast('Copied: vura build'))">Copy Build Command</button>
+          <button class="btn" onclick="navigator.clipboard.writeText('vura dev').then(()=>showToast('Copied: vura dev'))">Copy Dev Command</button>
           <button class="btn" onclick="fetchAll().then(()=>showToast('Refreshed'))">Refresh Data</button>
         </div>
       </div>
@@ -1124,7 +1124,7 @@ function renderOverview() {
 // ─── Deployments ───
 function renderDeployments() {
   const deps = state.deployments || [];
-  if (deps.length === 0) return '<div class="page-header"><h2>Deployments</h2><p>No deployment targets found. Run <code>then build</code> first.</p></div>';
+  if (deps.length === 0) return '<div class="page-header"><h2>Deployments</h2><p>No deployment targets found. Run <code>vura build</code> first.</p></div>';
 
   const iconMap = { 'hot-server': '●', 'static': '◆', 'serverless': 'λ', 'tasks': '⏳' };
   const colorMap = { 'hot-server': 'var(--accent)', 'static': 'var(--accent-blue)', 'serverless': 'var(--accent-amber)', 'tasks': 'var(--accent-purple)' };

@@ -1,5 +1,5 @@
 /**
- * `then build` — Build the project for deployment.
+ * `vura build` — Build the project for deployment.
  *
  * 1. Scan routes → build manifest
  * 2. Generate server entry (for hot server)
@@ -23,7 +23,7 @@ export async function buildCommand(_args: string[]): Promise<void> {
   const startTime = Date.now();
   const projectRoot = process.cwd();
 
-  console.log('\n  then build\n');
+  console.log('\n  vura build\n');
 
   // 1. Load config
   const config = await loadConfig(projectRoot);

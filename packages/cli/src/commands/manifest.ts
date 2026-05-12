@@ -1,5 +1,5 @@
 /**
- * `then manifest` — Print the route manifest for debugging.
+ * `vura manifest` — Print the route manifest for debugging.
  *
  * Scans the project's src/api/ and src/pages/ directories
  * and outputs the discovered routes with their kinds and methods.

@@ -1,6 +1,6 @@
 # @celsian/then-cli
 
-CLI for Vura — create, develop, build, and deploy Vura applications.
+CLI for Vura — develop and build Vura applications.
 
 ## Install
 
@@ -12,15 +12,12 @@ Or use via npx:
 
 ```bash
 npx vura --help
-npx vura --help
 ```
 
 ## Commands
 
 - `vura dev` — Start development server with hot reload
 - `vura build` — Build for production
-- `vura deploy` — Deploy to Vura platform
-- `vura generate` — Generate routes, components, and API endpoints
 
 ## Quick Start
 

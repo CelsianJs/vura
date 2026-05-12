@@ -4,7 +4,7 @@ Please report security issues privately. Do not open public issues for vulnerabi
 
 Use GitHub Security Advisories for this repository:
 
-https://github.com/zvndev/vura/security/advisories/new
+https://github.com/CelsianJs/vura/security/advisories/new
 
 Include:
 

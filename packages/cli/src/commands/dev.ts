@@ -1,5 +1,5 @@
 /**
- * `then dev` — Start the local development server.
+ * `vura dev` — Start the local development server.
  *
  * Uses Vite under the hood with @celsian/then-vite-plugin for:
  * - API route hot-reloading (CelsianJS-compatible req/reply)
@@ -9,8 +9,8 @@
  * - TypeScript compilation via Vite's esbuild transform
  *
  * Usage:
- *   then dev              — Start dev server on port 3000
- *   then dev --port 8080  — Start on custom port
+ *   vura dev              — Start dev server on port 3000
+ *   vura dev --port 8080  — Start on custom port
  */
 
 import {
@@ -131,7 +131,7 @@ async function loadEnvFiles(projectRoot: string): Promise<void> {
 export async function devCommand(args: string[]): Promise<void> {
   const opts = parseDevOptions(args);
 
-  console.log('\n  then dev\n');
+  console.log('\n  vura dev\n');
 
   // Load .env files (.env.local > .env.{NODE_ENV} > .env)
   await loadEnvFiles(opts.projectRoot);
@@ -248,9 +248,10 @@ async function startStandaloneServer(
 
   // Pre-compile route regexes at startup — recompiled only on file change
   let compiledRoutes: CompiledRoute[] = compileRoutes(manifest.api);
-  let compiledPages: CompiledPageRoute[] = compilePageRoutes(
-    manifest.pages.filter(p => p.mode === 'server' || p.mode === 'hybrid'),
-  );
+  // In dev mode, compile ALL page routes — not just server/hybrid.
+  // Static and client pages also need on-the-fly SSR rendering during development
+  // because there's no Vite to serve them as static assets.
+  let compiledPages: CompiledPageRoute[] = compilePageRoutes(manifest.pages);
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
@@ -528,13 +529,11 @@ async function startStandaloneServer(
     try {
       const watcher = watch(dir, { recursive: true }, async (event, filename) => {
         const prefix = dir === apiDir ? 'src/api' : 'src/pages';
-        console.log(`  [then] ${event}: ${prefix}/${filename} — re-scanning routes`);
+        console.log(`  [vura] ${event}: ${prefix}/${filename} — re-scanning routes`);
         const { buildManifest: rescan, compileRoutes: recompile, compilePageRoutes: recompilePages } = await import('@celsian/then-core');
         manifest = await rescan(opts.projectRoot);
         compiledRoutes = recompile(manifest.api);
-        compiledPages = recompilePages(
-          manifest.pages.filter(p => p.mode === 'server' || p.mode === 'hybrid'),
-        );
+        compiledPages = recompilePages(manifest.pages);
       });
       process.on('SIGINT', () => { watcher.close(); process.exit(0); });
     } catch {
