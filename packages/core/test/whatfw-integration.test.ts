@@ -110,11 +110,11 @@ describe('What Framework Integration — Page Modes', () => {
       }
 
       // Simulate server-side data fetching
-      const userData: User = { name: 'Kirby', email: 'kirby@zvndev.com' };
+      const userData: User = { name: 'Ada', email: 'ada@example.com' };
       const html = renderToString(h(UserProfile, { user: userData }));
 
-      expect(html).toContain('<h2>Kirby</h2>');
-      expect(html).toContain('<p>kirby@zvndev.com</p>');
+      expect(html).toContain('<h2>Ada</h2>');
+      expect(html).toContain('<p>ada@example.com</p>');
     });
 
     it('renders lists from server data', () => {
