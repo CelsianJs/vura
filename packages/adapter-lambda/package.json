@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@celsian/vura-core": "workspace:0.2.0",
-    "esbuild": "^0.27.3"
+    "esbuild": "^0.28.0"
   },
   "publishConfig": {
     "access": "public"
