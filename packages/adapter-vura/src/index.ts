@@ -1,5 +1,5 @@
 /**
- * @celsian/then-adapter-vura
+ * @celsian/vura-adapter-vura
  *
  * Adapts Vura build output for deployment on Vura.io.
  *
@@ -8,10 +8,10 @@
  *   2. Uploads it to the Vura API
  *   3. Streams deployment logs back to the terminal
  *
- * Usage in then.config.ts:
+ * Usage in vura.config.ts:
  * ```ts
- * import { defineConfig } from '@celsian/then-core';
- * import { vuraAdapter } from '@celsian/then-adapter-vura';
+ * import { defineConfig } from '@celsian/vura-core';
+ * import { vuraAdapter } from '@celsian/vura-adapter-vura';
  *
  * export default defineConfig({
  *   adapter: vuraAdapter({ team: 'my-team' }),
@@ -25,7 +25,7 @@ import { basename, dirname, join, relative } from 'node:path';
 import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { homedir, tmpdir } from 'node:os';
-import type { ThenAdapter, AdapterBuildContext } from '@celsian/then-core';
+import type { ThenAdapter, AdapterBuildContext } from '@celsian/vura-core';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);

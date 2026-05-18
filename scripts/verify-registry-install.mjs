@@ -21,15 +21,15 @@ function run(cmd, args, opts = {}) {
   return res;
 }
 
-const cliBins = ['vura', 'thenjs', 'then'];
-const smokeCliCommands = ['vura', 'thenjs', 'create-then', 'then'];
+const cliBins = ['vura'];
+const smokeCliCommands = ['vura', 'create-vura'];
 
 function installedBinPath(cwd, bin) {
   return join(cwd, 'node_modules', '.bin', bin);
 }
 
 function assertInstalledBins(cwd) {
-  for (const bin of [...cliBins, 'create-then']) {
+  for (const bin of [...cliBins, 'create-vura']) {
     const binPath = installedBinPath(cwd, bin);
     if (!existsSync(binPath)) {
       throw new Error(`Expected installed CLI bin at ${binPath}`);
@@ -132,11 +132,11 @@ try {
   assertHelpCommands(tmp);
 
   const importCheck = `
-    await import('@celsian/then-core');
-    await import('@celsian/then-compiler');
-    await import('@celsian/then-adapter-cloudflare');
-    await import('@celsian/then-adapter-lambda');
-    await import('@celsian/then-vite-plugin');
+    await import('@celsian/vura-core');
+    await import('@celsian/vura-compiler');
+    await import('@celsian/vura-adapter-cloudflare');
+    await import('@celsian/vura-adapter-lambda');
+    await import('@celsian/vura-vite-plugin');
     console.log('VURA_REGISTRY_IMPORT_OK');
   `;
   const imported = run(process.execPath, ['--input-type=module', '-e', importCheck], { cwd: tmp });
@@ -144,10 +144,10 @@ try {
     throw new Error('Registry smoke import did not complete');
   }
 
-  const createThenBin = realpathSync(join(tmp, 'node_modules/create-then/dist/index.js'));
+  const createThenBin = realpathSync(join(tmp, 'node_modules/create-vura/dist/index.js'));
   const scaffold = run(process.execPath, [createThenBin, 'registry-smoke-app', '--dry-run'], { cwd: tmp });
   if (!scaffold.stdout.includes('package.json')) {
-    throw new Error(`create-then registry scaffold smoke did not list package.json; stdout=${JSON.stringify(scaffold.stdout)} stderr=${JSON.stringify(scaffold.stderr)}`);
+    throw new Error(`create-vura registry scaffold smoke did not list package.json; stdout=${JSON.stringify(scaffold.stdout)} stderr=${JSON.stringify(scaffold.stderr)}`);
   }
 
   run(process.execPath, [createThenBin, 'registry-smoke-app', '--no-install'], { cwd: tmp });
@@ -158,7 +158,7 @@ try {
     generatedAt: new Date().toISOString(),
     packageCount: specs.length,
     packages: specs,
-    checks: ['npm install --ignore-scripts', 'installed CLI bins', 'direct installed CLI bin help', 'esm imports', 'create-then --dry-run', 'create-then --no-install', 'generated app npm install/build/boot'],
+    checks: ['npm install --ignore-scripts', 'installed CLI bins', 'direct installed CLI bin help', 'esm imports', 'create-vura --dry-run', 'create-vura --no-install', 'generated app npm install/build/boot'],
   };
   await mkdir(dirname(artifactPath), { recursive: true });
   await writeFile(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`);

@@ -42,7 +42,7 @@ for (const key of candidates) {
 
   // Try platform-specific npm package
   try {
-    nativeBinding = require(`@celsian/then-compiler-native-${key}`);
+    nativeBinding = require(`@celsian/vura-compiler-native-${key}`);
     break;
   } catch (e) {
     loadError = e;
@@ -54,8 +54,8 @@ if (!nativeBinding) {
     throw loadError;
   }
   throw new Error(
-    `@celsian/then-compiler-native: No native addon found for ${platform}-${arch}. ` +
-    `Run 'npm install @celsian/then-compiler-native' or build from source with 'napi build --release'.`
+    `@celsian/vura-compiler-native: No native addon found for ${platform}-${arch}. ` +
+    `Run 'npm install @celsian/vura-compiler-native' or build from source with 'napi build --release'.`
   );
 }
 

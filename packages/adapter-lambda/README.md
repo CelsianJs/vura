@@ -1,16 +1,16 @@
-# @celsian/then-adapter-lambda
+# @celsian/vura-adapter-lambda
 
 AWS Lambda adapter for Vura applications.
 
 ## Install
 
 ```bash
-npm install @celsian/then-adapter-lambda
+npm install @celsian/vura-adapter-lambda
 ```
 
 ## Usage
 
-Configure in your `then.config.js`:
+Configure in your `vura.config.js`:
 
 ```js
 export default {

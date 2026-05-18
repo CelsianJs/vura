@@ -2,7 +2,7 @@
  * GET /api/health — Hot route (persistent server)
  * Tracks uptime — impossible with serverless.
  */
-import type { ThenRequest, ThenReply } from '@celsian/then-core';
+import type { ThenRequest, ThenReply } from '@celsian/vura-core';
 
 export const route = { kind: 'hot' as const };
 

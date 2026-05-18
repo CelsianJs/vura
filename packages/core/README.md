@@ -1,11 +1,11 @@
-# @celsian/then-core
+# @celsian/vura-core
 
 Core runtime for Vura — the full-stack meta-framework built on CelsianJS and What Framework.
 
 ## Install
 
 ```bash
-npm install @celsian/then-core
+npm install @celsian/vura-core
 ```
 
 ## What is Vura?

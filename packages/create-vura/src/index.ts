@@ -6,11 +6,11 @@ import * as readline from 'node:readline';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-interface CreateThenPackageMetadata {
+interface CreateVuraPackageMetadata {
   version?: string;
-  thenScaffold?: {
+  vuraScaffold?: {
     dependencies?: Record<string, string>;
-    thenPackages?: string[];
+    vuraPackages?: string[];
   };
 }
 
@@ -50,24 +50,24 @@ function getScaffoldDependencyVersions(): Record<string, string> {
   const entryDir = path.dirname(fileURLToPath(import.meta.url));
   const packageJsonPath = findPackageJson(entryDir);
   if (!packageJsonPath) {
-    throw new Error('Unable to locate create-then package metadata for scaffold dependency versions');
+    throw new Error('Unable to locate create-vura package metadata for scaffold dependency versions');
   }
 
-  const packageJson = readJsonFile<CreateThenPackageMetadata>(packageJsonPath);
+  const packageJson = readJsonFile<CreateVuraPackageMetadata>(packageJsonPath);
   const ownVersion = packageJson?.version;
   if (!packageJson || !ownVersion) {
     throw new Error(`${packageJsonPath} must define a version for scaffold dependency versions`);
   }
 
-  const scaffoldDependencies = packageJson.thenScaffold?.dependencies ?? {};
+  const scaffoldDependencies = packageJson.vuraScaffold?.dependencies ?? {};
   const whatFrameworkVersion = scaffoldDependencies['what-framework'];
   if (!whatFrameworkVersion) {
-    throw new Error(`${packageJsonPath} must define thenScaffold.dependencies["what-framework"]`);
+    throw new Error(`${packageJsonPath} must define vuraScaffold.dependencies["what-framework"]`);
   }
 
-  const thenPackages = packageJson.thenScaffold?.thenPackages ?? ['@celsian/then-core', '@celsian/then-cli'];
+  const vuraPackages = packageJson.vuraScaffold?.vuraPackages ?? ['@celsian/vura-core', '@celsian/vura-cli'];
   const dependencies: Record<string, string> = { 'what-framework': whatFrameworkVersion };
-  for (const packageName of thenPackages) {
+  for (const packageName of vuraPackages) {
     dependencies[packageName] = findWorkspacePackageVersion(packageName, packageJsonPath) ?? ownVersion;
   }
 
@@ -153,7 +153,7 @@ export function getFiles(projectName: string): Record<string, string> {
       2
     ) + '\n',
 
-    'then.config.js': `import { defineConfig } from '@celsian/then-core';
+    'vura.config.js': `import { defineConfig } from '@celsian/vura-core';
 
 export default defineConfig({});
 `,
@@ -185,7 +185,7 @@ dist/
 .DS_Store
 `,
 
-    'src/api/hello.ts': `import type { ThenRequest, ThenReply } from '@celsian/then-core';
+    'src/api/hello.ts': `import type { ThenRequest, ThenReply } from '@celsian/vura-core';
 
 export const route = { kind: 'serverless' };
 
@@ -194,7 +194,7 @@ export function GET(req: ThenRequest, reply: ThenReply) {
 }
 `,
 
-    'src/api/health.ts': `import type { ThenRequest, ThenReply } from '@celsian/then-core';
+    'src/api/health.ts': `import type { ThenRequest, ThenReply } from '@celsian/vura-core';
 
 export const route = { kind: 'hot' };
 
@@ -226,7 +226,7 @@ export default function AboutPage() {
   return (
     <div class="about">
       <h1>About</h1>
-      <p>This project was scaffolded with <code>create-then</code>.</p>
+      <p>This project was scaffolded with <code>create-vura</code>.</p>
       <p>
         Vura is a full-stack meta-framework combining{' '}
         <strong>What Framework</strong> for the UI with file-based API routes.
@@ -275,12 +275,12 @@ async function main() {
 
   if (args.help) {
     console.log(`
-${bold('create-then')} — Scaffold a new Vura project
+${bold('create-vura')} — Scaffold a new Vura project
 
 ${bold('Usage:')}
-  npm create then@latest ${dim('[project-name]')}
-  pnpm create then@latest ${dim('[project-name]')}
-  npx create-then ${dim('[project-name]')}
+  npm create vura@latest ${dim('[project-name]')}
+  pnpm create vura@latest ${dim('[project-name]')}
+  npx create-vura ${dim('[project-name]')}
 
 ${bold('Options:')}
   --dry-run      Print what would be created without writing files
@@ -291,7 +291,7 @@ ${bold('Options:')}
   }
 
   console.log();
-  console.log(bold(cyan('  create-then')) + dim(' — scaffold a new Vura project'));
+  console.log(bold(cyan('  create-vura')) + dim(' — scaffold a new Vura project'));
   console.log();
 
   // 1. Get project name

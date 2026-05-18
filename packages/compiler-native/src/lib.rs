@@ -1,4 +1,4 @@
-//! @celsian/then-compiler-native — Rust-powered compiler for ThenJS
+//! @celsian/vura-compiler-native — Rust-powered compiler for Vura
 //!
 //! Provides AST-based route scanning, JSX transformation, and native file watching.
 //! Exposed to Node.js via napi-rs.

@@ -1,5 +1,5 @@
 /**
- * @celsian/then-adapter-cloudflare
+ * @celsian/vura-adapter-cloudflare
  *
  * Adapts Vura build output for Cloudflare Workers deployment.
  *
@@ -16,17 +16,17 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ThenAdapter, AdapterBuildContext } from '@celsian/then-core';
-import type { RouteManifest, ApiRoute } from '@celsian/then-core';
+import type { ThenAdapter, AdapterBuildContext } from '@celsian/vura-core';
+import type { RouteManifest, ApiRoute } from '@celsian/vura-core';
 
 
 const require = createRequire(import.meta.url);
 
 function resolveCorePackageDir(): string {
   try {
-    return dirname(require.resolve('@celsian/then-core'));
+    return dirname(require.resolve('@celsian/vura-core'));
   } catch {
-    const localCore = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules', '@celsian', 'then-core');
+    const localCore = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules', '@celsian', 'vura-core');
     return join(localCore, existsSync(join(localCore, 'src')) ? 'src' : 'dist');
   }
 }
@@ -37,18 +37,18 @@ function coreModuleExt(moduleName: string): string {
   return existsSync(join(CORE_PACKAGE_DIR, `${moduleName}.ts`)) ? 'ts' : 'js';
 }
 
-function thenCoreRuntimeShimPlugin() {
+function vuraCoreRuntimeShimPlugin() {
   return {
-    name: 'then-core-runtime-shim',
+    name: 'vura-core-runtime-shim',
     setup(build: any) {
-      build.onResolve({ filter: /^@celsian\/then-core\/(jsx-runtime|jsx-dev-runtime)$/ }, () => ({
+      build.onResolve({ filter: /^@celsian\/vura-core\/(jsx-runtime|jsx-dev-runtime)$/ }, () => ({
         path: join(CORE_PACKAGE_DIR, `jsx-runtime.${coreModuleExt('jsx-runtime')}`),
       }));
-      build.onResolve({ filter: /^@celsian\/then-core$/ }, () => ({
-        path: '@celsian/then-core',
-        namespace: 'then-core-runtime-shim',
+      build.onResolve({ filter: /^@celsian\/vura-core$/ }, () => ({
+        path: '@celsian/vura-core',
+        namespace: 'vura-core-runtime-shim',
       }));
-      build.onLoad({ filter: /.*/, namespace: 'then-core-runtime-shim' }, () => ({
+      build.onLoad({ filter: /.*/, namespace: 'vura-core-runtime-shim' }, () => ({
         loader: 'js',
         resolveDir: CORE_PACKAGE_DIR,
         contents: `
@@ -198,7 +198,7 @@ export function generateWranglerToml(
 
 /**
  * Generate a self-contained Worker entry file that routes requests
- * to the appropriate handler using @celsian/then-core's req/reply pattern.
+ * to the appropriate handler using @celsian/vura-core's req/reply pattern.
  * No CelsianJS dependency required — works standalone.
  */
 export function generateWorkerEntry(
@@ -442,7 +442,7 @@ ${taskTable.length > 0 ? `
  * @example
  * ```ts
  * import { createApp } from '@celsian/core';
- * import { createWorkerHandler } from '@celsian/then-adapter-cloudflare';
+ * import { createWorkerHandler } from '@celsian/vura-adapter-cloudflare';
  *
  * const app = createApp();
  * app.get('/hello', (req) => new Response('Hello!'));
@@ -472,9 +472,9 @@ export function createWorkerHandler(app: CelsianApp): CloudflareWorkerHandler {
  *
  * @example
  * ```ts
- * // then.config.ts
- * import { defineConfig } from '@celsian/then-core';
- * import { cloudflareAdapter } from '@celsian/then-adapter-cloudflare';
+ * // vura.config.ts
+ * import { defineConfig } from '@celsian/vura-core';
+ * import { cloudflareAdapter } from '@celsian/vura-adapter-cloudflare';
  *
  * export default defineConfig({
  *   adapter: cloudflareAdapter({
@@ -592,7 +592,7 @@ async function bundleRouteModule(route: ApiRoute, projectRoot: string, outfile: 
       join(process.cwd(), 'node_modules'),
       join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules'),
     ],
-    plugins: [thenCoreRuntimeShimPlugin()],
+    plugins: [vuraCoreRuntimeShimPlugin()],
     external: ['what-framework', 'what-framework/*'],
   });
 }

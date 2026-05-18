@@ -1,4 +1,4 @@
-name: Build @celsian/then-compiler-native
+name: Build @celsian/vura-compiler-native
 
 on:
   workflow_dispatch:

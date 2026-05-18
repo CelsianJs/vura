@@ -1,7 +1,7 @@
 /**
  * Vura Configuration
  *
- * then.config.js defines the project's deployment target, page defaults, and API settings.
+ * vura.config.js defines the project's deployment target, page defaults, and API settings.
  */
 
 import type { RouteKind, PageMode } from './manifest.js';
@@ -57,9 +57,9 @@ export interface ThenConfig {
  *
  * @example
  * ```ts
- * // then.config.js
- * import { defineConfig } from '@celsian/then-core';
- * import { lambdaAdapter } from '@celsian/then-adapter-lambda';
+ * // vura.config.js
+ * import { defineConfig } from '@celsian/vura-core';
+ * import { lambdaAdapter } from '@celsian/vura-adapter-lambda';
  *
  * export default defineConfig({
  *   api: { defaultKind: 'serverless' },

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { lambdaAdapter } from '../src/index.js';
-import type { AdapterBuildContext, ApiRoute, RouteManifest } from '@celsian/then-core';
+import type { AdapterBuildContext, ApiRoute, RouteManifest } from '@celsian/vura-core';
 
 function runModuleJson(entryPath: string, body: string): any {
   const source = `const mod = await import(${JSON.stringify(pathToFileURL(entryPath).href)});
@@ -33,7 +33,7 @@ describe('lambdaAdapter deployment artifacts', () => {
     const root = mkdtempSync(join(tmpdir(), 'vura-lambda-artifact-'));
     try {
       mkdirSync(join(root, 'src', 'api'), { recursive: true });
-      writeFileSync(join(root, 'src', 'api', 'echo.ts'), `import { HttpError } from '@celsian/then-core';
+      writeFileSync(join(root, 'src', 'api', 'echo.ts'), `import { HttpError } from '@celsian/vura-core';
 
 export async function POST(req: { body: unknown; parsedBody: unknown }) {
   return { body: req.body, parsedBody: req.parsedBody, marker: new HttpError(418, 'INTERNAL_ERROR', 'teapot').name };
@@ -58,8 +58,8 @@ export async function POST(req: { body: unknown; parsedBody: unknown }) {
       expect(readFileSync(entryPath, 'utf-8')).toContain("import * as routeMod from './route.js'");
       const bundledRoute = readFileSync(bundledRoutePath, 'utf-8');
       expect(bundledRoute).not.toContain('req: {');
-      expect(bundledRoute).not.toContain("from '@celsian/then-core'");
-      expect(bundledRoute).not.toContain('from \"@celsian/then-core\"');
+      expect(bundledRoute).not.toContain("from '@celsian/vura-core'");
+      expect(bundledRoute).not.toContain('from \"@celsian/vura-core\"');
 
       const result = runModuleJson(entryPath, `
 const result = await mod.handler({

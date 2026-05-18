@@ -198,7 +198,7 @@ describe('generateServerEntry integration', () => {
 
     // No external framework dependency
     expect(code).not.toContain('@celsian/core');
-    expect(code).not.toContain('@celsian/then-core');
+    expect(code).not.toContain('@celsian/vura-core');
   });
 });
 

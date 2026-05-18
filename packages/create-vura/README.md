@@ -1,13 +1,13 @@
-# create-then
+# create-vura
 
 Scaffold a new Vura project.
 
 ## Usage
 
 ```bash
-npm create then@latest my-app
+npm create vura@latest my-app
 # or
-npx create-then my-app
+npx create-vura my-app
 ```
 
 Then:

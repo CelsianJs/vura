@@ -5,7 +5,7 @@ Vura is the OSS distribution of the ThenJS full-stack framework: file-based API 
 ## Install
 
 ```sh
-pnpm add @celsian/then-core @celsian/then-cli
+pnpm add @celsian/vura-core @celsian/vura-cli
 ```
 
 The CLI exposes `vura` and `thenjs` as safe command names. The legacy `then` bin is still shipped for compatibility, but new npm scripts should use `vura` or `thenjs` because `then` is a shell reserved word.
@@ -26,16 +26,16 @@ pnpm install --frozen-lockfile
 ## Quick start
 
 ```sh
-pnpm create then@latest my-app
+pnpm create vura@latest my-app
 cd my-app
 pnpm dev
 pnpm build
 ```
 
-`create-then` treats dependency installation as part of a successful scaffold. If install fails, the command exits non-zero after writing the files so registry or namespace-access problems cannot be missed. Pass `--no-install` explicitly to inspect or test the starter shape without installing:
+`create-vura` treats dependency installation as part of a successful scaffold. If install fails, the command exits non-zero after writing the files so registry or namespace-access problems cannot be missed. Pass `--no-install` explicitly to inspect or test the starter shape without installing:
 
 ```sh
-npx create-then my-app --no-install
+npx create-vura my-app --no-install
 ```
 
 Example scripts:
@@ -72,8 +72,8 @@ Set runtime environment variables in your host dashboard, then health-check your
 Use the Cloudflare adapter when you want Worker artifacts instead of the Node server:
 
 ```sh
-pnpm add @celsian/then-adapter-cloudflare
-# configure then.config.js with the adapter
+pnpm add @celsian/vura-adapter-cloudflare
+# configure vura.config.js with the adapter
 pnpm build
 wrangler deploy
 ```
@@ -85,8 +85,8 @@ Cloudflare route handlers intentionally receive the same conservative `req`/`rep
 Use the Lambda adapter for API Gateway/Lambda packaging:
 
 ```sh
-pnpm add @celsian/then-adapter-lambda
-# configure then.config.js with the adapter
+pnpm add @celsian/vura-adapter-lambda
+# configure vura.config.js with the adapter
 pnpm build
 sam deploy --guided
 ```
@@ -105,12 +105,12 @@ The generated hot server serves API routes first, server/hybrid runtime pages ne
 
 ## Packages
 
-- `@celsian/then-core` — manifest scanning, build pipeline, generated production server, and runtime helpers.
-- `@celsian/then-cli` — `vura`, `thenjs`, and legacy `then` command-line interface.
-- `@celsian/then-adapter-lambda` — AWS Lambda/API Gateway deployment artifacts.
-- `@celsian/then-adapter-cloudflare` — Cloudflare Workers deployment artifacts.
-- `@celsian/then-vite-plugin` — Vite integration.
-- `@celsian/then-compiler` — pure JavaScript compiler fallback.
+- `@celsian/vura-core` — manifest scanning, build pipeline, generated production server, and runtime helpers.
+- `@celsian/vura-cli` — `vura`, `thenjs`, and legacy `then` command-line interface.
+- `@celsian/vura-adapter-lambda` — AWS Lambda/API Gateway deployment artifacts.
+- `@celsian/vura-adapter-cloudflare` — Cloudflare Workers deployment artifacts.
+- `@celsian/vura-vite-plugin` — Vite integration.
+- `@celsian/vura-compiler` — pure JavaScript compiler fallback.
 
 ## Release checks
 

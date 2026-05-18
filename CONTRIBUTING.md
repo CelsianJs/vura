@@ -42,4 +42,4 @@ npx -p node@22 -p pnpm@10.11.0 pnpm release:check
 
 `pnpm release:check` is the required manual pre-release gate. It includes the local tarball smoke, tracked package-size limits, and npm dry-run publish, but it does not perform a real publish. Only run a non-dry-run `node scripts/publish-packages.mjs` after the `@celsian` npm scope authority blocker is resolved and the full gate has just passed.
 
-`pnpm verify:publish` packs the public workspaces, installs the tarballs into a temporary project, verifies all installed CLI bins (`vura` and `create-then`) by executing their installed bin targets directly, checks ESM imports, and dry-runs `create-then` scaffolding.
+`pnpm verify:publish` packs the public workspaces, installs the tarballs into a temporary project, verifies all installed CLI bins (`vura` and `create-vura`) by executing their installed bin targets directly, checks ESM imports, and dry-runs `create-vura` scaffolding.

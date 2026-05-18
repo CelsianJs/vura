@@ -1,10 +1,10 @@
 /**
- * Load then.config.js from the project root.
+ * Load vura.config.js from the project root.
  *
  * Supports:
- *   - then.config.js (JavaScript)
- *   - then.config.mjs (ESM)
- *   - then.config.ts (TypeScript, only when the current runtime can import it)
+ *   - vura.config.js (JavaScript)
+ *   - vura.config.mjs (ESM)
+ *   - vura.config.ts (TypeScript, only when the current runtime can import it)
  *
  * Falls back to default config if no file exists.
  */
@@ -12,9 +12,9 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { ThenConfig } from '@celsian/then-core';
+import type { ThenConfig } from '@celsian/vura-core';
 
-const CONFIG_FILES = ['then.config.js', 'then.config.mjs', 'then.config.ts'];
+const CONFIG_FILES = ['vura.config.js', 'vura.config.mjs', 'vura.config.ts'];
 
 export async function loadConfig(projectRoot: string): Promise<ThenConfig> {
   const root = resolve(projectRoot);

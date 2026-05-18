@@ -17,8 +17,8 @@
  *   - packages/core/src/body-parser.ts (parseNodeBody)
  *
  * This duplication is INTENTIONAL. The generated server entry must be fully self-contained
- * with zero @celsian/then-core dependency — it runs on bare Fly/Railway/VPS/Lambda where only
- * the dist/ bundle is deployed. The dev server and Vite plugin import from @celsian/then-core
+ * with zero @celsian/vura-core dependency — it runs on bare Fly/Railway/VPS/Lambda where only
+ * the dist/ bundle is deployed. The dev server and Vite plugin import from @celsian/vura-core
  * directly (no duplication there), but build output must inline everything.
  */
 
@@ -38,18 +38,18 @@ function coreModuleFile(moduleName: string): string {
   return join(CORE_PACKAGE_DIR, `${moduleName}.js`);
 }
 
-function thenCoreSelfResolvePlugin() {
+function vuraCoreSelfResolvePlugin() {
   return {
-    name: 'then-core-self-resolve',
+    name: 'vura-core-self-resolve',
     setup(build: any) {
-      build.onResolve({ filter: /^@celsian\/then-core\/(jsx-runtime|jsx-dev-runtime)$/ }, (args: any) => ({
+      build.onResolve({ filter: /^@celsian\/vura-core\/(jsx-runtime|jsx-dev-runtime)$/ }, (args: any) => ({
         path: coreModuleFile('jsx-runtime'),
       }));
-      build.onResolve({ filter: /^@celsian\/then-core$/ }, () => ({
-        path: '@celsian/then-core',
-        namespace: 'then-core-runtime-shim',
+      build.onResolve({ filter: /^@celsian\/vura-core$/ }, () => ({
+        path: '@celsian/vura-core',
+        namespace: 'vura-core-runtime-shim',
       }));
-      build.onLoad({ filter: /.*/, namespace: 'then-core-runtime-shim' }, () => ({
+      build.onLoad({ filter: /.*/, namespace: 'vura-core-runtime-shim' }, () => ({
         loader: 'js',
         resolveDir: CORE_PACKAGE_DIR,
         contents: `
@@ -1539,7 +1539,7 @@ async function bundleRouteModule(
     platform,
     outfile,
     nodePaths: [join(projectRoot, 'node_modules'), join(process.cwd(), 'node_modules')],
-    plugins: [thenCoreSelfResolvePlugin()],
+    plugins: [vuraCoreSelfResolvePlugin()],
     external: ['what-framework', 'what-framework/*'],
   });
 }

@@ -1,11 +1,11 @@
-# @celsian/then-cli
+# @celsian/vura-cli
 
 CLI for Vura — develop and build Vura applications.
 
 ## Install
 
 ```bash
-npm install -g @celsian/then-cli
+npm install -g @celsian/vura-cli
 ```
 
 Or use via npx:
@@ -22,7 +22,7 @@ npx vura --help
 ## Quick Start
 
 ```bash
-npx create-then my-app
+npx create-vura my-app
 cd my-app
 npm install
 npx vura dev

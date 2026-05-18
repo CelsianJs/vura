@@ -1,8 +1,8 @@
 /**
- * @celsian/then-compiler-native — Rust-powered compiler for Vura
+ * @celsian/vura-compiler-native — Rust-powered compiler for Vura
  *
  * Provides 10-50x faster route scanning, JSX transforms, and file watching
- * compared to the pure JS fallback (@celsian/then-compiler).
+ * compared to the pure JS fallback (@celsian/vura-compiler).
  */
 
 export interface ScanResult {

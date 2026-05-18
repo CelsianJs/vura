@@ -1,16 +1,16 @@
-# @celsian/then-adapter-cloudflare
+# @celsian/vura-adapter-cloudflare
 
 Cloudflare Workers adapter for Vura applications.
 
 ## Install
 
 ```bash
-npm install @celsian/then-adapter-cloudflare
+npm install @celsian/vura-adapter-cloudflare
 ```
 
 ## Usage
 
-Configure in your `then.config.js`:
+Configure in your `vura.config.js`:
 
 ```js
 export default {

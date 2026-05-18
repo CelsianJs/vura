@@ -11,7 +11,7 @@
  * 8. Write manifest.json
  */
 
-import { buildManifest, build, renderStaticPages } from '@celsian/then-core';
+import { buildManifest, build, renderStaticPages } from '@celsian/vura-core';
 import { createRequire } from 'node:module';
 import { Buffer } from 'node:buffer';
 import { loadConfig } from '../config-loader.js';
@@ -53,7 +53,7 @@ export async function buildCommand(_args: string[]): Promise<void> {
   // Determine JSX import source from the user's project, not from the CLI's own
   // dependency graph. Use ESM resolution because What Framework exposes
   // jsx-runtime under import conditions, not CommonJS require conditions.
-  let jsxImportSource = '@celsian/then-core';
+  let jsxImportSource = '@celsian/vura-core';
   try {
     await import('what-framework' + '/jsx-runtime');
     jsxImportSource = 'what-framework';
@@ -80,7 +80,7 @@ export async function buildCommand(_args: string[]): Promise<void> {
   const esmResolvePlugin = {
     name: 'esm-resolve',
     setup(build: any) {
-      build.onResolve({ filter: /^@celsian\/then-core\/(jsx-runtime|jsx-dev-runtime)$/ }, (args: any) => {
+      build.onResolve({ filter: /^@celsian\/vura-core\/(jsx-runtime|jsx-dev-runtime)$/ }, (args: any) => {
         try {
           return { path: projectRequire.resolve(args.path) };
         } catch {

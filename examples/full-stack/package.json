@@ -1,5 +1,5 @@
 {
-  "name": "then-full-stack-example",
+  "name": "vura-full-stack-example",
   "private": true,
   "type": "module",
   "scripts": {
@@ -7,8 +7,8 @@
     "build": "vura build"
   },
   "devDependencies": {
-    "@celsian/then-cli": "workspace:*",
-    "@celsian/then-core": "workspace:*",
+    "@celsian/vura-cli": "workspace:*",
+    "@celsian/vura-core": "workspace:*",
     "what-framework": "^0.8.1"
   }
 }

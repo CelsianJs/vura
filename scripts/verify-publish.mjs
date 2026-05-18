@@ -18,15 +18,15 @@ function run(cmd, args, opts = {}) {
   return res;
 }
 
-const cliBins = ['vura', 'thenjs', 'then'];
-const smokeCliCommands = ['vura', 'thenjs', 'create-then', 'then'];
+const cliBins = ['vura'];
+const smokeCliCommands = ['vura', 'create-vura'];
 
 function installedBinPath(cwd, bin) {
   return join(cwd, 'node_modules', '.bin', bin);
 }
 
 function assertInstalledBins(cwd) {
-  for (const bin of [...cliBins, 'create-then']) {
+  for (const bin of [...cliBins, 'create-vura']) {
     const binPath = installedBinPath(cwd, bin);
     if (!existsSync(binPath)) {
       throw new Error(`Expected installed CLI bin at ${binPath}`);
@@ -154,33 +154,33 @@ try {
   assertHelpCommands(smoke);
 
   const check = `
-    import('@celsian/then-core').then(() => import('@celsian/then-compiler')).then(() => import('@celsian/then-adapter-cloudflare')).then(() => import('@celsian/then-adapter-lambda')).then(() => import('@celsian/then-vite-plugin')).then(() => console.log('VURA_PUBLISH_VERIFY_OK'));
+    import('@celsian/vura-core').then(() => import('@celsian/vura-compiler')).then(() => import('@celsian/vura-adapter-cloudflare')).then(() => import('@celsian/vura-adapter-lambda')).then(() => import('@celsian/vura-vite-plugin')).then(() => console.log('VURA_PUBLISH_VERIFY_OK'));
   `;
   const node = run(process.execPath, ['--input-type=module', '-e', check], { cwd: smoke });
   if (!node.stdout.includes('VURA_PUBLISH_VERIFY_OK')) throw new Error('publish smoke import did not complete');
 
-  // create-then scaffold smoke: validates the user-facing create command can run
+  // create-vura scaffold smoke: validates the user-facing create command can run
   // from packed artifacts and emits package dependencies matching this release.
 
-  const createThenBin = realpathSync(join(smoke, 'node_modules/create-then/dist/index.js'));
+  const createThenBin = realpathSync(join(smoke, 'node_modules/create-vura/dist/index.js'));
   const scaffold = run(process.execPath, [createThenBin, 'smoke-app', '--dry-run'], { cwd: smoke });
   if (!scaffold.stdout.includes('package.json')) {
-    throw new Error(`create-then scaffold smoke did not list generated package.json; stdout=${JSON.stringify(scaffold.stdout)} stderr=${JSON.stringify(scaffold.stderr)}`);
+    throw new Error(`create-vura scaffold smoke did not list generated package.json; stdout=${JSON.stringify(scaffold.stdout)} stderr=${JSON.stringify(scaffold.stderr)}`);
   }
 
-  const { getFiles } = await import(join(smoke, 'node_modules/create-then/dist/index.js'));
+  const { getFiles } = await import(join(smoke, 'node_modules/create-vura/dist/index.js'));
   const scaffoldPackage = JSON.parse(getFiles('smoke-app')['package.json']);
-  for (const name of ['@celsian/then-core', '@celsian/then-cli']) {
-    const expectedVersion = JSON.parse(await readFile(join(root, name === '@celsian/then-core' ? 'packages/core/package.json' : 'packages/cli/package.json'), 'utf8')).version;
+  for (const name of ['@celsian/vura-core', '@celsian/vura-cli']) {
+    const expectedVersion = JSON.parse(await readFile(join(root, name === '@celsian/vura-core' ? 'packages/core/package.json' : 'packages/cli/package.json'), 'utf8')).version;
     if (scaffoldPackage.dependencies[name] !== expectedVersion) {
-      throw new Error(`create-then scaffold dependency ${name}=${scaffoldPackage.dependencies[name]} does not match package version ${expectedVersion}`);
+      throw new Error(`create-vura scaffold dependency ${name}=${scaffoldPackage.dependencies[name]} does not match package version ${expectedVersion}`);
     }
   }
 
   const rootPackage = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
   const expectedWhatFramework = rootPackage.dependencies?.['what-framework'];
   if (scaffoldPackage.dependencies['what-framework'] !== expectedWhatFramework) {
-    throw new Error(`create-then scaffold dependency what-framework=${scaffoldPackage.dependencies['what-framework']} does not match root dependency ${expectedWhatFramework}`);
+    throw new Error(`create-vura scaffold dependency what-framework=${scaffoldPackage.dependencies['what-framework']} does not match root dependency ${expectedWhatFramework}`);
   }
 
   run(process.execPath, [createThenBin, 'smoke-app', '--no-install'], { cwd: smoke });
@@ -190,9 +190,9 @@ try {
 
   if (existsSync(join(root, 'packages/compiler-native/package.json'))) {
     const nativeJson = JSON.parse(await readFile(join(root, 'packages/compiler-native/package.json'), 'utf8'));
-    if (!nativeJson.private) throw new Error('@celsian/then-compiler-native must remain private until native artifacts exist');
+    if (!nativeJson.private) throw new Error('@celsian/vura-compiler-native must remain private until native artifacts exist');
   }
-  console.log(`OK: verified ${tarballs.length} tarball(s); no workspace refs; installed CLI bins/direct help; clean npm install/import and real create-then scaffold build/run smoke passed`);
+  console.log(`OK: verified ${tarballs.length} tarball(s); no workspace refs; installed CLI bins/direct help; clean npm install/import and real create-vura scaffold build/run smoke passed`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }

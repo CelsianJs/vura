@@ -24,7 +24,7 @@ const failures = [];
 const publishPackageSet = new Set(publishPackages);
 
 if (compilerNative.private !== true) {
-  failures.push('@celsian/then-compiler-native must remain private until native artifacts and publish policy are ready');
+  failures.push('@celsian/vura-compiler-native must remain private until native artifacts and publish policy are ready');
 }
 
 if (publishPackageSet.has('packages/compiler-native')) {
@@ -32,7 +32,7 @@ if (publishPackageSet.has('packages/compiler-native')) {
 }
 
 if (adapterVura.private !== true) {
-  failures.push('@celsian/then-adapter-vura must remain private until Vura Platform live smoke passes');
+  failures.push('@celsian/vura-adapter-vura must remain private until Vura Platform live smoke passes');
 }
 
 if (publishPackageSet.has('packages/adapter-vura')) {

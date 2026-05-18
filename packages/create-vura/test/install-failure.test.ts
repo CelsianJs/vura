@@ -5,17 +5,17 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const repoRoot = resolve(__dirname, '../../..');
-const createThenBin = join(repoRoot, 'packages/create-then/dist/index.js');
+const createThenBin = join(repoRoot, 'packages/create-vura/dist/index.js');
 
-describe('create-then install failures', () => {
+describe('create-vura install failures', () => {
   it('exits non-zero when dependency installation fails without --no-install', () => {
-    execFileSync(process.execPath, [join(repoRoot, 'node_modules/typescript/bin/tsc'), '-p', join(repoRoot, 'packages/create-then')], {
+    execFileSync(process.execPath, [join(repoRoot, 'node_modules/typescript/bin/tsc'), '-p', join(repoRoot, 'packages/create-vura')], {
       cwd: repoRoot,
       stdio: 'pipe',
     });
     expect(existsSync(createThenBin)).toBe(true);
 
-    const root = mkdtempSync(join(tmpdir(), 'create-then-install-fail-'));
+    const root = mkdtempSync(join(tmpdir(), 'create-vura-install-fail-'));
     try {
       const res = spawnSync(process.execPath, [createThenBin, 'failing-app'], {
         cwd: root,

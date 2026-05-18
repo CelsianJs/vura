@@ -9,7 +9,7 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@celsian/then-core": ["../core/src/index.ts"]
+      "@celsian/vura-core": ["../core/src/index.ts"]
     }
   },
   "include": ["src"],

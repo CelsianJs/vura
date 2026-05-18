@@ -1,7 +1,7 @@
 /**
  * `vura dev` — Start the local development server.
  *
- * Uses Vite under the hood with @celsian/then-vite-plugin for:
+ * Uses Vite under the hood with @celsian/vura-vite-plugin for:
  * - API route hot-reloading (CelsianJS-compatible req/reply)
  * - Server-mode page rendering (SSR with getServerData)
  * - Task management endpoints (/__tasks/*)
@@ -33,7 +33,7 @@ import {
   formatErrorResponse,
   HttpError,
   getMimeType,
-} from '@celsian/then-core';
+} from '@celsian/vura-core';
 import type {
   PageRoute,
   ThenRequest,
@@ -42,7 +42,7 @@ import type {
   CompiledPageRoute,
   HookRegistry,
   RouteHooks,
-} from '@celsian/then-core';
+} from '@celsian/vura-core';
 
 interface DevOptions {
   port: number;
@@ -144,7 +144,7 @@ export async function devCommand(args: string[]): Promise<void> {
   try {
     const vite = await import('vite');
     // @ts-ignore — resolved at runtime via workspace link
-    const pluginMod = await import('@celsian/then-vite-plugin');
+    const pluginMod = await import('@celsian/vura-vite-plugin');
     const thenPlugin = pluginMod.thenPlugin ?? pluginMod.default;
 
     const server = await vite.createServer({
@@ -214,7 +214,7 @@ async function startStandaloneServer(
   await mkdirAsync(tmpDir, { recursive: true });
 
   // Determine JSX import source
-  let jsxImportSource = '@celsian/then-core';
+  let jsxImportSource = '@celsian/vura-core';
   try {
     // @ts-ignore — optional dependency
     await import('what-framework/jsx-runtime');
@@ -530,7 +530,7 @@ async function startStandaloneServer(
       const watcher = watch(dir, { recursive: true }, async (event, filename) => {
         const prefix = dir === apiDir ? 'src/api' : 'src/pages';
         console.log(`  [vura] ${event}: ${prefix}/${filename} — re-scanning routes`);
-        const { buildManifest: rescan, compileRoutes: recompile, compilePageRoutes: recompilePages } = await import('@celsian/then-core');
+        const { buildManifest: rescan, compileRoutes: recompile, compilePageRoutes: recompilePages } = await import('@celsian/vura-core');
         manifest = await rescan(opts.projectRoot);
         compiledRoutes = recompile(manifest.api);
         compiledPages = recompilePages(manifest.pages);
@@ -555,7 +555,7 @@ async function startStandaloneServer(
 }
 
 // All rendering, matching, parsing, and escaping utilities are now imported
-// from @celsian/then-core — no local copies needed. See:
+// from @celsian/vura-core — no local copies needed. See:
 //   builtinRenderToString, wrapDocument, escapeHtml — from static-render.ts
 //   compilePageRoutes, matchPageRoute — from match.ts
 //   parseNodeBody — from body-parser.ts

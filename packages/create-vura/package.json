@@ -1,10 +1,10 @@
 {
-  "name": "create-then",
-  "version": "0.1.2",
+  "name": "create-vura",
+  "version": "0.2.0",
   "description": "Scaffold a new Vura project",
   "type": "module",
   "bin": {
-    "create-then": "dist/index.js"
+    "create-vura": "dist/index.js"
   },
   "files": [
     "dist"
@@ -35,13 +35,13 @@
   "engines": {
     "node": ">=20 <23"
   },
-  "thenScaffold": {
+  "vuraScaffold": {
     "dependencies": {
       "what-framework": "^0.8.1"
     },
-    "thenPackages": [
-      "@celsian/then-core",
-      "@celsian/then-cli"
+    "vuraPackages": [
+      "@celsian/vura-core",
+      "@celsian/vura-cli"
     ]
   }
 }

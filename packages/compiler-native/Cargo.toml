@@ -1,8 +1,8 @@
 [package]
-name = "then-compiler-native"
-version = "0.1.0"
+name = "vura-compiler-native"
+version = "0.2.0"
 edition = "2021"
-description = "Native Rust compiler for ThenJS — route scanning, JSX transforms, and file watching"
+description = "Native Rust compiler for Vura — route scanning, JSX transforms, and file watching"
 license = "MIT"
 
 [lib]

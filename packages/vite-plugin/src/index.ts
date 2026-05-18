@@ -1,5 +1,5 @@
 /**
- * @celsian/then-vite-plugin
+ * @celsian/vura-vite-plugin
  *
  * Vite plugin for Vura that:
  * 1. Adds dev middleware for API routes (CelsianJS-compatible req/reply)
@@ -26,7 +26,7 @@ import {
   formatErrorResponse,
   HttpError,
   getLogger,
-} from '@celsian/then-core';
+} from '@celsian/vura-core';
 import type {
   RouteManifest,
   PageRoute,
@@ -34,7 +34,7 @@ import type {
   ThenReply,
   HookRegistry,
   RouteHooks,
-} from '@celsian/then-core';
+} from '@celsian/vura-core';
 import type { Plugin, ViteDevServer } from 'vite';
 
 export interface ThenPluginOptions {
@@ -216,7 +216,7 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             return;
           }
 
-          // Parse body if needed (uses shared body parser from @celsian/then-core)
+          // Parse body if needed (uses shared body parser from @celsian/vura-core)
           const body = await parseNodeBody(req);
 
           // Create CelsianJS-compatible req/reply
@@ -320,7 +320,7 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
         // Skip file requests (has extension)
         if (/\.\w+$/.test(url.pathname)) return next();
 
-        // Find matching server-mode page (uses shared matchPageRoute from @celsian/then-core)
+        // Find matching server-mode page (uses shared matchPageRoute from @celsian/vura-core)
         const serverPages = manifest.pages.filter(p => p.mode === 'server' || p.mode === 'hybrid');
         const matched = coreMatchPageRoute(serverPages, url.pathname);
         if (!matched) return next();
@@ -345,7 +345,7 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             });
           }
 
-          // Render with shared renderer from @celsian/then-core
+          // Render with shared renderer from @celsian/vura-core
           let vnode = Component({ ...serverData, params: matched.params });
 
           // Wrap in layout chain if layouts are defined (outermost first)
@@ -388,7 +388,7 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
 }
 
 // All rendering, matching, parsing, and escaping utilities are now imported
-// from @celsian/then-core — no local copies needed. See:
+// from @celsian/vura-core — no local copies needed. See:
 //   builtinRenderToString, wrapDocument, escapeHtml — from static-render.ts
 //   coreMatchPageRoute (matchPageRoute) — from match.ts
 //   parseNodeBody — from body-parser.ts

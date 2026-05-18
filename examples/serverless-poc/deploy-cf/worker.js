@@ -1,7 +1,7 @@
 /**
- * ThenJS Serverless POC — Cloudflare Worker
+ * Vura Serverless POC — Cloudflare Worker
  *
- * This is what @celsian/then-adapter-cloudflare generates:
+ * This is what @celsian/vura-adapter-cloudflare generates:
  * a Worker entry that routes requests to handler functions.
  *
  * In production, CelsianJS handles routing. For this POC,

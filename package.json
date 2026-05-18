@@ -6,7 +6,7 @@
     "examples/*"
   ],
   "scripts": {
-    "build": "tsc -b packages/core packages/cli packages/vite-plugin packages/adapter-lambda packages/adapter-cloudflare packages/adapter-vura packages/compiler packages/create-then",
+    "build": "tsc -b packages/core packages/cli packages/vite-plugin packages/adapter-lambda packages/adapter-cloudflare packages/adapter-vura packages/compiler packages/create-vura",
     "test": "vitest run",
     "dev": "node packages/cli/dist/bin.js dev",
     "verify:publish": "node scripts/verify-publish.mjs",

@@ -12,8 +12,8 @@ import type {
   APIGatewayProxyEventV2,
   LambdaContext,
 } from '../src/index.js';
-import type { RouteManifest, ApiRoute } from '@celsian/then-core';
-import type { AdapterBuildContext } from '@celsian/then-core';
+import type { RouteManifest, ApiRoute } from '@celsian/vura-core';
+import type { AdapterBuildContext } from '@celsian/vura-core';
 
 // ─── Helpers ───
 
@@ -519,9 +519,9 @@ describe('lambdaAdapter', () => {
     expect(handlerPath).toBeDefined();
 
     const handlerCode = writtenFiles.get(handlerPath!)!;
-    // Self-contained — no @celsian/then-core or @celsian/then-adapter-lambda dependency
-    expect(handlerCode).not.toContain('@celsian/then-core');
-    expect(handlerCode).not.toContain('@celsian/then-adapter-lambda');
+    // Self-contained — no @celsian/vura-core or @celsian/vura-adapter-lambda dependency
+    expect(handlerCode).not.toContain('@celsian/vura-core');
+    expect(handlerCode).not.toContain('@celsian/vura-adapter-lambda');
     // Has inline event conversion and req/reply shim
     expect(handlerCode).toContain('function eventToRequest');
     expect(handlerCode).toContain('function parseBody');

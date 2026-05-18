@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { getFiles } from '../src/index.js';
 
-describe('create-then templates', () => {
+describe('create-vura templates', () => {
   it('pins generated dependencies instead of mixing latest ranges', () => {
     const files = getFiles('demo-app');
     const packageJson = JSON.parse(files['package.json']);
 
     expect(packageJson.dependencies).toEqual({
       'what-framework': '^0.8.1',
-      '@celsian/then-core': '0.1.2',
-      '@celsian/then-cli': '0.1.2',
+      '@celsian/vura-core': '0.2.0',
+      '@celsian/vura-cli': '0.2.0',
     });
     expect(JSON.stringify(packageJson.dependencies)).not.toContain('latest');
   });
@@ -27,8 +27,8 @@ describe('create-then templates', () => {
     const starterText = Object.values(files).join('\n');
 
     expect(packageJson.scripts).not.toHaveProperty('deploy');
-    expect(files).toHaveProperty('then.config.js');
-    expect(files).not.toHaveProperty('then.config.ts');
+    expect(files).toHaveProperty('vura.config.js');
+    expect(files).not.toHaveProperty('vura.config.ts');
     expect(starterText).not.toContain('thenjs.dev');
     expect(starterText).not.toContain('celsian.dev');
   });

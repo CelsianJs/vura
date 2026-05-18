@@ -3,7 +3,7 @@
  *
  * Used by the dev server (dev.ts) and vite-plugin.
  * The generated production server in build.ts inlines its own version
- * since the output must be self-contained with no @celsian/then-core dependency.
+ * since the output must be self-contained with no @celsian/vura-core dependency.
  */
 
 import type { IncomingMessage } from 'node:http';

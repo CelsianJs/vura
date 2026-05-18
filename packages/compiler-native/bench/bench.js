@@ -1,5 +1,5 @@
 /**
- * Benchmark: @celsian/then-compiler-native vs @celsian/then-compiler
+ * Benchmark: @celsian/vura-compiler-native vs @celsian/vura-compiler
  *
  * Usage:
  *   node bench/bench.js

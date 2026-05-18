@@ -1,6 +1,6 @@
 {
-  "name": "@celsian/then-vite-plugin",
-  "version": "0.1.2",
+  "name": "@celsian/vura-vite-plugin",
+  "version": "0.2.0",
   "type": "module",
   "exports": {
     ".": {
@@ -10,7 +10,7 @@
     }
   },
   "dependencies": {
-    "@celsian/then-core": "workspace:0.1.2"
+    "@celsian/vura-core": "workspace:0.2.0"
   },
   "peerDependencies": {
     "vite": "^5.0.0 || ^6.0.0"
