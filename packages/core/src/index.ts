@@ -228,3 +228,13 @@ export {
 } from './compat.js';
 // Note: ThenRequest/ThenReply/ThenHandler are exported via handler.js above
 // (handler.js re-exports them from compat.js — no duplication needed here).
+
+export {
+  startVuraServer,
+  serveStaticIfFound,
+} from './runtime/server.js';
+
+export type {
+  VuraServerOptions,
+  VuraServer,
+} from './runtime/server.js';
