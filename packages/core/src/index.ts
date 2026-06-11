@@ -202,3 +202,13 @@ export type {
   WhatPageRoute,
   PagesHandlerOptions,
 } from './runtime/pages.js';
+
+export {
+  createVuraCache,
+  revalidatePath,
+  revalidateTag,
+} from './runtime/cache.js';
+
+export type {
+  VuraCacheConfig,
+} from './runtime/cache.js';
