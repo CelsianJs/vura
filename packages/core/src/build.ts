@@ -186,7 +186,7 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
   lines.push('  apiRoutes: [');
   for (const route of manifest.api) {
     const varName = routeVarNames.get(route.filePath)!;
-    lines.push(`    { urlPattern: '${route.urlPattern}', filePath: '${route.filePath}', methods: ${JSON.stringify(route.methods)}, kind: '${route.kind}', config: ${JSON.stringify(route.config ?? {})}, module: ${varName} },`);
+    lines.push(`    { urlPattern: '${route.urlPattern}', filePath: '${route.filePath}', methods: ${JSON.stringify(route.methods)}, kind: '${route.kind}', hasWebsocket: ${!!route.hasWebsocket}, config: ${JSON.stringify(route.config ?? {})}, module: ${varName} },`);
   }
   lines.push('  ],');
 

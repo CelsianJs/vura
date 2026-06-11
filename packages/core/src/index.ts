@@ -253,6 +253,12 @@ export type {
   VuraServer,
 } from './runtime/server.js';
 
+export type {
+  HotPeer,
+  HotPeerEvents,
+  HotWebsocketHandler,
+} from './runtime/hot.js';
+
 // Re-export Node↔Web bridge helpers from @celsian/core so vite-plugin and cli
 // can import them without taking a direct @celsian/core dep.
 export { nodeToWebRequest, writeWebResponse } from '@celsian/core';
