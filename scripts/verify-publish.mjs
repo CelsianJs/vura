@@ -120,6 +120,11 @@ async function assertScaffoldBuildAndBoot(scaffoldDir) {
     await waitForText(`http://127.0.0.1:${port}/`, 'Welcome to Vura');
     await waitForText(`http://127.0.0.1:${port}/about`, 'This project was scaffolded');
     await waitForText(`http://127.0.0.1:${port}/api/hello`, 'Hello from Vura');
+    // Client-mode page: the shell must reference the browser bundle, and the
+    // bundle must actually boot the page (mount call) — a raw page-module
+    // bundle leaves /dashboard at "Loading..." forever.
+    await waitForText(`http://127.0.0.1:${port}/dashboard`, '/_then/pages/dashboard.js');
+    await waitForText(`http://127.0.0.1:${port}/_then/pages/dashboard.js`, 'mount(');
   } catch (err) {
     throw new Error(`scaffold boot smoke failed: ${err instanceof Error ? err.message : String(err)}\n${output}`);
   } finally {

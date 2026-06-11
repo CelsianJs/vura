@@ -1,14 +1,103 @@
-<!-- TEMP: replaced by Task 3 (landing page) -->
-<div style="max-width:720px;margin:80px auto 0;padding:48px 32px 80px;">
-  <h1 style="font-size:clamp(2rem,5vw,3rem);font-weight:800;letter-spacing:-0.035em;line-height:1.1;margin-bottom:16px;">Vura</h1>
-  <p style="font-size:1.125rem;color:var(--text-secondary);line-height:1.65;margin-bottom:32px;">
-    The MIT full-stack meta-framework for apps that outgrow serverless.
+<section class="hero">
+  <h1>The framework for apps that outgrow serverless.</h1>
+  <p class="hero-sub">
+    Static pages, cached server rendering, typed API routes — and the moment you
+    need websockets, in-memory state, or a 40-second job, it's a one-line change.
+    Not a migration.
   </p>
-  <p style="color:var(--text-muted);margin-bottom:24px;">
-    Documentation is being written — see GitHub for now.
+  <div class="hero-cta">
+    <code class="install-cmd">npm create vura@latest</code>
+    <a class="btn-secondary" href="/ladder/0-create/">Start the ladder →</a>
+  </div>
+</section>
+
+<section class="the-line">
+  <h2>The one-line change</h2>
+  <p>
+    Every other stack has a cliff: the day your app needs a persistent
+    connection, the answer is "go glue a second platform onto your frontend."
+    Vura's answer is an export.
   </p>
-  <a href="https://github.com/CelsianJs/vura"
-     style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:8px;background:var(--accent);color:#111110;font-weight:600;font-size:0.9rem;text-decoration:none;">
-    View on GitHub
-  </a>
-</div>
+  <div class="code-compare">
+    <div>
+      <span class="code-label">Serverless API route (default)</span>
+      <pre><code>// src/api/orders.ts
+export async function POST(req, reply) {
+  const order = await createOrder(req.parsedBody);
+  return reply.json(order);
+}</code></pre>
+    </div>
+    <div>
+      <span class="code-label">Same project. Now it's a websocket server.</span>
+      <pre><code>// src/api/live/room.ts
+export const kind = 'hot';   // ← the line
+
+const clients = new Set();
+export function websocket(peer, req) {
+  clients.add(peer);
+  peer.on('message', (m) => {
+    for (const c of clients) c.send(m);
+  });
+  peer.on('close', () => clients.delete(peer));
+}</code></pre>
+    </div>
+  </div>
+  <p>
+    Same types, same router, same deploy. Hot routes run as persistent processes —
+    websockets, presence, streaming AI agent loops, long jobs — next to your
+    static pages and serverless functions.
+    <a href="/ladder/4-hot/">Read rung 4 →</a>
+  </p>
+</section>
+
+<section class="ladder-strip">
+  <h2>One project. Seven rungs. No eject cliff.</h2>
+  <p>You climb by adding a line, never by adopting a new tool.</p>
+  <ol class="ladder">
+    <li><a href="/ladder/0-create/"><strong>Create</strong> — <code>npm create vura@latest</code>, a running app</a></li>
+    <li><a href="/ladder/1-static/"><strong>Static page</strong> — <code>page = { mode: 'static' }</code>, zero JS shipped</a></li>
+    <li><a href="/ladder/2-cache/"><strong>Server + cache</strong> — <code>mode: 'server', revalidate: 60, tags: ['posts']</code>, then <code>revalidateTag('posts')</code> for a single-call global purge</a></li>
+    <li><a href="/ladder/3-api/"><strong>API route</strong> — drop a handler in <code>src/api/</code>, serverless by default, typed client call</a></li>
+    <li><a href="/ladder/4-hot/"><strong>Hot route</strong> — <code>export const kind = 'hot'</code>: websockets, state, no timeout</a></li>
+    <li><a href="/ladder/5-tasks/"><strong>Task</strong> — <code>route = { kind: 'task' }, schedule: '0 3 * * *'</code>: off the request path, retried</a></li>
+    <li><a href="/ladder/6-deploy/"><strong>Deploy</strong> — <code>vura deploy</code> (platform) or <code>vura build</code> + a recipe (self-host)</a></li>
+  </ol>
+</section>
+
+<section class="pillars">
+  <div class="pillar">
+    <h3>Built on shipped engines</h3>
+    <p>Pages render through <a href="https://whatfw.com">What Framework</a>
+    (SSR/ISR, islands, react-compat). APIs run on
+    <a href="https://github.com/CelsianJs/celsian">CelsianJS</a> (validation,
+    hooks, RPC, rate limiting, cron, 8 runtime adapters). Vura is the
+    orchestration: route kinds, one manifest, one build, one dev server.</p>
+  </div>
+  <div class="pillar">
+    <h3>Self-hosting is first-class</h3>
+    <p>Six self-host guides — Node/VPS, Docker, Fly.io, Railway, Cloudflare
+    Workers, AWS Lambda — with step-by-step recipes for each target.
+    <a href="/self-host/">Self-host guides →</a></p>
+  </div>
+  <div class="pillar">
+    <h3>Nothing is platform-gated</h3>
+    <p>Cache revalidation, websockets, tasks, and cron all run in a plain
+    self-hosted Node build with zero platform credentials. The managed platform
+    saves you effort; it never withholds capability.</p>
+  </div>
+</section>
+
+<section class="license-commitment">
+  <h2>License: MIT, forever</h2>
+  <p>
+    Every Vura package is MIT and will stay MIT — no relicensing, no BSL, no
+    "open core" capability fence, ever. The commitment is published in
+    <a href="https://github.com/CelsianJs/vura/blob/main/GOVERNANCE.md">GOVERNANCE.md</a>.
+    You can always fork everything.
+  </p>
+</section>
+
+<section class="closing-cta">
+  <code class="install-cmd">npm create vura@latest</code>
+  <p><a href="/ladder/0-create/">Rung 0: your first app →</a></p>
+</section>

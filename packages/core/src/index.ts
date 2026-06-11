@@ -40,6 +40,7 @@ export {
   renderStaticPages,
   wrapDocument,
   escapeHtml,
+  generateClientPageEntry,
 } from './static-render.js';
 
 export type {

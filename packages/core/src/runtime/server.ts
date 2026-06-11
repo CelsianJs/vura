@@ -536,7 +536,9 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
       const { createWSConnection } = coreMod as any;
       createWSConnectionFn = createWSConnection;
       wsRegistry = app.wsRegistry;
-      wss = new WSS({ noServer: true });
+      // 1MB per-message cap: ws defaults to 100MB, which lets a single client
+      // force large allocations on a public websocket server.
+      wss = new WSS({ noServer: true, maxPayload: 1 << 20 });
 
       // Register each hot ws route via app.ws() so celsian-level connection
       // tracking is aware of the route.  Event wiring goes through HotPeer.

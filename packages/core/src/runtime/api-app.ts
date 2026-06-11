@@ -127,10 +127,14 @@ export function createApiApp(opts: ApiAppOptions): CelsianApp {
       const registrar = METHOD_REGISTRARS[method];
 
       if (schema) {
+        // Map vura's 'query' key to celsian's 'querystring'
+        const celsianSchema = schema.query !== undefined
+          ? { ...schema, querystring: schema.query }
+          : schema;
         // Options-object signature: app.post(url, { schema, handler })
         // Verified at celsian/packages/core/src/app.ts line 280:
         //   _routeWithSchema resolves handler from opts.handler when no trailing arg.
-        (app as any)[registrar](route.urlPattern, { schema, handler: wrapped });
+        (app as any)[registrar](route.urlPattern, { schema: celsianSchema, handler: wrapped });
       } else {
         (app as any)[registrar](route.urlPattern, wrapped);
       }

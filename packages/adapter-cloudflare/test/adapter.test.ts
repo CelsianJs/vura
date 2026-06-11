@@ -382,6 +382,52 @@ describe('cloudflareAdapter', () => {
     expect(entryContent).toContain('scheduled');
   });
 
+  it('emits a console.warn for hot routes that cannot run on cloudflare', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const adapter = cloudflareAdapter({
+        name: 'my-api',
+        compatibilityDate: '2024-12-01',
+      });
+
+      const manifest = makeManifest([
+        makeRoute({ kind: 'serverless', urlPattern: '/api/hello' }),
+        makeRoute({ kind: 'hot', urlPattern: '/api/stream', filePath: 'src/api/stream.ts' }),
+      ]);
+
+      const ctx = makeRealAdapterContext(manifest);
+      await adapter.buildEnd(ctx);
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const warnMessage = warnSpy.mock.calls[0]![0] as string;
+      expect(warnMessage).toContain('/api/stream');
+      expect(warnMessage).toContain('cannot run on cloudflare');
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('does not emit a console.warn when there are no hot routes', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const adapter = cloudflareAdapter({
+        name: 'my-api',
+        compatibilityDate: '2024-12-01',
+      });
+
+      const manifest = makeManifest([
+        makeRoute({ kind: 'serverless', urlPattern: '/api/hello' }),
+      ]);
+
+      const ctx = makeRealAdapterContext(manifest);
+      await adapter.buildEnd(ctx);
+
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('generates files in the correct output directory', async () => {
     const adapter = cloudflareAdapter({
       name: 'my-api',

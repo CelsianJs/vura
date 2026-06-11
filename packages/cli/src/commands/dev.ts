@@ -31,6 +31,7 @@ import {
   GLOBAL_HOOKS_FILENAMES,
   nodeToWebRequest,
   writeWebResponse,
+  generateClientPageEntry,
 } from '@celsian/vura-core';
 import type {
   PageRoute,
@@ -271,9 +272,54 @@ async function startStandaloneServer(
   // Build initial CelsianApp and page route table
   let { app: apiApp, compiledApiRoutes } = await buildStandaloneApiApp();
   // In dev mode, compile ALL page routes — not just server/hybrid.
-  // Static and client pages also need on-the-fly SSR rendering during development
-  // because there's no Vite to serve them as static assets.
+  // Static and server pages are SSR'd on the fly; client pages are served as
+  // a shell + on-demand browser bundle (SSR'ing them would run hooks like
+  // useSignal outside a component context and throw).
   let compiledPages: CompiledPageRoute[] = compilePageRoutes(manifest.pages);
+
+  // ── Browser page bundles (client/hybrid) — on-demand esbuild, dev cache ──
+  const browserScriptPath = (page: PageRoute): string =>
+    '/_then/pages/' + page.filePath.replace(/^src\/pages\//, '').replace(/\.(tsx|jsx|ts|js)$/, '.js');
+
+  const browserBundleCache = new Map<string, string>();
+
+  async function bundleBrowserPage(page: PageRoute): Promise<string> {
+    const cached = browserBundleCache.get(page.filePath);
+    if (cached !== undefined) return cached;
+
+    const { build: esbuild } = await import('esbuild');
+    const { dirname, basename, resolve } = await import('node:path');
+    const absPath = resolve(opts.projectRoot, page.filePath);
+
+    let jsxImportSource = '@celsian/vura-core';
+    try {
+      // @ts-ignore — optional peer dep
+      await import('what-framework/jsx-runtime');
+      jsxImportSource = 'what-framework';
+    } catch { /* not installed — keep default */ }
+
+    const result = await esbuild({
+      stdin: {
+        contents: generateClientPageEntry(`./${basename(absPath)}`, page.mode as 'client' | 'hybrid'),
+        resolveDir: dirname(absPath),
+        sourcefile: '__vura-client-entry__.js',
+        loader: 'js',
+      },
+      bundle: true,
+      format: 'esm',
+      target: 'es2022',
+      platform: 'browser',
+      write: false,
+      outfile: 'page.js',
+      jsx: 'automatic',
+      jsxImportSource,
+      nodePaths: [join(opts.projectRoot, 'node_modules')],
+    });
+
+    const text = result.outputFiles[0]!.text;
+    browserBundleCache.set(page.filePath, text);
+    return text;
+  }
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
@@ -427,6 +473,29 @@ async function startStandaloneServer(
       // No manifest route matched — fall through to pages/404.
     }
 
+    // Serve on-demand browser bundles for client/hybrid pages (mirrors the
+    // production /_then/pages/*.js layout emitted by `vura build`).
+    if (method === 'GET' && url.pathname.startsWith('/_then/pages/') && url.pathname.endsWith('.js')) {
+      const target = manifest.pages.find(
+        p => (p.mode === 'client' || p.mode === 'hybrid') && browserScriptPath(p) === url.pathname,
+      );
+      if (target) {
+        try {
+          const code = await bundleBrowserPage(target);
+          res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
+          res.end(code);
+        } catch (err: any) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          reportError(error, { method: 'GET', path: url.pathname, requestId: reqCtx.requestId }, logger);
+          if (!res.writableEnded) {
+            res.writeHead(500, { 'Content-Type': 'text/javascript' });
+            res.end(`console.error(${JSON.stringify('[vura] client bundle failed: ' + error.message)});`);
+          }
+        }
+        return;
+      }
+    }
+
     // Try server-mode page matching (uses shared compilePageRoutes/matchPageRoute)
     if (method === 'GET' && !/\.\w+$/.test(url.pathname)) {
       const pageMatch = matchPageRoute(compiledPages, url.pathname);
@@ -435,6 +504,22 @@ async function startStandaloneServer(
           const mod = await loadHandler(pageMatch.page.filePath);
           const Component = mod.default;
           const pageConfig = mod.page ?? {};
+
+          // Client pages render entirely in the browser: serve the shell +
+          // bundle. SSR'ing them here would call hooks (useSignal, useState)
+          // outside a component context and 500.
+          if (pageMatch.page.mode === 'client') {
+            const html = wrapDocument('<div id="loading">Loading...</div>', {
+              title: pageConfig.title ?? 'Vura App',
+              meta: pageConfig.meta ?? [],
+              styles: pageConfig.styles ?? [],
+              scripts: [...(pageConfig.scripts ?? []), browserScriptPath(pageMatch.page)],
+              head: pageConfig.head ?? '',
+            });
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end(html);
+            return;
+          }
 
           if (typeof Component === 'function') {
             let serverData: Record<string, unknown> = {};
@@ -465,7 +550,12 @@ async function startStandaloneServer(
               title: pageConfig.title ?? 'Vura App',
               meta: pageConfig.meta ?? [],
               styles: pageConfig.styles ?? [],
-              scripts: pageConfig.scripts ?? [],
+              // Hybrid pages also load their browser bundle so hydrate() runs
+              // against the SSR'd DOM — same contract as the production build.
+              scripts: [
+                ...(pageConfig.scripts ?? []),
+                ...(pageMatch.page.mode === 'hybrid' ? [browserScriptPath(pageMatch.page)] : []),
+              ],
               head: pageConfig.head ?? '',
             });
 
@@ -503,6 +593,7 @@ async function startStandaloneServer(
         const { buildManifest: rescan, compilePageRoutes: recompilePages } = await import('@celsian/vura-core');
         manifest = await rescan(opts.projectRoot);
         compiledPages = recompilePages(manifest.pages);
+        browserBundleCache.clear();
         // Rebuild CelsianApp and route regexes with fresh modules after manifest rescan
         ({ app: apiApp, compiledApiRoutes } = await buildStandaloneApiApp());
       });

@@ -10,8 +10,15 @@ describe('create-vura templates', () => {
       'what-framework': '^0.11.1',
       '@celsian/vura-core': '0.4.0',
       '@celsian/vura-cli': '0.4.0',
+      'ws': '^8.18.0',
     });
     expect(JSON.stringify(packageJson.dependencies)).not.toContain('latest');
+  });
+
+  it('includes ws dependency for hot-route WebSocket support', () => {
+    const files = getFiles('demo-app');
+    const packageJson = JSON.parse(files['package.json']);
+    expect(packageJson.dependencies['ws']).toBe('^8.18.0');
   });
 
   it('does not claim the starter ships a CelsianJS integration', () => {

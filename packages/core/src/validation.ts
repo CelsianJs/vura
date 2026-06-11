@@ -15,7 +15,7 @@
  *     params: z.object({ id: z.string() }),
  *   });
  *
- *   // In handler: req.validated.body is typed { name: string; email: string }
+ *   // In handler: req.parsedBody is the validated+typed body ({ name: string; email: string })
  */
 
 import type { ThenRequest, ThenReply } from './handler.js';
@@ -120,6 +120,7 @@ export interface ValidationResult<
  *     page: z.coerce.number().default(1),
  *   }),
  * });
+ * // In handler: req.parsedBody is the validated body, req.query has validated query params
  * ```
  */
 export function defineSchema<
@@ -287,7 +288,7 @@ function formatValidationResponse(errors: ValidationError[]): {
 
   return {
     error: message,
-    code: 'VALIDATION_ERROR',
+    code: 'VALIDATION_FAILED',
     details: errors,
   };
 }

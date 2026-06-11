@@ -532,4 +532,42 @@ describe('lambdaAdapter', () => {
     const adapter = lambdaAdapter();
     expect(adapter.name).toBe('adapter-lambda');
   });
+
+  it('emits a console.warn for hot routes that cannot run on lambda', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const routes: ApiRoute[] = [
+        makeRoute({ urlPattern: '/api/hello', methods: ['GET'], kind: 'serverless' }),
+        makeRoute({ urlPattern: '/api/stream', methods: ['GET'], kind: 'hot', filePath: 'src/api/stream.ts' }),
+      ];
+      const manifest = makeManifest(routes);
+      const adapter = lambdaAdapter();
+
+      await adapter.buildEnd(makeBuildContext(manifest));
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const warnMessage = warnSpy.mock.calls[0]![0] as string;
+      expect(warnMessage).toContain('/api/stream');
+      expect(warnMessage).toContain('cannot run on lambda');
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('does not emit a console.warn when there are no hot routes for lambda', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const routes: ApiRoute[] = [
+        makeRoute({ urlPattern: '/api/hello', methods: ['GET'], kind: 'serverless' }),
+      ];
+      const manifest = makeManifest(routes);
+      const adapter = lambdaAdapter();
+
+      await adapter.buildEnd(makeBuildContext(manifest));
+
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
 });

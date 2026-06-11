@@ -50,6 +50,16 @@ export { defineConfig } from './config.${coreModuleExt('config')}';
 export { HttpError, ErrorCode, badRequest, unauthorized, forbidden, notFound, methodNotAllowed, conflict, rateLimited, internalError, serviceUnavailable, formatErrorResponse, sendErrorResponse, renderErrorPage, setGlobalErrorHandler, getGlobalErrorHandler, reportError, getErrorMode } from './errors.${coreModuleExt('errors')}';
 export { defineSchema, validate, withValidation, validateRequest } from './validation.${coreModuleExt('validation')}';
 export { HookRegistry, createHookRegistry, getHookRegistry, setDefaultHookRegistry, executeWithHooks } from './hooks.${coreModuleExt('hooks')}';
+// revalidateTag/revalidatePath: build-parity stubs. Lambda functions have no
+// local ISR cache; real revalidation must reach the cache host's
+// /__vura/revalidate webhook. Importing the real runtime/cache module would
+// drag what-framework into every function bundle, so we warn instead.
+export async function revalidateTag(tag) {
+  console.warn('[vura] revalidateTag("' + tag + '") is a no-op inside Lambda functions today — call your cache host\\'s /__vura/revalidate webhook instead.');
+}
+export async function revalidatePath(path) {
+  console.warn('[vura] revalidatePath("' + path + '") is a no-op inside Lambda functions today — call your cache host\\'s /__vura/revalidate webhook instead.');
+}
 `,
       }));
     },
@@ -682,6 +692,14 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
 
       // Filter for serverless routes only
       const serverlessRoutes = manifest.api.filter((r) => r.kind === 'serverless');
+
+      const hotRoutes = manifest.api.filter(r => r.kind === 'hot');
+      if (hotRoutes.length > 0) {
+        const routeList = hotRoutes.map(r => r.urlPattern).join(', ');
+        console.warn(
+          `[vura] ${hotRoutes.length} hot route(s) cannot run on lambda and were not bundled: ${routeList} — deploy them to a persistent host (see /self-host/)`,
+        );
+      }
 
       // Build function descriptors — one per route+method combination
       const samFunctions: SamFunction[] = [];

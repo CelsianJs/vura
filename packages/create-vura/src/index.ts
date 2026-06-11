@@ -147,7 +147,7 @@ export function getFiles(projectName: string): Record<string, string> {
           dev: 'vura dev',
           build: 'vura build',
         },
-        dependencies: getScaffoldDependencyVersions(),
+        dependencies: { ...getScaffoldDependencyVersions(), 'ws': '^8.18.0' },
       },
       null,
       2
@@ -183,6 +183,8 @@ dist/
 .then/
 *.log
 .DS_Store
+.env
+.env.*
 `,
 
     'src/api/hello.ts': `import type { CelsianRequest, CelsianReply } from '@celsian/vura-core';

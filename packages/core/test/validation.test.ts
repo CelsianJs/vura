@@ -303,7 +303,7 @@ describe('withValidation', () => {
 
     expect(handler).not.toHaveBeenCalled();
     expect(reply._status).toBe(400);
-    expect((reply._data as any).code).toBe('VALIDATION_ERROR');
+    expect((reply._data as any).code).toBe('VALIDATION_FAILED');
     expect((reply._data as any).details).toBeDefined();
   });
 
@@ -341,7 +341,7 @@ describe('validateRequest', () => {
     const error = validateRequest(req, schema);
     expect(error).not.toBeNull();
     expect(error!.statusCode).toBe(400);
-    expect((error!.body as any).code).toBe('VALIDATION_ERROR');
+    expect((error!.body as any).code).toBe('VALIDATION_FAILED');
   });
 
   it('does not attach validated data on failure', () => {

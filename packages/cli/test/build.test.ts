@@ -55,5 +55,15 @@ export default function Blog() {
     expect(blogHtml).toContain('Hybrid blog');
     expect(blogHtml).toContain('/_then/pages/blog.js');
     expect(existsSync(join(root, 'dist', 'static', '_then', 'pages', 'blog.js'))).toBe(true);
+
+    // Regression: the emitted browser bundles must actually BOOT the page.
+    // A bundle that only does `export default Component` leaves the client
+    // shell at "Loading..." forever — nothing ever calls mount/hydrate.
+    const dashboardJs = readFileSync(join(root, 'dist', 'static', '_then', 'pages', 'dashboard.js'), 'utf8');
+    const blogJs = readFileSync(join(root, 'dist', 'static', '_then', 'pages', 'blog.js'), 'utf8');
+    expect(dashboardJs).toContain('__vura-client-entry__');
+    expect(dashboardJs).toMatch(/\bmount\(/);
+    expect(blogJs).toContain('__vura-client-entry__');
+    expect(blogJs).toMatch(/\bhydrate\(/);
   }, 10000);
 });
