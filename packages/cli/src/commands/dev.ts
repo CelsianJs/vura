@@ -18,6 +18,8 @@ import {
   buildManifest,
   compilePageRoutes,
   matchPageRoute,
+  compileRoutes,
+  matchApiPath,
   getLogger,
   wrapDocument,
   escapeHtml,
@@ -25,6 +27,7 @@ import {
   reportError,
   getMimeType,
   createApiApp,
+  GLOBAL_HOOKS_FILENAMES,
   nodeToWebRequest,
   writeWebResponse,
 } from '@celsian/vura-core';
@@ -233,15 +236,6 @@ async function startStandaloneServer(
 
   const logger = getLogger();
 
-  // Convention: src/api/_hooks.ts (or .js/.mjs) or src/hooks.ts provides global hooks.
-  const GLOBAL_HOOKS_FILENAMES = [
-    'src/api/_hooks.ts',
-    'src/api/_hooks.js',
-    'src/api/_hooks.mjs',
-    'src/hooks.ts',
-    'src/hooks.js',
-    'src/hooks.mjs',
-  ];
   const { existsSync } = await import('node:fs');
 
   function findGlobalHooksFile(): string | null {
@@ -255,7 +249,10 @@ async function startStandaloneServer(
    * Build a CelsianApp from the current manifest by loading each non-task route
    * module via esbuild + dynamic import. Called on startup and on file changes.
    */
-  async function buildStandaloneApiApp(): Promise<ReturnType<typeof createApiApp>> {
+  async function buildStandaloneApiApp(): Promise<{
+    app: ReturnType<typeof createApiApp>;
+    compiledApiRoutes: ReturnType<typeof compileRoutes>;
+  }> {
     const routes: RuntimeApiRoute[] = [];
     for (const route of manifest.api) {
       if (route.kind === 'task') continue;
@@ -276,11 +273,30 @@ async function startStandaloneServer(
       };
     }
 
-    return createApiApp({ routes, globalHooks });
+    // Inject a dev-only onError hook (appended after any user hooks) that prints
+    // handler errors to the terminal via reportError so they aren't swallowed by
+    // celsian's logger:false + 500 JSON response.
+    const devErrorHook = (err: unknown, req: any, _reply: any) => {
+      const path: string = req?.url ?? req?.raw?.url ?? '(unknown path)';
+      const error = err instanceof Error ? err : new Error(String(err));
+      reportError(error, { method: 'handler', path }, logger);
+    };
+
+    const mergedHooks: GlobalHooks = {
+      onRequest: globalHooks?.onRequest ?? [],
+      // Append dev hook after user hooks — never clobbers user hooks.
+      onError: [...(globalHooks?.onError ?? []), devErrorHook],
+      onResponse: globalHooks?.onResponse ?? [],
+    };
+
+    // Compile route regexes for the path-existence pre-check (method-agnostic).
+    const compiledApiRoutes = compileRoutes(routes);
+
+    return { app: createApiApp({ routes, globalHooks: mergedHooks }), compiledApiRoutes };
   }
 
   // Build initial CelsianApp and page route table
-  let apiApp = await buildStandaloneApiApp();
+  let { app: apiApp, compiledApiRoutes } = await buildStandaloneApiApp();
   // In dev mode, compile ALL page routes — not just server/hybrid.
   // Static and client pages also need on-the-fly SSR rendering during development
   // because there's no Vite to serve them as static assets.
@@ -413,27 +429,29 @@ async function startStandaloneServer(
 
     // Try API route matching via CelsianApp.handle (A1.3 dev/prod parity)
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/__vura/')) {
-      try {
-        const webReq = nodeToWebRequest(req, url);
-        const webRes = await apiApp.handle(webReq);
-
-        // 404 from CelsianApp means no route matched — fall through to pages/404.
-        // NOTE: if a route handler intentionally returns 404, this will also fall
-        // through. Acceptable for dev; a route-existence pre-check could
-        // disambiguate later (e.g. check manifest.api before calling handle).
-        if (webRes.status !== 404) {
+      // Route-existence pre-check (method-agnostic): if no manifest API route
+      // pattern matches this pathname, skip celsian entirely and fall through to
+      // pages/404. This also correctly passes through intentional handler 404s —
+      // if the route exists but returns 404, that response is delivered as-is.
+      if (matchApiPath(compiledApiRoutes, url.pathname)) {
+        try {
+          const webReq = nodeToWebRequest(req, url);
+          const webRes = await apiApp.handle(webReq);
+          // A matched route's response is always delivered — including intentional
+          // 404s from the handler. The pre-check above guarantees the route exists.
           await writeWebResponse(res, webRes);
           return;
+        } catch (err: any) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          reportError(error, { method, path: url.pathname, requestId: reqCtx.requestId }, logger);
+          if (!res.writableEnded) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: error.message }));
+          }
+          return;
         }
-      } catch (err: any) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        reportError(error, { method, path: url.pathname, requestId: reqCtx.requestId }, logger);
-        if (!res.writableEnded) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: error.message }));
-        }
-        return;
       }
+      // No manifest route matched — fall through to pages/404.
     }
 
     // Try server-mode page matching (uses shared compilePageRoutes/matchPageRoute)
@@ -512,8 +530,8 @@ async function startStandaloneServer(
         const { buildManifest: rescan, compilePageRoutes: recompilePages } = await import('@celsian/vura-core');
         manifest = await rescan(opts.projectRoot);
         compiledPages = recompilePages(manifest.pages);
-        // Rebuild CelsianApp with fresh modules after manifest rescan
-        apiApp = await buildStandaloneApiApp();
+        // Rebuild CelsianApp and route regexes with fresh modules after manifest rescan
+        ({ app: apiApp, compiledApiRoutes } = await buildStandaloneApiApp());
       });
       process.on('SIGINT', () => { watcher.close(); process.exit(0); });
     } catch {

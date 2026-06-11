@@ -13,12 +13,15 @@ import { renderToString as builtinRenderToString } from 'what-framework/server';
 import {
   buildManifest,
   matchPageRoute as coreMatchPageRoute,
+  matchApiPath,
+  compileRoutes,
   wrapDocument,
   escapeHtml,
   parseNodeBody,
   reportError,
   getLogger,
   createApiApp,
+  GLOBAL_HOOKS_FILENAMES,
   nodeToWebRequest,
   writeWebResponse,
 } from '@celsian/vura-core';
@@ -66,16 +69,6 @@ export function isTaskAdminRequestAuthorized(
   return !taskSecret && isExplicitNonProduction && isLocal;
 }
 
-// Convention: src/api/_hooks.ts (or .js/.mjs) or src/hooks.ts provides global hooks.
-const GLOBAL_HOOKS_FILENAMES = [
-  'src/api/_hooks.ts',
-  'src/api/_hooks.js',
-  'src/api/_hooks.mjs',
-  'src/hooks.ts',
-  'src/hooks.js',
-  'src/hooks.mjs',
-];
-
 function findGlobalHooksFile(projectRoot: string): string | null {
   for (const filename of GLOBAL_HOOKS_FILENAMES) {
     if (existsSync(join(projectRoot, filename))) return filename;
@@ -117,7 +110,27 @@ async function buildApiApp(
     };
   }
 
-  return createApiApp({ routes, globalHooks });
+  // Inject a dev-only onError hook (appended after any user hooks) that prints
+  // handler errors to the terminal so they aren't silently swallowed by celsian's
+  // logger:false + 500 JSON response. Uses server.config.logger (same as Vite plugins).
+  const devErrorHook = (err: unknown, req: any, _reply: any) => {
+    const path: string = req?.url ?? req?.raw?.url ?? '(unknown path)';
+    const message = err instanceof Error ? err.message : String(err);
+    // Use Vite's logger so the output matches other Vite plugin messages.
+    // server is captured by closure; logger is available after configureServer.
+    server.config.logger.error(`  [then] Handler error on ${path}: ${message}`, {
+      error: err instanceof Error ? err : new Error(message),
+    });
+  };
+
+  const mergedHooks: GlobalHooks = {
+    onRequest: globalHooks?.onRequest ?? [],
+    // Append dev hook after user hooks — never clobbers user hooks.
+    onError: [...(globalHooks?.onError ?? []), devErrorHook],
+    onResponse: globalHooks?.onResponse ?? [],
+  };
+
+  return createApiApp({ routes, globalHooks: mergedHooks });
 }
 
 export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
@@ -125,6 +138,9 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
   let projectRoot: string;
   // The CelsianApp instance — rebuilt whenever the manifest is rescanned.
   let apiApp: CelsianApp | null = null;
+  // Compiled API route regexes for path-existence pre-check (method-agnostic).
+  // Kept in sync with apiApp — rebuilt together whenever manifest rescans.
+  let compiledApiRoutes: ReturnType<typeof compileRoutes> = [];
 
   return {
     name: 'vite-plugin-then',
@@ -141,8 +157,9 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
 
       const logger = getLogger();
 
-      // Build the initial CelsianApp
+      // Build the initial CelsianApp and compile route regexes for 404 pre-check
       apiApp = await buildApiApp(manifest, projectRoot, server);
+      compiledApiRoutes = compileRoutes(manifest.api.filter(r => r.kind !== 'task'));
 
       // Watch src/api/ and src/pages/ for changes
       const apiDir = `${projectRoot}/src/api`;
@@ -155,8 +172,9 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
           const rel = file.replace(projectRoot + '/', '');
           console.log(`  [then] Route changed: ${rel}`);
           manifest = await buildManifest(projectRoot);
-          // Rebuild the CelsianApp with fresh modules
+          // Rebuild the CelsianApp and route regexes with fresh modules
           apiApp = await buildApiApp(manifest, projectRoot, server);
+          compiledApiRoutes = compileRoutes(manifest.api.filter(r => r.kind !== 'task'));
         }
       };
 
@@ -253,16 +271,20 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
 
         if (!apiApp) return next();
 
+        // Route-existence pre-check (method-agnostic): if no manifest API route
+        // pattern matches this pathname, skip celsian entirely and let next()
+        // handle it. This avoids an unnecessary handle() call AND correctly
+        // distinguishes "no route" (next()) from a route handler intentionally
+        // returning 404 (pass the response through regardless of status).
+        if (!matchApiPath(compiledApiRoutes, url.pathname)) {
+          return next();
+        }
+
         try {
           const webReq = nodeToWebRequest(req, url);
           const webRes = await apiApp.handle(webReq);
-
-          // 404 from CelsianApp means no route matched — pass to next middleware.
-          // NOTE: if a route handler intentionally returns 404, this will also fall
-          // through to next(). Acceptable for dev; a route-existence pre-check could
-          // disambiguate later (e.g. check manifest.api before calling handle).
-          if (webRes.status === 404) return next();
-
+          // A matched route's response is always delivered — including intentional
+          // 404s from the handler. The pre-check above guarantees the route exists.
           await writeWebResponse(res, webRes);
         } catch (err: any) {
           const error = err instanceof Error ? err : new Error(String(err));

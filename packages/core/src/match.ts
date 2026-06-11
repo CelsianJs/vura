@@ -116,6 +116,29 @@ export function matchRoute(
   return null;
 }
 
+// ─── API Path Existence Check (method-agnostic) ───
+
+/**
+ * Returns true if ANY compiled API route's URL pattern matches pathname,
+ * regardless of HTTP method. Used by dev middlewares to distinguish an
+ * intentional handler 404 (route exists, handler returned 404) from a
+ * "no such route" 404 (celsian's default when nothing matches).
+ */
+export function matchApiPath(
+  routes: ApiRoute[] | CompiledRoute[],
+  pathname: string,
+): boolean {
+  const compiled: CompiledRoute[] =
+    routes.length > 0 && 'regex' in routes[0]
+      ? (routes as CompiledRoute[])
+      : compileRoutes(routes as ApiRoute[]);
+
+  for (const { regex } of compiled) {
+    if (regex.test(pathname)) return true;
+  }
+  return false;
+}
+
 // ─── Page Route Matching ───
 
 /**

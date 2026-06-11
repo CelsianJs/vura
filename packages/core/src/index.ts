@@ -59,6 +59,7 @@ export type {
 export {
   compileRoutes,
   matchRoute,
+  matchApiPath,
   compilePageRoutes,
   matchPageRoute,
 } from './match.js';
@@ -69,6 +70,20 @@ export type {
   CompiledPageRoute,
   PageRouteMatch,
 } from './match.js';
+
+/**
+ * Canonical list of filenames (relative to project root) that Vura treats as
+ * global hook files. Exported here so vite-plugin and cli stay in sync without
+ * duplicating the list.
+ */
+export const GLOBAL_HOOKS_FILENAMES: readonly string[] = [
+  'src/api/_hooks.ts',
+  'src/api/_hooks.js',
+  'src/api/_hooks.mjs',
+  'src/hooks.ts',
+  'src/hooks.js',
+  'src/hooks.mjs',
+] as const;
 
 export {
   finalizeNodeHandlerResult,
