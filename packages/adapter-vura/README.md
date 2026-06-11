@@ -1,6 +1,6 @@
 # @celsian/vura-adapter-vura
 
-Managed Vura Platform adapter for [Vura](https://vura.dev) applications.
+Managed Vura Platform adapter for [Vura](https://vura.io) applications.
 
 > **Closed alpha — not publicly available yet.** This package is published to npm but the Vura managed platform is in closed alpha; `npm install @celsian/vura-adapter-vura` will succeed but the adapter cannot connect to the platform without an alpha access grant. Use `@celsian/vura-adapter-lambda` or `@celsian/vura-adapter-cloudflare` for self-hosted deployments today.
 
@@ -23,9 +23,9 @@ export default defineConfig({
 
 ## Documentation
 
-_vura.dev docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
+_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
 
-- [Platform overview — /self-host/](https://vura.dev/self-host/)
+- [Platform overview — /self-host/](https://vura.io/self-host/)
 - [MIT forever commitment — GOVERNANCE.md](https://github.com/CelsianJs/vura/blob/main/GOVERNANCE.md)
 
 ## License

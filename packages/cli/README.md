@@ -1,6 +1,6 @@
 # @celsian/vura-cli
 
-CLI for [Vura](https://vura.dev) — develop, build, and run tasks for Vura applications.
+CLI for [Vura](https://vura.io) — develop, build, and run tasks for Vura applications.
 
 [![npm version](https://img.shields.io/npm/v/@celsian/vura-cli)](https://www.npmjs.com/package/@celsian/vura-cli)
 
@@ -41,11 +41,11 @@ vura tasks run cleanup --input '{"dryRun":true}'
 
 ## Documentation
 
-_vura.dev docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
+_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
 
-- [Quick start — /ladder/0-create/](https://vura.dev/ladder/0-create/)
-- [Task routes — /reference/tasks/](https://vura.dev/reference/tasks/)
-- [Self-host — /self-host/](https://vura.dev/self-host/)
+- [Quick start — /ladder/0-create/](https://vura.io/ladder/0-create/)
+- [Task routes — /reference/tasks/](https://vura.io/reference/tasks/)
+- [Self-host — /self-host/](https://vura.io/self-host/)
 
 ## License
 

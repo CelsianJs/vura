@@ -1,6 +1,6 @@
 # @celsian/vura-compiler
 
-Pure-JS compiler for [Vura](https://vura.dev) — regex-based route scanning and JSX transforms.
+Pure-JS compiler for [Vura](https://vura.io) — regex-based route scanning and JSX transforms.
 
 [![npm version](https://img.shields.io/npm/v/@celsian/vura-compiler)](https://www.npmjs.com/package/@celsian/vura-compiler)
 
@@ -31,9 +31,9 @@ const result = scanRoute(source, 'ts');
 
 ## Documentation
 
-_vura.dev docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
+_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
 
-- [Compiler internals — /reference/compiler/](https://vura.dev/reference/compiler/)
+- [Compiler internals — /reference/compiler/](https://vura.io/reference/compiler/)
 
 ## License
 

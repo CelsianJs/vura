@@ -1,6 +1,6 @@
 # @celsian/vura-core
 
-Core runtime and build pipeline for [Vura](https://vura.dev) — the MIT full-stack meta-framework for apps that outgrow serverless.
+Core runtime and build pipeline for [Vura](https://vura.io) — the MIT full-stack meta-framework for apps that outgrow serverless.
 
 [![npm version](https://img.shields.io/npm/v/@celsian/vura-core)](https://www.npmjs.com/package/@celsian/vura-core)
 
@@ -46,13 +46,13 @@ export default defineConfig({
 
 ## Documentation
 
-_vura.dev docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
+_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
 
-- [Quick start — /ladder/0-create/](https://vura.dev/ladder/0-create/)
-- [Config reference — /reference/config/](https://vura.dev/reference/config/)
-- [API routes — /reference/api-routes/](https://vura.dev/reference/api-routes/)
-- [Cache revalidation — /reference/cache/](https://vura.dev/reference/cache/)
-- [Auth helpers — /reference/auth/](https://vura.dev/reference/auth/)
+- [Quick start — /ladder/0-create/](https://vura.io/ladder/0-create/)
+- [Config reference — /reference/config/](https://vura.io/reference/config/)
+- [API routes — /reference/api-routes/](https://vura.io/reference/api-routes/)
+- [Cache revalidation — /reference/cache/](https://vura.io/reference/cache/)
+- [Auth helpers — /reference/auth/](https://vura.io/reference/auth/)
 
 ## License
 

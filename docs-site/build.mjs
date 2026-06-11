@@ -1,4 +1,4 @@
-// vura.dev static build — rendered through What Framework (what-server's
+// vura.io static build — rendered through What Framework (what-server's
 // renderToString). Chrome (head/nav/sidebar/footer) is authored as What;
 // page content comes from Markdown in pages/**/*.md → marked.parse.
 // Landing page (pages/index.html) is raw HTML wrapped in nav+footer chrome.

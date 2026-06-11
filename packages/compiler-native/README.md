@@ -1,6 +1,6 @@
 # @celsian/vura-compiler-native
 
-Rust compiler prototype for [Vura](https://vura.dev) (NAPI-RS) — unpublished prototype, source-only.
+Rust compiler prototype for [Vura](https://vura.io) (NAPI-RS) — unpublished prototype, source-only.
 
 ## What it does
 
@@ -21,9 +21,9 @@ const { code } = transformJsx(source, 'what-framework', false);
 
 ## Documentation
 
-_vura.dev docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
+_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
 
-- [Compiler reference — /reference/compiler/](https://vura.dev/reference/compiler/)
+- [Compiler reference — /reference/compiler/](https://vura.io/reference/compiler/)
 
 ## License
 

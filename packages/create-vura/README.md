@@ -1,6 +1,6 @@
 # create-vura
 
-Scaffold a new [Vura](https://vura.dev) project.
+Scaffold a new [Vura](https://vura.io) project.
 
 [![npm version](https://img.shields.io/npm/v/create-vura)](https://www.npmjs.com/package/create-vura)
 
@@ -46,10 +46,10 @@ npm run build  # builds for production
 
 ## Documentation
 
-_vura.dev docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
+_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
 
-- [Quick start — /ladder/0-create/](https://vura.dev/ladder/0-create/)
-- [Scaffold reference — /reference/scaffold/](https://vura.dev/reference/scaffold/)
+- [Quick start — /ladder/0-create/](https://vura.io/ladder/0-create/)
+- [Scaffold reference — /reference/scaffold/](https://vura.io/reference/scaffold/)
 
 ## License
 

@@ -2,7 +2,7 @@
   "name": "vura-docs-site",
   "private": true,
   "type": "module",
-  "description": "vura.dev — built with What Framework (SSG via renderToString)",
+  "description": "vura.io — built with What Framework (SSG via renderToString)",
   "scripts": {
     "build": "node build.mjs",
     "preview": "node build.mjs && npx --yes serve dist -l 4179"

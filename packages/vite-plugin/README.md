@@ -1,6 +1,6 @@
 # @celsian/vura-vite-plugin
 
-Vite plugin for [Vura](https://vura.dev) — API middleware, route watching, and SSR page handling in development.
+Vite plugin for [Vura](https://vura.io) — API middleware, route watching, and SSR page handling in development.
 
 [![npm version](https://img.shields.io/npm/v/@celsian/vura-vite-plugin)](https://www.npmjs.com/package/@celsian/vura-vite-plugin)
 
@@ -35,10 +35,10 @@ thenPlugin({ root: '/path/to/project' })
 
 ## Documentation
 
-_vura.dev docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
+_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
 
-- [Project structure — /reference/scaffold/](https://vura.dev/reference/scaffold/)
-- [Dev server — /ladder/0-create/](https://vura.dev/ladder/0-create/)
+- [Project structure — /reference/scaffold/](https://vura.io/reference/scaffold/)
+- [Dev server — /ladder/0-create/](https://vura.io/ladder/0-create/)
 
 ## License
 

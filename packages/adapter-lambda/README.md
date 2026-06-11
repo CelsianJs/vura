@@ -1,6 +1,6 @@
 # @celsian/vura-adapter-lambda
 
-AWS Lambda adapter for [Vura](https://vura.dev) applications.
+AWS Lambda adapter for [Vura](https://vura.io) applications.
 
 [![npm version](https://img.shields.io/npm/v/@celsian/vura-adapter-lambda)](https://www.npmjs.com/package/@celsian/vura-adapter-lambda)
 
@@ -36,10 +36,10 @@ sam local start-api
 
 ## Documentation
 
-_vura.dev docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
+_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
 
-- [Self-host on Lambda — /self-host/lambda/](https://vura.dev/self-host/lambda/)
-- [Adapters overview — /self-host/](https://vura.dev/self-host/)
+- [Self-host on Lambda — /self-host/lambda/](https://vura.io/self-host/lambda/)
+- [Adapters overview — /self-host/](https://vura.io/self-host/)
 
 ## License
 

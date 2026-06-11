@@ -1,6 +1,6 @@
 # @celsian/vura-adapter-cloudflare
 
-Cloudflare Workers adapter for [Vura](https://vura.dev) applications.
+Cloudflare Workers adapter for [Vura](https://vura.io) applications.
 
 [![npm version](https://img.shields.io/npm/v/@celsian/vura-adapter-cloudflare)](https://www.npmjs.com/package/@celsian/vura-adapter-cloudflare)
 
@@ -36,10 +36,10 @@ wrangler dev
 
 ## Documentation
 
-_vura.dev docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
+_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
 
-- [Self-host on Cloudflare — /self-host/cloudflare/](https://vura.dev/self-host/cloudflare/)
-- [Adapters overview — /self-host/](https://vura.dev/self-host/)
+- [Self-host on Cloudflare — /self-host/cloudflare/](https://vura.io/self-host/cloudflare/)
+- [Adapters overview — /self-host/](https://vura.io/self-host/)
 
 ## License
 
