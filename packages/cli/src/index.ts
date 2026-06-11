@@ -10,6 +10,7 @@ import { manifestCommand } from './commands/manifest.js';
 import { deployCommand } from './commands/deploy.js';
 import { devCommand } from './commands/dev.js';
 import { adminCommand } from './commands/admin.js';
+import { tasksCommand } from './commands/tasks.js';
 
 const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   build: buildCommand,
@@ -17,6 +18,7 @@ const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   deploy: deployCommand,
   dev: devCommand,
   admin: adminCommand,
+  tasks: tasksCommand,
 };
 
 export async function run(args: string[]): Promise<void> {
@@ -47,6 +49,9 @@ function printHelp(): void {
     deploy      Explain managed deployment availability (not in OSS CLI yet)
     admin       Launch the admin dashboard
     manifest    Print the route manifest (debug)
+    tasks       Manage and run task routes
+                  vura tasks list
+                  vura tasks run <name> [--input '<json>']
 
   Options:
     --help, -h  Show this help message

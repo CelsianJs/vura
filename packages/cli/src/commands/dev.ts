@@ -14,6 +14,7 @@
  */
 
 import { renderToString as builtinRenderToString } from 'what-framework/server';
+import { importRouteModule } from './shared.js';
 import {
   buildManifest,
   compilePageRoutes,
@@ -199,39 +200,11 @@ async function startStandaloneServer(
 ): Promise<void> {
   const { createServer } = await import('node:http');
   const { watch } = await import('node:fs');
-  const { readFile: readFileAsync, writeFile: writeFileAsync, mkdir: mkdirAsync } = await import('node:fs/promises');
-  const { join, resolve } = await import('node:path');
-  const { pathToFileURL } = await import('node:url');
-  const { build: esbuild } = await import('esbuild');
+  const { join } = await import('node:path');
 
-  const tmpDir = join(opts.projectRoot, 'node_modules', '.then-dev-cache');
-  await mkdirAsync(tmpDir, { recursive: true });
-
-  // Determine JSX import source
-  let jsxImportSource = '@celsian/vura-core';
-  try {
-    // @ts-ignore — optional dependency
-    await import('what-framework/jsx-runtime');
-    jsxImportSource = 'what-framework';
-  } catch {}
-
+  // Thin wrapper so call-sites inside this function keep the same shape
   async function loadHandler(filePath: string): Promise<any> {
-    const absPath = resolve(opts.projectRoot, filePath);
-    const isPage = filePath.endsWith('.tsx') || filePath.endsWith('.jsx');
-    const result = await esbuild({
-      entryPoints: [absPath],
-      bundle: true,
-      format: 'esm',
-      target: 'es2022',
-      platform: 'node',
-      write: false,
-      outfile: 'handler.mjs',
-      ...(isPage ? { jsx: 'automatic', jsxImportSource } : {}),
-    });
-    const hash = Date.now().toString(36);
-    const outPath = join(tmpDir, `${filePath.replace(/[/\\:]/g, '_')}_${hash}.mjs`);
-    await writeFileAsync(outPath, result.outputFiles[0].text);
-    return import(pathToFileURL(outPath).href);
+    return importRouteModule(opts.projectRoot, filePath);
   }
 
   const logger = getLogger();
