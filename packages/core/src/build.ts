@@ -12,7 +12,7 @@
  * NOTE ON CODE DUPLICATION:
  * This file contains inline string constants (RENDER_TO_STRING_CODE, MATCH_ROUTE_CODE,
  * PARSE_BODY_CODE, etc.) that duplicate logic also found in:
- *   - packages/core/src/static-render.ts (builtinRenderToString, wrapDocument, escapeHtml)
+ *   - packages/core/src/static-render.ts (wrapDocument, escapeHtml)
  *   - packages/core/src/match.ts (compilePattern, matchRoute)
  *   - packages/core/src/body-parser.ts (parseNodeBody)
  *

@@ -9,6 +9,7 @@
  * 5. Scans file-based routes on startup
  */
 
+// TODO(rebase task 6): bridge alias — dev paths are rewritten on the celsian runtime in Task 6
 import { renderToString as builtinRenderToString } from 'what-framework/server';
 import {
   buildManifest,
@@ -389,7 +390,7 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
 
 // All rendering, matching, parsing, and escaping utilities are now imported
 // from @celsian/vura-core — no local copies needed. See:
-//   builtinRenderToString, wrapDocument, escapeHtml — from static-render.ts
+//   wrapDocument, escapeHtml — from static-render.ts; renderToString — from what-framework/server
 //   coreMatchPageRoute (matchPageRoute) — from match.ts
 //   parseNodeBody — from body-parser.ts
 
