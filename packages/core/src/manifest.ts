@@ -141,6 +141,15 @@ export function extractApiExports(source: string): {
     }
   }
 
+  // Detect top-level `export const schedule = '...'` (task route schedule sugar).
+  // Route-config `schedule` takes precedence; this only fills in when absent.
+  if (!config.schedule) {
+    const scheduleMatch = source.match(/export\s+const\s+schedule\s*=\s*['"]([^'"]+)['"]/);
+    if (scheduleMatch) {
+      config.schedule = scheduleMatch[1];
+    }
+  }
+
   return { methods, kind, hasWebsocket, config };
 }
 

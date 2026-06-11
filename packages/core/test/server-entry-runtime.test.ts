@@ -286,16 +286,76 @@ export default function StreamPage() {
     expect(res.body).toContain('<p>full body</p>');
   }, 10000);
 
-  // TODO(Task 11): task admin endpoint (/__tasks) is deferred to Task 11.
-  // These tests are skipped until startVuraServer gains task admin support.
-  it.skip('authorizes task management from the true socket-local address without a task secret', async () => {
-    // Deferred to Task 11
+  it('authorizes task management from the true socket-local address without a task secret', async () => {
+    const root = createTempProject();
+    writeModule(root, 'src/api/mytask.ts', `
+export const route = { kind: 'task', retries: 0, timeout: 5000 };
+export async function POST() { return { done: true }; }
+`);
+
+    const manifest: RouteManifest = {
+      api: [{
+        filePath: 'src/api/mytask.ts',
+        urlPattern: '/api/mytask',
+        methods: ['POST'],
+        kind: 'task',
+        config: { kind: 'task', retries: 0, timeout: 5000 },
+      }],
+      pages: [],
+      layouts: [],
+      timestamp: new Date().toISOString(),
+    };
+
+    const { port } = await startGeneratedServer(root, manifest, {
+      NODE_ENV: 'test',
+      THEN_TASK_SECRET: '', // no secret
+    });
+
+    // From loopback in test mode — should be authorized
+    const res = await httpGet(port, '/__tasks');
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.tasks).toBeDefined();
+    expect(Array.isArray(body.tasks)).toBe(true);
   }, 10000);
 
-  it.skip('does not trust X-Forwarded-For for generated task admin localhost authorization', () => {
-    // Deferred to Task 11 — evaluateGeneratedTaskAdminAuth removed in Phase B
-    // (thin entry no longer has inline helper functions to string-extract)
-  });
+  it('does not trust X-Forwarded-For for generated task admin localhost authorization', async () => {
+    const root = createTempProject();
+    writeModule(root, 'src/api/mytask.ts', `
+export const route = { kind: 'task', retries: 0, timeout: 5000 };
+export async function POST() { return { done: true }; }
+`);
+
+    const manifest: RouteManifest = {
+      api: [{
+        filePath: 'src/api/mytask.ts',
+        urlPattern: '/api/mytask',
+        methods: ['POST'],
+        kind: 'task',
+        config: { kind: 'task', retries: 0, timeout: 5000 },
+      }],
+      pages: [],
+      layouts: [],
+      timestamp: new Date().toISOString(),
+    };
+
+    const { port } = await startGeneratedServer(root, manifest, {
+      NODE_ENV: 'production',
+      THEN_TASK_SECRET: 'secret123',
+    });
+
+    // X-Forwarded-For: 127.0.0.1 must NOT grant access — only Bearer secret does
+    const resWithSpoof = await httpGet(port, '/__tasks', {
+      'x-forwarded-for': '127.0.0.1',
+    });
+    expect(resWithSpoof.statusCode).toBe(403);
+
+    // Correct Bearer auth should succeed
+    const resWithAuth = await httpGet(port, '/__tasks', {
+      authorization: 'Bearer secret123',
+    });
+    expect(resWithAuth.statusCode).toBe(200);
+  }, 10000);
 
   it('renders nested layouts from outermost to innermost around the page', async () => {
     const root = createTempProject();

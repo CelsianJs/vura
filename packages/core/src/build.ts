@@ -16,9 +16,11 @@
  *   self-contained dist/server/entry.js that includes vura-core + celsian + what-fw.
  *   The thin source is also written as entry.source.mjs for inspection.
  *
- * NOTE: TASK_RUNNER_CODE and task admin endpoints (/__tasks) are deferred
- * to Task 11 of the rebase plan.  Task routes in apiRoutes are silently
- * skipped by createApiApp until that task lands.
+ * Task cron scheduling and admin endpoints (/__tasks) are handled by
+ * startVuraServer via celsian app.cron (Task 11).  Task routes are passed
+ * in apiRoutes; createApiApp skips them for HTTP; startVuraServer wires them
+ * to cron and the /__tasks admin layer.  generateTaskEntry remains for
+ * serverless/adapter invocation paths.
  */
 
 import { writeFile, mkdir } from 'node:fs/promises';
@@ -110,8 +112,8 @@ function findGlobalHooksFile(projectRoot: string): string | null {
  *
  * Global hooks are wired via a conventional file (src/api/_hooks.ts or src/hooks.ts).
  *
- * TODO(Task 11): task routes are passed in apiRoutes but silently ignored by
- * startVuraServer until task admin endpoints land in that task.
+ * Task routes are passed in apiRoutes; startVuraServer wires them to cron
+ * and the /__tasks admin layer (Task 11 complete).
  */
 export function generateServerEntry(manifest: RouteManifest, projectRoot: string, globalHooksFile?: string | null): string {
   // Reset used var names for each server entry generation
@@ -182,7 +184,7 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
   lines.push('await startVuraServer({');
   lines.push('  port: parseInt(process.env.PORT || \'3000\', 10),');
 
-  // apiRoutes — all routes (task routes silently skipped by startVuraServer for now)
+  // apiRoutes — all routes (task routes wired to cron + /__tasks admin by startVuraServer)
   lines.push('  apiRoutes: [');
   for (const route of manifest.api) {
     const varName = routeVarNames.get(route.filePath)!;

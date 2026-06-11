@@ -96,23 +96,6 @@ export type {
   NodeHandlerFinalizationResult,
 } from './handler.js';
 
-export {
-  MemoryQueue,
-  TaskRunner,
-  CronScheduler,
-  parseCron,
-  cronFieldMatches,
-  createTaskRunner,
-  createCronScheduler,
-} from './tasks.js';
-
-export type {
-  TaskJob,
-  TaskConfig,
-  TaskHandler,
-  TaskDefinition,
-  CronFields,
-} from './tasks.js';
 
 export {
   Logger,
@@ -252,6 +235,20 @@ export type {
   VuraServerOptions,
   VuraServer,
 } from './runtime/server.js';
+
+export {
+  runTaskOnce,
+  createTaskResultStore,
+  isTaskAdminAuthorized,
+  registerTaskCrons,
+  readOptionalJsonBody,
+} from './runtime/tasks.js';
+
+export type {
+  TaskRunResult,
+  TaskRunDefinition,
+  TaskAdminJob,
+} from './runtime/tasks.js';
 
 export type {
   HotPeer,

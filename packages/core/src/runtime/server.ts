@@ -24,6 +24,16 @@ import { buildWhatRoutes, createPagesHandler, type RuntimePage } from './pages.j
 import { createVuraCache, type VuraCacheConfig } from './cache.js';
 import { createHotPeer } from './hot.js';
 import { compileRoutes, type CompiledRoute } from '../match.js';
+import {
+  runTaskOnce,
+  createTaskResultStore,
+  isTaskAdminAuthorized,
+  registerTaskCrons,
+  readOptionalJsonBody,
+  type TaskRunResult,
+  type TaskRunDefinition,
+  type TaskAdminJob,
+} from './tasks.js';
 
 // ─── MIME types (ported from STATIC_FILE_CODE in build.ts) ───
 
@@ -257,6 +267,25 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
     revalidateWebhook: webhook,
   });
 
+  // ── Task cron + admin store ──
+  const taskRoutes = opts.apiRoutes.filter((r) => r.kind === 'task');
+  const taskStore = createTaskResultStore();
+
+  // Derive task name from urlPattern: strip /api/ prefix, replace / with .
+  function taskNameFromPattern(urlPattern: string): string {
+    return urlPattern.replace(/^\/api\//, '').replace(/\//g, '.');
+  }
+
+  // Register cron jobs and collect registered task defs for admin list
+  const registeredTasks = taskRoutes.length > 0
+    ? registerTaskCrons(app, taskRoutes, taskStore, taskNameFromPattern)
+    : [];
+
+  // Start scheduler only when cron tasks were registered
+  if (registeredTasks.some((t) => t.schedule)) {
+    app.startCron();
+  }
+
   // ── what-fw pages handler (server + hybrid modes only) ──
   const serverPages = opts.pages.filter(
     (p) => p.mode === 'server' || p.mode === 'hybrid',
@@ -296,6 +325,103 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
       if (url.pathname === '/__health') {
         nodeRes.writeHead(200, { 'content-type': 'application/json' });
         nodeRes.end(JSON.stringify({ ok: true, framework: 'Vura' }));
+        return;
+      }
+
+      // ── Task admin endpoints ──
+      if (url.pathname === '/__tasks' || url.pathname.startsWith('/__tasks/')) {
+        const remoteAddr = nodeReq.socket?.remoteAddress ?? '';
+        const normalised = remoteAddr.startsWith('::ffff:') ? remoteAddr.slice(7) : remoteAddr;
+        const webHeaders = new Headers(nodeReq.headers as Record<string, string>);
+        if (!isTaskAdminAuthorized(webHeaders, normalised)) {
+          nodeRes.writeHead(403, { 'content-type': 'application/json' });
+          nodeRes.end(JSON.stringify({ error: 'Forbidden' }));
+          return;
+        }
+
+        const method = (nodeReq.method ?? 'GET').toUpperCase();
+
+        // GET /__tasks → list registered tasks
+        if (url.pathname === '/__tasks' && method === 'GET') {
+          nodeRes.writeHead(200, { 'content-type': 'application/json' });
+          nodeRes.end(JSON.stringify({ tasks: registeredTasks }));
+          return;
+        }
+
+        // POST /__tasks/:name → trigger task immediately
+        if (url.pathname.startsWith('/__tasks/') && method === 'POST') {
+          const taskName = url.pathname.slice('/__tasks/'.length);
+          const taskRoute = taskRoutes.find(
+            (r) => taskNameFromPattern(r.urlPattern) === taskName,
+          );
+          if (!taskRoute) {
+            nodeRes.writeHead(404, { 'content-type': 'application/json' });
+            nodeRes.end(JSON.stringify({ error: `Task not found: ${taskName}` }));
+            return;
+          }
+
+          const handler = (taskRoute.module as any).POST as ((ctx: { attempt: number; input: unknown }) => Promise<unknown>) | undefined;
+          if (typeof handler !== 'function') {
+            nodeRes.writeHead(400, { 'content-type': 'application/json' });
+            nodeRes.end(JSON.stringify({ error: 'Task must export POST handler' }));
+            return;
+          }
+
+          // Fix #11: read optional JSON body from the POST request (size-capped 64 KB)
+          const bodyResult = await readOptionalJsonBody(nodeReq);
+          if (!bodyResult.ok) {
+            nodeRes.writeHead(bodyResult.status, { 'content-type': 'application/json' });
+            nodeRes.end(JSON.stringify({ error: bodyResult.message }));
+            return;
+          }
+
+          const jobId = taskStore.nextId();
+          const job: TaskAdminJob = { id: jobId, taskName, status: 'running', startedAt: Date.now() };
+          taskStore.add(job);
+
+          const def: TaskRunDefinition = {
+            name: taskName,
+            config: {
+              retries: typeof taskRoute.config.retries === 'number' ? taskRoute.config.retries : 0,
+              timeout: typeof taskRoute.config.timeout === 'number' ? taskRoute.config.timeout : 30000,
+            },
+            handler,
+          };
+
+          // Kick off in background; return jobId immediately
+          // Manual triggers pass the parsed body as input (Fix #11); cron uses { _cron: true }.
+          runTaskOnce(def, { input: bodyResult.value }).then((runResult) => {
+            job.status = runResult.status;
+            job.result = runResult.result;
+            job.error = runResult.error;
+            job.completedAt = Date.now();
+          }).catch((_err) => {
+            job.status = 'failed';
+            job.error = 'unexpected error';
+            job.completedAt = Date.now();
+          });
+
+          nodeRes.writeHead(202, { 'content-type': 'application/json' });
+          nodeRes.end(JSON.stringify({ id: jobId, status: 'running' }));
+          return;
+        }
+
+        // GET /__tasks/:id → job status
+        if (url.pathname.startsWith('/__tasks/') && method === 'GET') {
+          const jobId = url.pathname.slice('/__tasks/'.length);
+          const job = taskStore.results.get(jobId);
+          if (!job) {
+            nodeRes.writeHead(404, { 'content-type': 'application/json' });
+            nodeRes.end(JSON.stringify({ error: `Job not found: ${jobId}` }));
+            return;
+          }
+          nodeRes.writeHead(200, { 'content-type': 'application/json' });
+          nodeRes.end(JSON.stringify(job));
+          return;
+        }
+
+        nodeRes.writeHead(404, { 'content-type': 'application/json' });
+        nodeRes.end(JSON.stringify({ error: 'Not found' }));
         return;
       }
 
@@ -602,6 +728,8 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
   const close = (): Promise<void> =>
     new Promise((resolve) => {
       shuttingDown = true;
+      // Stop cron before draining so no new task invocations are scheduled.
+      app.stopCron();
       // Drain WebSockets before closing the HTTP server so upgrade traffic
       // receives a clean close frame rather than a TCP RST.
       closeWebSockets(1001, 'shutting down').then(() => {
@@ -611,6 +739,7 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
 
   const drain = (): void => {
     shuttingDown = true;
+    app.stopCron();
 
     const timeoutMs = opts.shutdownTimeoutMs ?? 30000;
     const force = setTimeout(() => process.exit(1), timeoutMs);
