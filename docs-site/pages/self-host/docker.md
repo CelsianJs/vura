@@ -123,12 +123,12 @@ curl -fsS http://localhost:3000/ | grep -q '<h1'
 curl -fsS http://localhost:3000/api/hello
 
 # WebSocket (requires wscat)
-wscat -c ws://localhost:3000/api/live/room
+wscat -c ws://localhost:3000/api/chat
 ```
 
 ---
 
-> **CI-tested:** this guide is verified by the `docker` job in `.github/workflows/selfhost.yml` (landing with Task 7). The job extracts the Dockerfile from this guide (fenced `dockerfile` block), builds the image, runs the container, and curls `/api/hello`. It verifies **the Dockerfile content matches the emitted `dist/Dockerfile`** and that the container serves the smoke surface. It does **not** test Docker Compose or healthcheck configuration.
+> **CI-tested:** this guide is verified by the `docker` job in `.github/workflows/selfhost.yml`. The job extracts the Dockerfile from this guide (fenced `dockerfile` block), builds the image with `dist/` as the build context, runs the container, and curls `/` and `/api/hello`. It does **not** test Docker Compose or healthcheck configuration.
 
 ---
 

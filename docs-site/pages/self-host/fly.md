@@ -100,7 +100,7 @@ curl -fsS https://my-app.fly.dev/ | grep -q '<h1'
 curl -fsS https://my-app.fly.dev/api/hello
 
 # WebSocket
-wscat -c wss://my-app.fly.dev/api/live/room
+wscat -c wss://my-app.fly.dev/api/chat
 ```
 
 ---
@@ -113,7 +113,7 @@ There is no `drainTimeoutMs` config key — the 30-second value comes from `kill
 
 ---
 
-> **CI-tested:** this guide is verified by the `fly` job in `.github/workflows/selfhost.yml` (landing with Task 7). The job extracts the `fly.toml` from this guide and validates it with `flyctl config validate`. It then builds the same Docker image (from the docker guide's Dockerfile) and boots it locally to confirm the smoke surface serves. It does **not** deploy to Fly — no cloud credentials are available in CI; Fly networking and anycast behavior are out of scope.
+> **CI-tested:** this guide is verified by the `fly` job in `.github/workflows/selfhost.yml`. The job extracts the `fly.toml` from this guide and validates it with `flyctl config validate`. It then builds the same Docker image (from the docker guide's Dockerfile) and boots it locally to confirm `/` and `/api/hello` serve. It does **not** deploy to Fly — no cloud credentials are available in CI; Fly networking and anycast behavior are out of scope.
 
 ---
 
