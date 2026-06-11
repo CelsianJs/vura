@@ -238,3 +238,7 @@ export type {
   VuraServerOptions,
   VuraServer,
 } from './runtime/server.js';
+
+// Re-export Node↔Web bridge helpers from @celsian/core so vite-plugin and cli
+// can import them without taking a direct @celsian/core dep.
+export { nodeToWebRequest, writeWebResponse } from '@celsian/core';
