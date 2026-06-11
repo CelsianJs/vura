@@ -144,12 +144,18 @@ ${renderGroup(SELF_HOST)}
 // ---------------------------------------------------------------------------
 // <head> template
 // ---------------------------------------------------------------------------
-function headHtml(title) {
+function headHtml(title, { description, canonical } = {}) {
   const pageTitle = title ? `${title} — Vura` : 'Vura';
+  const descTag = description
+    ? `\n  <meta name="description" content="${description}">`
+    : '';
+  const canonicalTag = canonical
+    ? `\n  <link rel="canonical" href="${canonical}">`
+    : '';
   return `<head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${pageTitle}</title>
+  <title>${pageTitle}</title>${descTag}${canonicalTag}
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>V</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -188,7 +194,7 @@ ${headHtml(title)}
 `;
 }
 
-function renderLandingPage({ title, bodyInner }) {
+function renderLandingPage({ title, bodyInner, description, canonical }) {
   const nav = renderToString(
     h('nav', { class: 'site-nav', dangerouslySetInnerHTML: { __html: navHtml() } })
   );
@@ -200,7 +206,7 @@ function renderLandingPage({ title, bodyInner }) {
   );
   return `<!DOCTYPE html>
 <html lang="en">
-${headHtml(title || null)}
+${headHtml(title || null, { description, canonical })}
 <body>
   ${nav}
   ${body}
@@ -289,8 +295,18 @@ if (existsSync(landingPath)) {
   const html = renderLandingPage({
     title: pageTitle === 'Vura' ? null : pageTitle,
     bodyInner: src,
+    // Landing-page head metadata (Task 3).
+    // Title is handled separately above via h1 extraction; title tag is set
+    // explicitly below via the full sentence form so it differs from the h1.
+    description: 'Static pages, cached SSR, typed APIs, websockets, and background tasks in one project. Self-host anywhere or deploy in one command. MIT, forever.',
+    canonical: 'https://vura.io/',
   });
-  write('/', html);
+  // Override title to the full sentence form required by Task 3.
+  const finalHtml = html.replace(
+    /<title>[^<]*<\/title>/,
+    '<title>Vura — The framework for apps that outgrow serverless</title>',
+  );
+  write('/', finalHtml);
   total++;
   console.log('  ✓ /  (landing)');
 }
