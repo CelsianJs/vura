@@ -106,6 +106,34 @@ export async function renderStaticPages(
   return results;
 }
 
+// ─── Client Entry Generator ───
+
+/**
+ * Generate the browser entry source for a client/hybrid page.
+ *
+ * The emitted module imports the page component and actually boots it:
+ *   - client: mount() — clears the "Loading..." shell and renders fresh
+ *   - hybrid: hydrate() — attaches to the build-time prerendered DOM
+ *
+ * Bundlers must compile this with the page's resolveDir so the relative
+ * page import resolves (the CLI feeds it to esbuild via stdin).
+ * Without this wrapper the bundle is just `export default Component` and
+ * nothing ever calls mount — the shell stays at "Loading..." forever.
+ */
+export function generateClientPageEntry(
+  pageImportSpecifier: string,
+  mode: 'client' | 'hybrid',
+): string {
+  const boot = mode === 'hybrid' ? 'hydrate' : 'mount';
+  return `import Component, * as _pageMod from ${JSON.stringify(pageImportSpecifier)};
+import { h, ${boot} } from 'what-framework';
+
+const _props = (_pageMod.page && _pageMod.page.props) || {};
+const _root = document.getElementById('app') || document.body;
+${boot}(h(Component, _props), _root);
+`;
+}
+
 // ─── Document Wrapper ───
 
 export interface DocumentOptions {

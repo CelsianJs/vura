@@ -12,7 +12,7 @@
  * 9. Emit hot deploy templates (Dockerfile, fly.toml, package.json) when hot routes present
  */
 
-import { buildManifest, build, renderStaticPages } from '@celsian/vura-core';
+import { buildManifest, build, renderStaticPages, generateClientPageEntry } from '@celsian/vura-core';
 import { createRequire } from 'node:module';
 import { Buffer } from 'node:buffer';
 import { loadConfig } from '../config-loader.js';
@@ -154,19 +154,24 @@ export async function buildCommand(_args: string[]): Promise<void> {
     console.log('  Using built-in JSX runtime');
   }
 
-  // Plugin to help esbuild resolve ESM-only package exports
+  // Plugin to help esbuild resolve ESM-only package exports.
+  // Searches from the project root first (the user's installed copy), then
+  // from the CLI's own location (monorepo/test environments).
+  const { fileURLToPath } = await import('node:url');
+  const { dirname: pathDirname } = await import('node:path');
+  const cliDir = pathDirname(fileURLToPath(import.meta.url));
   function findNodeModules(pkg: string): string {
-    let pkgDir = join(root, 'node_modules', pkg);
-    if (existsSync(pkgDir)) return pkgDir;
-    let dir = root;
-    for (let depth = 0; depth < 5; depth++) {
-      const parent = resolve(dir, '..');
-      if (parent === dir) break;
-      dir = parent;
-      const candidate = join(dir, 'node_modules', pkg);
-      if (existsSync(candidate)) return candidate;
+    for (const base of [root, cliDir]) {
+      let dir = base;
+      for (let depth = 0; depth < 10; depth++) {
+        const candidate = join(dir, 'node_modules', pkg);
+        if (existsSync(candidate)) return candidate;
+        const parent = resolve(dir, '..');
+        if (parent === dir) break;
+        dir = parent;
+      }
     }
-    return pkgDir;
+    return join(root, 'node_modules', pkg);
   }
 
   const esmResolvePlugin = {
@@ -178,6 +183,16 @@ export async function buildCommand(_args: string[]): Promise<void> {
         } catch {
           return { path: cliRequire.resolve(args.path) };
         }
+      });
+
+      // Bare what-framework/what-core imports (the generated client entry
+      // imports { h, mount, hydrate } from 'what-framework'). The exports map
+      // is import-condition-only, so require.resolve can't find it — resolve
+      // to the package's ESM source entry directly.
+      build.onResolve({ filter: /^what-(framework|core)$/ }, (args: any) => {
+        const candidate = join(findNodeModules(args.path), 'src', 'index.js');
+        if (existsSync(candidate)) return { path: candidate };
+        return null; // fall through to esbuild's default resolution
       });
 
       build.onResolve({ filter: /^what-(framework|core)\// }, (args: any) => {
@@ -269,14 +284,19 @@ export async function buildCommand(_args: string[]): Promise<void> {
     }
   }
 
-  // 3c. Bundle browser page modules for client and hybrid pages.
+  // 3c. Bundle browser entries for client and hybrid pages.
+  // Each bundle is a generated wrapper (generateClientPageEntry) that imports
+  // the page module and calls mount() (client) / hydrate() (hybrid) — bundling
+  // the raw page module alone leaves the shell at "Loading..." forever because
+  // nothing ever boots the component.
   const browserPages = manifest.pages.filter(p => p.mode === 'client' || p.mode === 'hybrid');
   const clientScripts: Record<string, string> = {};
   if (browserPages.length > 0) {
-    console.log(`  Bundling ${browserPages.length} browser page modules...`);
+    console.log(`  Bundling ${browserPages.length} browser page entries...`);
     const clientPagesDir = join(root, 'dist', 'static', '_then', 'pages');
     await mkdir(clientPagesDir, { recursive: true });
 
+    const { dirname, basename } = await import('node:path');
     for (const page of browserPages) {
       const absPath = resolve(root, page.filePath);
       const outFile = page.filePath.replace(/^src\/pages\//, '').replace(/\.(tsx|jsx|ts|js)$/, '.js');
@@ -284,7 +304,12 @@ export async function buildCommand(_args: string[]): Promise<void> {
       await mkdir(join(outPath, '..'), { recursive: true });
 
       await esbuild({
-        entryPoints: [absPath],
+        stdin: {
+          contents: generateClientPageEntry(`./${basename(absPath)}`, page.mode as 'client' | 'hybrid'),
+          resolveDir: dirname(absPath),
+          sourcefile: '__vura-client-entry__.js',
+          loader: 'js',
+        },
         bundle: true,
         format: 'esm',
         target: 'es2022',
