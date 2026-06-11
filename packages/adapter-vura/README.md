@@ -1,23 +1,33 @@
 # @celsian/vura-adapter-vura
 
-Vura Platform adapter for Vura applications. Deploys to the native Vura hosting platform.
+Managed Vura Platform adapter for [Vura](https://vura.io) applications.
 
-## Install
+> **Closed alpha — not publicly available yet.** This package is published to npm but the Vura managed platform is in closed alpha; `npm install @celsian/vura-adapter-vura` will succeed but the adapter cannot connect to the platform without an alpha access grant. Use `@celsian/vura-adapter-lambda` or `@celsian/vura-adapter-cloudflare` for self-hosted deployments today.
 
-```bash
-npm install @celsian/vura-adapter-vura
+## What it does
+
+`@celsian/vura-adapter-vura` packages your build output and uploads it to the Vura managed deployment platform. No framework capability (websockets, cache revalidation, tasks, cron) is gated on this adapter; everything works fully self-hosted via the other adapters. This adapter is a convenience for teams on the managed platform once access is available.
+
+## Minimal example
+
+**vura.config.ts:**
+
+```ts
+import { defineConfig } from '@celsian/vura-core';
+import { vuraAdapter } from '@celsian/vura-adapter-vura';
+
+export default defineConfig({
+  adapter: vuraAdapter({ team: 'my-team' }),
+});
 ```
 
-## Usage
+## Documentation
 
-Configure in your `vura.config.js`:
+_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
 
-```js
-export default {
-  adapter: 'vura'
-}
-```
+- [Platform overview — /self-host/](https://vura.io/self-host/)
+- [MIT forever commitment — GOVERNANCE.md](https://github.com/CelsianJs/vura/blob/main/GOVERNANCE.md)
 
 ## License
 
-MIT
+MIT — and [it will stay MIT](https://github.com/CelsianJs/vura/blob/main/GOVERNANCE.md).

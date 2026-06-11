@@ -1,0 +1,17 @@
+{
+  "name": "vura-docs-site",
+  "private": true,
+  "type": "module",
+  "description": "vura.io — built with What Framework (SSG via renderToString)",
+  "scripts": {
+    "build": "node build.mjs",
+    "preview": "node build.mjs && npx --yes serve dist -l 4179"
+  },
+  "dependencies": {
+    "what-framework": "^0.11.1",
+    "marked": "^15.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.3"
+  }
+}

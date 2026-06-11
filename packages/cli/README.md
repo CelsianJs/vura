@@ -1,33 +1,52 @@
 # @celsian/vura-cli
 
-CLI for Vura — develop and build Vura applications.
+CLI for [Vura](https://vura.io) — develop, build, and run tasks for Vura applications.
+
+[![npm version](https://img.shields.io/npm/v/@celsian/vura-cli)](https://www.npmjs.com/package/@celsian/vura-cli)
+
+## What it does
+
+`@celsian/vura-cli` provides the `vura` command for developing and building Vura projects. It scans routes, starts the Vite dev server with API middleware, bundles for production, and lets you run task routes by name from the terminal. `vura deploy` is reserved for the managed Vura Platform and intentionally fails closed in the OSS CLI — use an adapter (`adapter-lambda`, `adapter-cloudflare`) to self-host. The package was historically named `then`/`thenjs`; the only installed bin is `vura`.
 
 ## Install
 
-```bash
-npm install -g @celsian/vura-cli
+Installed automatically by `npm create vura@latest`. For manual use:
+
+```sh
+npm install @celsian/vura-cli
 ```
 
-Or use via npx:
+## Minimal example
 
-```bash
-npx vura --help
+**package.json** scripts:
+
+```json
+{
+  "scripts": {
+    "dev": "vura dev",
+    "build": "vura build"
+  }
+}
 ```
 
-## Commands
+Run a task route by name without a live server:
 
-- `vura dev` — Start development server with hot reload
-- `vura build` — Build for production
-
-## Quick Start
-
-```bash
-npx create-vura my-app
-cd my-app
-npm install
-npx vura dev
+```sh
+vura tasks run cleanup
+# with input JSON:
+vura tasks run cleanup --input '{"dryRun":true}'
 ```
+
+(`then` is a shell reserved word — use `vura` in all scripts.)
+
+## Documentation
+
+_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
+
+- [Quick start — /ladder/0-create/](https://vura.io/ladder/0-create/)
+- [Task routes — /reference/tasks/](https://vura.io/reference/tasks/)
+- [Self-host — /self-host/](https://vura.io/self-host/)
 
 ## License
 
-MIT
+MIT — and [it will stay MIT](https://github.com/CelsianJs/vura/blob/main/GOVERNANCE.md).
