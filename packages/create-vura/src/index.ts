@@ -185,21 +185,92 @@ dist/
 .DS_Store
 `,
 
-    'src/api/hello.ts': `import type { ThenRequest, ThenReply } from '@celsian/vura-core';
+    'src/api/hello.ts': `import type { CelsianRequest, CelsianReply } from '@celsian/vura-core';
 
 export const route = { kind: 'serverless' };
 
-export function GET(req: ThenRequest, reply: ThenReply) {
+export function GET(req: CelsianRequest, reply: CelsianReply) {
   return reply.json({ message: 'Hello from Vura!' });
 }
 `,
 
-    'src/api/health.ts': `import type { ThenRequest, ThenReply } from '@celsian/vura-core';
+    'src/api/health.ts': `import type { CelsianRequest, CelsianReply } from '@celsian/vura-core';
 
 export const route = { kind: 'hot' };
 
-export function GET(req: ThenRequest, reply: ThenReply) {
+export function GET(req: CelsianRequest, reply: CelsianReply) {
   return reply.json({ status: 'ok', uptime: process.uptime() });
+}
+`,
+
+    // Hot-route example: real-time chat room via WebSocket.
+    // State is per-process (no Redis). Multi-instance deployments need an
+    // external message bus — see vura docs for multi-instance hot routes.
+    'src/api/chat.ts': `import type { HotPeer, HotRequest } from '@celsian/vura-core';
+
+// kind: 'hot' enables the WebSocket upgrade path for this route.
+// The ws package must be installed: npm install ws
+export const route = { kind: 'hot' };
+
+/**
+ * Called once per WebSocket connection on open.
+ *
+ * peer.send(data)            — send string or ArrayBuffer to this peer
+ * peer.broadcast(data)       — send to all peers on this path (excludes sender by default)
+ * peer.on('message', cb)     — called on each incoming frame
+ * peer.on('close', cb)       — called when the connection closes
+ * peer.close(code?, reason?) — close this connection
+ *
+ * req.params  — path params (e.g. { room: 'lobby' } for /api/chat/:room)
+ * req.query   — URLSearchParams from the upgrade URL
+ *
+ * State is per-process. For multi-instance deployments use an external
+ * message bus (e.g. Redis pub/sub) to fan out across instances.
+ */
+export function websocket(peer: HotPeer, req: HotRequest) {
+  const room = req.params['room'] ?? 'lobby';
+
+  peer.send(\`Welcome to room "\${room}" (id: \${peer.id})\`);
+  peer.broadcast(\`User \${peer.id} joined "\${room}"\`);
+
+  peer.on('message', (data) => {
+    // Echo back to sender, then broadcast to the rest of the room.
+    peer.send(\`You: \${data}\`);
+    peer.broadcast(\`[\${room}] \${peer.id}: \${data}\`);
+  });
+
+  peer.on('close', (code, reason) => {
+    // code 1001 = server going away (SIGTERM drain). Normal — no need to alert.
+    peer.broadcast(\`User \${peer.id} left "\${room}" (\${code})\`);
+  });
+}
+`,
+
+    // Scheduled-task example: nightly cleanup via celsian cron.
+    // Run manually: vura tasks run cleanup
+    'src/api/cleanup.ts': `// kind: 'task' marks this file as a background task route.
+// It is NOT exposed as a regular HTTP endpoint — calls go through /__tasks.
+export const route = { kind: 'task', retries: 2, timeout: 60_000 };
+
+// Cron expression: run at 03:00 UTC every day.
+// Vura reads this field and registers the schedule with the celsian cron engine.
+// To trigger manually: vura tasks run cleanup
+// To trigger via HTTP:  POST /__tasks/cleanup  (requires THEN_TASK_SECRET bearer token)
+export const schedule = '0 3 * * *';
+
+/**
+ * The POST export is the task handler.
+ * ctx.attempt — current attempt number (1-based)
+ * ctx.input   — { _cron: true } on scheduled runs; parsed JSON body on manual POST triggers
+ */
+export async function POST(ctx: { attempt: number; input: unknown }) {
+  console.log(\`[cleanup] starting attempt \${ctx.attempt}\`);
+
+  // Replace with your actual cleanup logic:
+  const deletedCount = 0; // e.g. await db.deleteExpiredSessions();
+
+  console.log(\`[cleanup] done — deleted \${deletedCount} records\`);
+  return { deletedCount };
 }
 `,
 

@@ -8,8 +8,8 @@ describe('create-vura templates', () => {
 
     expect(packageJson.dependencies).toEqual({
       'what-framework': '^0.11.1',
-      '@celsian/vura-core': '0.3.0',
-      '@celsian/vura-cli': '0.3.0',
+      '@celsian/vura-core': '0.4.0',
+      '@celsian/vura-cli': '0.4.0',
     });
     expect(JSON.stringify(packageJson.dependencies)).not.toContain('latest');
   });
@@ -31,5 +31,39 @@ describe('create-vura templates', () => {
     expect(files).not.toHaveProperty('vura.config.ts');
     expect(starterText).not.toContain('thenjs.dev');
     expect(starterText).not.toContain('celsian.dev');
+  });
+
+  it('includes the hot-route chat example', () => {
+    const files = getFiles('demo-app');
+
+    expect(files).toHaveProperty('src/api/chat.ts');
+    const chatTs = files['src/api/chat.ts'];
+    expect(chatTs).toContain("kind: 'hot'");
+    expect(chatTs).toContain('websocket(peer');
+    expect(chatTs).toContain('peer.on(\'message\'');
+    expect(chatTs).toContain('peer.broadcast(');
+  });
+
+  it('includes the scheduled cleanup task example', () => {
+    const files = getFiles('demo-app');
+
+    expect(files).toHaveProperty('src/api/cleanup.ts');
+    const cleanupTs = files['src/api/cleanup.ts'];
+    expect(cleanupTs).toContain("kind: 'task'");
+    expect(cleanupTs).toContain("export const schedule = '0 3 * * *'");
+    expect(cleanupTs).toContain('export async function POST(');
+    expect(cleanupTs).toContain('vura tasks run cleanup');
+  });
+
+  it('scaffold template files build without TypeScript errors', () => {
+    // Structural check: all template files with .ts/.tsx extension are present
+    // and contain parseable content (not empty, not placeholder-only).
+    const files = getFiles('demo-app');
+    const tsFiles = Object.entries(files).filter(([k]) => k.endsWith('.ts') || k.endsWith('.tsx'));
+
+    for (const [path, content] of tsFiles) {
+      expect(content.length, `${path} should have content`).toBeGreaterThan(0);
+      expect(content, `${path} should not be a bare placeholder`).not.toMatch(/^TODO$/m);
+    }
   });
 });

@@ -253,12 +253,17 @@ export type {
 export type {
   HotPeer,
   HotPeerEvents,
+  HotRequest,
   HotWebsocketHandler,
 } from './runtime/hot.js';
 
 // Re-export Node↔Web bridge helpers from @celsian/core so vite-plugin and cli
 // can import them without taking a direct @celsian/core dep.
 export { nodeToWebRequest, writeWebResponse } from '@celsian/core';
+
+// Canonical request/reply types for API route handlers (the non-deprecated
+// names behind the ThenRequest/ThenReply compat aliases).
+export type { CelsianRequest, CelsianReply } from '@celsian/core';
 
 export {
   cookieSession,
