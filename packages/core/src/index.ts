@@ -190,3 +190,15 @@ export type {
   StreamableResponse,
   StreamableRequest,
 } from './streaming.js';
+
+export {
+  buildWhatRoutes,
+  createVuraRenderRoute,
+  createPagesHandler,
+} from './runtime/pages.js';
+
+export type {
+  RuntimePage,
+  WhatPageRoute,
+  PagesHandlerOptions,
+} from './runtime/pages.js';
