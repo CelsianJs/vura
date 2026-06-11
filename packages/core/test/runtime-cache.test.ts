@@ -58,4 +58,28 @@ describe('createVuraCache', () => {
     await revalidateTag('blog');
     expect(purged).toEqual(['/blog/a', 'tag:blog']);
   });
+
+  it('e2e: revalidatePath via createVuraCache registry causes next handle to be a MISS', async () => {
+    // Re-create a fresh cache — createVuraCache overwrites the registry handler,
+    // so this test is independent of whichever handler was installed by tests above.
+    const { engine } = createVuraCache({});
+    const routeMatch = { path: '/p', query: {}, config: { revalidate: 60 } };
+    let renders = 0;
+    const render = async () => { renders++; return { html: '<p>x</p>', status: 200, path: '/p' }; };
+
+    // Populate the cache (MISS then HIT).
+    const first = await engine.handle(routeMatch, render);
+    expect(first.cacheStatus).toBe('MISS');
+    const second = await engine.handle(routeMatch, render);
+    expect(second.cacheStatus).toBe('HIT');
+    expect(renders).toBe(1);
+
+    // Revalidate through the exported wrapper — proves registry wiring, no bypass.
+    await revalidatePath('/p');
+
+    // Next handle must render again (MISS).
+    const third = await engine.handle(routeMatch, render);
+    expect(third.cacheStatus).toBe('MISS');
+    expect(renders).toBe(2);
+  });
 });

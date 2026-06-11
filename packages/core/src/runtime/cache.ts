@@ -34,6 +34,12 @@ import { revalidatePath as _whatRevalidatePath } from 'what-framework/server';
 import { revalidateTag as _whatRevalidateTag } from 'what-framework/server';
 
 // ---------------------------------------------------------------------------
+// Init guard — tracks whether createVuraCache has been called.
+// ---------------------------------------------------------------------------
+
+let _cacheInitialized = false;
+
+// ---------------------------------------------------------------------------
 // Public re-exports — delegate to what-framework's registry (module singleton).
 // createVuraCache populates the registry via setRevalidationHandler.
 // App code (and tests) can also call setRevalidationHandler directly to swap
@@ -42,17 +48,29 @@ import { revalidateTag as _whatRevalidateTag } from 'what-framework/server';
 
 /**
  * Invalidate a cached path.
- * Requires createVuraCache() (or a manual setRevalidationHandler call) first.
+ *
+ * @precondition createVuraCache() must be called first (or setRevalidationHandler
+ * called directly) to bind a live cache engine. If called before either, a warning
+ * is emitted and the call is a no-op unless the registry has a handler by other means.
  */
 export async function revalidatePath(path: string, options?: Record<string, unknown>): Promise<void> {
+  if (!_cacheInitialized) {
+    console.warn('[vura] revalidatePath/Tag called before createVuraCache() — no cache is bound; this is a no-op');
+  }
   return _whatRevalidatePath(path, options);
 }
 
 /**
  * Invalidate all cached entries tagged with `tag`.
- * Requires createVuraCache() (or a manual setRevalidationHandler call) first.
+ *
+ * @precondition createVuraCache() must be called first (or setRevalidationHandler
+ * called directly) to bind a live cache engine. If called before either, a warning
+ * is emitted and the call is a no-op unless the registry has a handler by other means.
  */
 export async function revalidateTag(tag: string, options?: Record<string, unknown>): Promise<void> {
+  if (!_cacheInitialized) {
+    console.warn('[vura] revalidatePath/Tag called before createVuraCache() — no cache is bound; this is a no-op');
+  }
   return _whatRevalidateTag(tag, options);
 }
 
@@ -65,7 +83,10 @@ export interface VuraCacheConfig {
   store?: 'memory' | 'filesystem' | 'redis';
   /** Directory for filesystem store (default: .vura/cache) */
   dir?: string;
-  /** Redis client instance — vura does NOT own the connection lifecycle */
+  /**
+   * Redis client instance — vura does NOT own the connection lifecycle.
+   * Required when store === 'redis' (createRedisStore throws at construction if absent).
+   */
   redisClient?: unknown;
   /** Max in-memory entries for memory store (default: 1000) */
   maxEntries?: number;
@@ -130,10 +151,15 @@ export function createVuraCache(config: VuraCacheConfig) {
   // Wire into what-framework's revalidation registry so both vura's own
   // revalidatePath/revalidateTag and what-framework server-side action
   // invalidation delegate to this engine.
+  // NOTE: module-level singleton in what-framework — last createVuraCache() wins; one cache per process.
+  if (_cacheInitialized) {
+    console.warn('[vura] createVuraCache() called more than once — the previous cache is no longer bound to revalidatePath/revalidateTag');
+  }
   setRevalidationHandler({
-    revalidatePath: engine.revalidatePath.bind(engine),
-    revalidateTag: engine.revalidateTag.bind(engine),
+    revalidatePath: engine.revalidatePath,
+    revalidateTag: engine.revalidateTag,
   });
+  _cacheInitialized = true;
 
   // --- webhook ---
   // Default what-isr header is 'x-what-revalidate-secret'; vura brands its own.
