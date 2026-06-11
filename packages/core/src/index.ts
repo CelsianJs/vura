@@ -212,3 +212,19 @@ export {
 export type {
   VuraCacheConfig,
 } from './runtime/cache.js';
+
+export {
+  createApiApp,
+} from './runtime/api-app.js';
+
+export type {
+  RuntimeApiRoute,
+  GlobalHooks,
+  ApiAppOptions,
+} from './runtime/api-app.js';
+
+export {
+  applyThenCompat,
+} from './compat.js';
+// Note: ThenRequest/ThenReply/ThenHandler are exported via handler.js above
+// (handler.js re-exports them from compat.js — no duplication needed here).

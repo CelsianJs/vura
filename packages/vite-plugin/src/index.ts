@@ -220,7 +220,8 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
           // Parse body if needed (uses shared body parser from @celsian/vura-core)
           const body = await parseNodeBody(req);
 
-          // Create CelsianJS-compatible req/reply
+          // TODO(A1 Tasks 5-7): replace with createApiApp once the Node dev path is migrated.
+          // Cast to any: these are Node-land plain objects, not real CelsianRequest instances.
           const cReq: ThenRequest = {
             method,
             url: url.pathname,
@@ -229,7 +230,7 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             query: Object.fromEntries(url.searchParams.entries()),
             body,
             parsedBody: body,
-          };
+          } as any;
 
           let statusCode = 200;
           const responseHeaders: Record<string, string> = { 'content-type': 'application/json' };
@@ -243,7 +244,7 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
                 res.setHeader(k, v);
               }
               res.end(JSON.stringify(data));
-              return null;
+              return null as any;
             },
             send(data: string) {
               res.statusCode = statusCode;
@@ -251,15 +252,15 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
                 res.setHeader(k, v);
               }
               res.end(data);
-              return null;
+              return null as any;
             },
             redirect(url: string, status?: number) {
               res.statusCode = status || 302;
               res.setHeader('location', url);
               res.end('Redirecting to ' + url);
-              return null;
+              return null as any;
             },
-          };
+          } as any;
 
           // Validate request if route exports a schema
           if (mod.schema) {

@@ -393,6 +393,8 @@ async function startStandaloneServer(
 
       const body = await parseNodeBody(req);
 
+      // TODO(A1 Tasks 5-7): replace with createApiApp once the Node dev path is migrated.
+      // Cast to any: these are Node-land plain objects, not real CelsianRequest instances.
       const cReq: ThenRequest = {
         method,
         url: url.pathname,
@@ -401,7 +403,7 @@ async function startStandaloneServer(
         query: Object.fromEntries(url.searchParams.entries()),
         body,
         parsedBody: body,
-      };
+      } as any;
 
       let statusCode = 200;
       const headers: Record<string, string> = { 'content-type': 'application/json' };
@@ -411,19 +413,19 @@ async function startStandaloneServer(
         json(data: unknown) {
           res.writeHead(statusCode, headers);
           res.end(JSON.stringify(data));
-          return null;
+          return null as any;
         },
         send(data: string) {
           res.writeHead(statusCode, headers);
           res.end(data);
-          return null;
+          return null as any;
         },
         redirect(url: string, status?: number) {
           res.writeHead(status || 302, { 'location': url });
           res.end('Redirecting to ' + url);
-          return null;
+          return null as any;
         },
-      };
+      } as any;
 
       // Extract route-level hooks if the module exports them
       const routeHooks: RouteHooks | undefined = mod.hooks;
