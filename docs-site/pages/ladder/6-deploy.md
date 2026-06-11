@@ -10,9 +10,9 @@ with zero platform credentials: cache revalidation, websockets, tasks, and
 cron all run in the plain Node output.
 
 **Vura managed deploy** — `vura deploy` is the one-command managed path. The
-current open-source CLI exits with a non-zero code and the message 'not yet
-available'. It does not perform credential checks — the command is not yet
-available in the open-source CLI.
+current open-source CLI exits with a non-zero code and the message
+"vura deploy is not available in the open-source CLI yet." — the command is
+not implemented in the open-source CLI.
 
 Neither door gates capability. The managed deploy saves effort; it does not
 withhold features.
@@ -67,8 +67,9 @@ vura deploy
 ```
 
 This is the zero-config path: no `dist/` to manage, no server to provision.
-The current open-source CLI exits with a non-zero code and the message 'not
-yet available' — the command is not yet implemented in the open-source CLI.
+The current open-source CLI exits with a non-zero code and the message
+"vura deploy is not available in the open-source CLI yet." — the command is
+not implemented in the open-source CLI.
 
 ## Next
 

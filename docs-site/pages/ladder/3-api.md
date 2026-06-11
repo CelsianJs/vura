@@ -62,14 +62,17 @@ export const schema = defineSchema({
 
 export async function POST(req: CelsianRequest, reply: CelsianReply) {
   // req.parsedBody is the validated+typed body ({ item: string; qty: number })
-  // req.query has the validated query params ({ draft?: boolean })
+  // req.query is validated (bad values are rejected with a 400) but the
+  // raw string values are not coerced — read req.query.get('draft') === 'true'.
   const order = await db.orders.create(req.parsedBody);
   return reply.status(201).json(order);
 }
 ```
 
 `defineSchema` is a thin wrapper that infers the Zod output types so
-`req.parsedBody` and `req.query` are fully typed after validation. `zod` is a
+`req.parsedBody` is the validated, typed body. Query params are validated
+(invalid requests get a 400) but reach the handler as raw strings — coercion
+write-back is planned. `zod` is a
 peer dependency — install it once per project (`npm install zod`). Any
 Zod-compatible library works.
 

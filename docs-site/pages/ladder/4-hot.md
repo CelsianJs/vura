@@ -108,7 +108,8 @@ export default function Chat() {
   const messages = useSignal<string[]>([]);
 
   onMount(() => {
-    const ws = new WebSocket(`wss://${location.host}/api/live/room?name=kirby`);
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/api/live/room?name=kirby`);
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === 'message') {
