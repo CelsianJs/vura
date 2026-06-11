@@ -113,6 +113,9 @@ importers:
       '@celsian/core':
         specifier: ^0.5.2
         version: 0.5.2
+      '@celsian/jwt':
+        specifier: ^0.5.2
+        version: 0.5.2
       esbuild:
         specifier: ^0.27.3
         version: 0.27.7
@@ -222,6 +225,10 @@ packages:
 
   '@celsian/core@0.5.2':
     resolution: {integrity: sha512-HTy7zUhohbQvwpVyNB+7pd6amWsKLnZdz9shR9VUXB4QOx62EDW7QPJFupEBqGeujWIJwfPTmqT3lN3s6Qow7g==}
+    engines: {node: '>=20'}
+
+  '@celsian/jwt@0.5.2':
+    resolution: {integrity: sha512-Ws32ElwOPjtQBvk7G++IKCAqJQ0c/aguvH8eNtmWtAK9ynP50zPqn4n7T6nxrf1IjUNxqDZQGroywbGD1Y22Rw==}
     engines: {node: '>=20'}
 
   '@celsian/schema@0.5.2':
@@ -1212,6 +1219,9 @@ packages:
     resolution: {integrity: sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg==}
     engines: {node: '>=6.9.0'}
 
+  jose@5.10.0:
+    resolution: {integrity: sha512-s+3Al/p9g32Iq+oqXxkW//7jk2Vig6FF1CFqzVXoTUXt2qz89YWbL+OwS17NFYEvxC35n0FKeGO2LGYSxeM2Gg==}
+
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
 
@@ -1650,6 +1660,15 @@ snapshots:
   '@celsian/core@0.5.2':
     dependencies:
       '@celsian/schema': 0.5.2
+    transitivePeerDependencies:
+      - '@sinclair/typebox'
+      - valibot
+      - zod
+
+  '@celsian/jwt@0.5.2':
+    dependencies:
+      '@celsian/core': 0.5.2
+      jose: 5.10.0
     transitivePeerDependencies:
       - '@sinclair/typebox'
       - valibot
@@ -2344,6 +2363,8 @@ snapshots:
     optional: true
 
   gensync@1.0.0-beta.2: {}
+
+  jose@5.10.0: {}
 
   js-tokens@4.0.0: {}
 
