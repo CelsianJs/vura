@@ -12,7 +12,7 @@ Node 20 or 22. Any package manager (npm, pnpm, or yarn).
 npm create vura@latest my-app
 cd my-app
 npm run dev
-# → vura dev  →  http://localhost:3000
+# → Server listening on http://127.0.0.1:3000
 ```
 
 pnpm and yarn work the same way:

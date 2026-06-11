@@ -5,15 +5,19 @@ You need fresh content without rebuilding.
 ## Server mode
 
 A server-mode page renders on every request. The output is never cached by
-default — it is always fresh, at the cost of a render on every hit. This is
-the right starting point before you add caching:
+default — it is always fresh, at the cost of a render on every hit. Use
+`getServerData` to fetch data server-side and receive it as props:
 
 ```tsx
 // src/pages/posts.tsx
 export const page = { mode: 'server' };
 
-export default async function Posts() {
+export async function getServerData() {
   const posts = await db.posts.list();
+  return { posts };
+}
+
+export default function Posts({ posts }) {
   return <ul>{posts.map((p) => <li key={p.id}>{p.title}</li>)}</ul>;
 }
 ```
@@ -33,8 +37,12 @@ export const page = {
   tags: ['posts'],     // cache tags — used for on-demand invalidation
 };
 
-export default async function Posts() {
+export async function getServerData() {
   const posts = await db.posts.list();
+  return { posts };
+}
+
+export default function Posts({ posts }) {
   return <ul>{posts.map((p) => <li key={p.id}>{p.title}</li>)}</ul>;
 }
 ```
@@ -65,32 +73,32 @@ export async function POST(req: CelsianRequest, reply: CelsianReply) {
 
 The cache engine (`what-isr`) stores rendered HTML in memory by default. When
 `revalidateTag` is called, what-isr evicts all entries carrying that tag so
-the next request triggers a fresh render. On a self-hosted Node deployment,
-the store is in-process memory. You can configure a Redis-backed store for
-multi-instance setups.
+the next request triggers a fresh render. By default the store is in-process
+memory. Redis backing requires wiring a custom store to `startVuraServer` —
+config-level wiring is planned.
 
 Cache-Control headers for CDN integration are emitted automatically when a CDN
 adapter is configured. Without an adapter, caching is server-side only.
 
 ## Verify it locally
 
-Build and run, then observe the `Age` response header:
+Build and run, then observe the `x-what-cache` response header:
 
 ```sh
 # 1. Build + start
 npm run build
 PORT=3000 NODE_ENV=production node dist/server/entry.js
 
-# 2. First request — renders fresh (Age: 0 or absent)
-curl -s -D - http://localhost:3000/posts | grep -E 'Age:|cache'
+# 2. First request — renders fresh (x-what-cache: MISS)
+curl -s -D - http://localhost:3000/posts | grep -E 'x-what-cache|cache-tag'
 
 # 3. Mutate (triggers revalidateTag)
 curl -s -X POST http://localhost:3000/api/posts \
   -H 'Content-Type: application/json' \
   -d '{"title":"New post"}'
 
-# 4. Next GET — fresh render because cache was invalidated
-curl -s -D - http://localhost:3000/posts | grep -E 'Age:|cache'
+# 4. Next GET — fresh render because cache was invalidated (x-what-cache: MISS again)
+curl -s -D - http://localhost:3000/posts | grep -E 'x-what-cache|cache-tag'
 ```
 
 ## Next

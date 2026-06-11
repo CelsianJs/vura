@@ -56,7 +56,7 @@ export function websocket(peer, req) {
   <ol class="ladder">
     <li><a href="/ladder/0-create/"><strong>Create</strong> — <code>npm create vura@latest</code>, a running app</a></li>
     <li><a href="/ladder/1-static/"><strong>Static page</strong> — <code>page = { mode: 'static' }</code>, zero JS shipped</a></li>
-    <li><a href="/ladder/2-cache/"><strong>Server + cache</strong> — <code>mode: 'server', revalidate: { tags: ['posts'] }</code>, then <code>revalidateTag('posts')</code> for an instant global purge</a></li>
+    <li><a href="/ladder/2-cache/"><strong>Server + cache</strong> — <code>mode: 'server', revalidate: 60, tags: ['posts']</code>, then <code>revalidateTag('posts')</code> for a single-call global purge</a></li>
     <li><a href="/ladder/3-api/"><strong>API route</strong> — drop a handler in <code>src/api/</code>, serverless by default, typed client call</a></li>
     <li><a href="/ladder/4-hot/"><strong>Hot route</strong> — <code>export const kind = 'hot'</code>: websockets, state, no timeout</a></li>
     <li><a href="/ladder/5-tasks/"><strong>Task</strong> — <code>route = { kind: 'task' }, schedule: '0 3 * * *'</code>: off the request path, retried</a></li>

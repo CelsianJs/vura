@@ -39,7 +39,7 @@ standalone Worker entry for Cloudflare Workers.
 
 Export a `schema` object from the route file and Vura validates the request
 automatically before your handler runs. Validation failures return a
-`400 VALIDATION_ERROR` response with structured details — you never see
+`400 VALIDATION_FAILED` response with structured details — you never see
 invalid input inside the handler:
 
 ```ts
@@ -61,16 +61,17 @@ export const schema = defineSchema({
 });
 
 export async function POST(req: CelsianRequest, reply: CelsianReply) {
-  // req.validated.body is typed { item: string; qty: number }
-  // req.validated.query is typed { draft?: boolean }
-  const order = await db.orders.create(req.validated.body);
+  // req.parsedBody is the validated+typed body ({ item: string; qty: number })
+  // req.query has the validated query params ({ draft?: boolean })
+  const order = await db.orders.create(req.parsedBody);
   return reply.status(201).json(order);
 }
 ```
 
 `defineSchema` is a thin wrapper that infers the Zod output types so
-`req.validated` is fully typed. `zod` is a peer dependency — install it once
-per project (`npm install zod`). Any Zod-compatible library works.
+`req.parsedBody` and `req.query` are fully typed after validation. `zod` is a
+peer dependency — install it once per project (`npm install zod`). Any
+Zod-compatible library works.
 
 ## Calling an API route from a page
 

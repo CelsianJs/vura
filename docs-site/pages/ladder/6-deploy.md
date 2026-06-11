@@ -9,10 +9,10 @@ Docker, Fly.io, Railway, Cloudflare Workers, or AWS Lambda. Everything works
 with zero platform credentials: cache revalidation, websockets, tasks, and
 cron all run in the plain Node output.
 
-**Vura managed deploy** — `vura deploy` is the one-command managed path. In
-the current open-source CLI it requires platform access and fails closed
-when credentials are absent — the error message tells you so. It is in
-private beta.
+**Vura managed deploy** — `vura deploy` is the one-command managed path. The
+current open-source CLI exits with a non-zero code and the message 'not yet
+available'. It does not perform credential checks — the command is not yet
+available in the open-source CLI.
 
 Neither door gates capability. The managed deploy saves effort; it does not
 withhold features.
@@ -54,10 +54,11 @@ process between requests and cannot hold a WebSocket open.
 |---|---|---|---|---|---|---|
 | Serverless | yes | yes | yes | yes | yes | yes |
 | Hot (WebSocket) | yes | yes | yes | yes | no | no |
-| Task / cron | yes | yes | yes | yes | via `scheduled` event | no |
+| Task / cron | yes | yes | yes | yes | via `scheduled` event | yes (EventBridge) |
 
-`vura build` tells you at build time if a hot route is detected and the
-selected adapter cannot support it — it will not silently omit the route.
+`vura build` emits a `[vura] N hot route(s) cannot run on <adapter> and were not bundled`
+warning at build time if a hot route is detected and the selected adapter
+cannot support it — it does not silently omit the route.
 
 ## Vura managed deploy
 
@@ -66,9 +67,8 @@ vura deploy
 ```
 
 This is the zero-config path: no `dist/` to manage, no server to provision.
-It requires platform credentials. Without them the CLI prints a clear error
-and exits with a non-zero code — it never silently proceeds. Platform access
-is in private beta; see the README for how to join.
+The current open-source CLI exits with a non-zero code and the message 'not
+yet available' — the command is not yet implemented in the open-source CLI.
 
 ## Next
 

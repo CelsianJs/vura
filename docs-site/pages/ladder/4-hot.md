@@ -112,18 +112,23 @@ export default function Chat() {
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === 'message') {
-        messages.value = [...messages.value, `${msg.name}: ${msg.body}`];
+        messages.set([...messages(), `${msg.name}: ${msg.body}`]);
       }
     };
-    return () => ws.close();
+    ws.onclose = () => {};
   });
 
-  return <ul>{messages.value.map((m, i) => <li key={i}>{m}</li>)}</ul>;
+  return <ul>{() => messages().map((m, i) => <li key={i}>{m}</li>)}</ul>;
 }
 ```
 
 `useSignal` and `onMount` are exported from `what-framework` (re-exported from
 `what-core`). Import them directly — no separate package needed.
+
+The what-fw signals API: `useSignal(initial)` returns a signal. Read the
+current value by calling it as a function (`messages()`); write by calling
+`.set(newValue)` (`messages.set([...])`). The scaffold includes `ws` as a
+dependency. For projects created before this version: `npm install ws`.
 
 ## Try it now
 
@@ -189,8 +194,10 @@ fly deploy ./dist
 
 Hot routes need a persistent host: a VPS, Docker on anything, Fly.io, or
 Railway. They **cannot** run on Cloudflare Workers or AWS Lambda — that is the
-structural limitation this rung exists to escape, and Vura will tell you at
-build time rather than let you find out in production. See the
+structural limitation this rung exists to escape. `vura build` emits a
+`[vura] N hot route(s) cannot run on <adapter> and were not bundled` warning
+when a hot route is present and a non-persistent adapter is active, so you
+find out at build time, not in production. See the
 [Fly.io guide](/self-host/fly/) for the full path, or
 [Node/VPS](/self-host/node-vps/) for the simplest one.
 
