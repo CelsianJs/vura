@@ -66,6 +66,15 @@ export function createApiApp(opts: ApiAppOptions): CelsianApp {
   // addHook lifecycle names verified against celsian/packages/core/src/types.ts
   // lines 26-34: onRequest, preParsing, preValidation, preHandler,
   // preSerialization, onSend, onResponse, onError — all valid.
+
+  // Stamp request start time FIRST, before user onRequest hooks, so durationMs
+  // in the onResponse shim is as accurate as possible.
+  if ((opts.globalHooks?.onResponse ?? []).length > 0) {
+    app.addHook('onRequest', (req: CelsianRequest) => {
+      (req as any).__vuraStart = Date.now();
+    });
+  }
+
   for (const fn of opts.globalHooks?.onRequest ?? []) {
     app.addHook('onRequest', fn as (req: CelsianRequest, reply: CelsianReply) => void | Promise<void>);
   }
@@ -73,8 +82,24 @@ export function createApiApp(opts: ApiAppOptions): CelsianApp {
     // onError signature: (error, request, reply) — cast matches OnErrorHandler
     app.addHook('onError', fn as (err: Error, req: CelsianRequest, reply: CelsianReply) => void | Promise<void>);
   }
+
+  // Wrap each vura onResponse hook to receive a synthesized third arg:
+  //   { statusCode: reply.statusCode, durationMs: Date.now() - __vuraStart, hadError: false }
+  // reply.statusCode is the value set by the last reply.status() call before the
+  // response was built (verified in celsian/packages/core/src/reply.ts lines 41-46).
+  // hadError is always false on the onResponse path — celsian fires onError
+  // separately for handler exceptions; document this in type definitions.
   for (const fn of opts.globalHooks?.onResponse ?? []) {
-    app.addHook('onResponse', fn as (req: CelsianRequest, reply: CelsianReply) => void | Promise<void>);
+    const vuraFn = fn as (req: CelsianRequest, reply: CelsianReply, info: { statusCode: number; durationMs: number; hadError: boolean }) => unknown;
+    app.addHook('onResponse', (req: CelsianRequest, reply: CelsianReply) => {
+      const start = (req as any).__vuraStart as number | undefined;
+      const info = {
+        statusCode: reply.statusCode ?? 0,
+        durationMs: start !== undefined ? Date.now() - start : 0,
+        hadError: false,
+      };
+      return vuraFn(req, reply, info) as void | Promise<void>;
+    });
   }
 
   // ─── Route registration ───
@@ -110,6 +135,12 @@ export function createApiApp(opts: ApiAppOptions): CelsianApp {
   if (opts.revalidateWebhook) {
     const webhook = opts.revalidateWebhook;
     app.post('/__vura/revalidate', async (req: CelsianRequest, reply: CelsianReply) => {
+      // Guard: require a parsed JSON body — reject plain or missing bodies early.
+      // reply.status(n).json(obj) is the correct celsian chaining API
+      // (verified at celsian/packages/core/src/reply.ts lines 59-61 + json method).
+      if (req.parsedBody === undefined) {
+        return reply.status(400).json({ error: 'JSON body required' });
+      }
       // Flatten Headers object to plain Record for the webhook contract
       const headers: Record<string, string> = {};
       req.headers.forEach((v: string, k: string) => { headers[k.toLowerCase()] = v; });

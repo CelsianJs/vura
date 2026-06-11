@@ -3,7 +3,10 @@
  *
  * The compat shim bridges the old Vura handler contract (ThenRequest) to the
  * Celsian request object. The three deltas:
- *   1. req.body  → was parsed body; now shadows CelsianRequest.body (ReadableStream)
+ *   1. req.body  → always aliases parsedBody (undefined when no parsed body,
+ *      e.g. GET requests). The raw stream remains available via req.bodyUsed /
+ *      req.clone() — handlers needing the raw stream should use celsian's native
+ *      API directly.
  *   2. req.headers → CelsianRequest extends Web Request so headers is a Headers
  *      object; index access (req.headers['content-type']) still works via .get()
  *      but plain object access is not needed since Headers supports forEach/get.
@@ -32,21 +35,23 @@ export type ThenHandler = (req: ThenRequest, reply: ThenReply) => unknown | Prom
  * Patch the ThenRequest body delta onto a CelsianRequest (in place, per request).
  *
  * CelsianRequest extends Web Request, so `body` is a getter on the Request
- * prototype returning the raw ReadableStream. We shadow it with an instance
- * property getter that returns parsedBody instead — defineProperty on the
- * instance always wins over prototype getters in JS property lookup.
+ * prototype returning the raw ReadableStream (or null on GET). We shadow it
+ * unconditionally with an instance property getter that returns parsedBody —
+ * defineProperty on the instance always wins over prototype getters in JS
+ * property lookup.
+ *
+ * req.body always aliases parsedBody (undefined when no parsed body, e.g. GET);
+ * the raw stream remains available via req.bodyUsed/req.clone() — handlers
+ * needing the raw stream should use celsian's native API.
  */
 export function applyThenCompat(req: CelsianRequest): ThenRequest {
   const r = req as ThenRequest;
-  // Only patch if body hasn't already been patched (idempotent) and it currently
-  // returns the raw stream (ReadableStream has getReader).
-  const currentBody = (r as any).body;
-  if (currentBody === undefined || (currentBody !== null && typeof currentBody?.getReader === 'function')) {
-    Object.defineProperty(r, 'body', {
-      get: () => (r as CelsianRequest).parsedBody,
-      configurable: true,
-      enumerable: false,
-    });
-  }
+  // Unconditional install — covers GET (body=null), POST with body, and any
+  // re-patched request. configurable:true keeps the shim idempotent on retries.
+  Object.defineProperty(r, 'body', {
+    get: () => (r as CelsianRequest).parsedBody,
+    configurable: true,
+    enumerable: false,
+  });
   return r;
 }

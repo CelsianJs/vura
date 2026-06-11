@@ -45,4 +45,60 @@ describe('createApiApp', () => {
     await app.handle(new Request('http://localhost/api/users/1'));
     expect(seen).toEqual(['/api/users/1']);
   });
+
+  it('handler that throws → app.handle returns 500 with JSON error body', async () => {
+    // Error shape from celsian/packages/core/src/error-handler.ts lines 67-71:
+    // { error: string, statusCode: number, code: string }
+    const throwRoute = {
+      urlPattern: '/api/boom', methods: ['GET'] as const, kind: 'serverless' as const,
+      filePath: 'src/api/boom.ts', config: {},
+      module: {
+        GET: async () => { throw new Error('kaboom'); },
+      },
+    };
+    const app = createApiApp({ routes: [throwRoute as any] });
+    const res = await app.handle(new Request('http://localhost/api/boom'));
+    expect(res.status).toBe(500);
+    const body = await res.json() as any;
+    expect(typeof body.error).toBe('string');
+    expect(body.statusCode).toBe(500);
+    expect(typeof body.code).toBe('string');
+  });
+
+  it('onResponse shim: vura hook receives (req, reply, info) with numeric statusCode and durationMs', async () => {
+    const calls: Array<{ statusCode: unknown; durationMs: unknown; hadError: unknown }> = [];
+    const app = createApiApp({
+      routes: [userRoute as any],
+      globalHooks: {
+        onResponse: [
+          async (_req: any, _reply: any, info: any) => { calls.push(info); },
+        ],
+      },
+    });
+    await app.handle(new Request('http://localhost/api/users/7'));
+    // onResponse is fire-and-forget; give microtasks a tick to flush
+    await new Promise(r => setTimeout(r, 20));
+    expect(calls.length).toBe(1);
+    expect(typeof calls[0].statusCode).toBe('number');
+    expect(typeof calls[0].durationMs).toBe('number');
+    expect(calls[0].durationMs).toBeGreaterThanOrEqual(0);
+    expect(calls[0].hadError).toBe(false);
+  });
+
+  it('compat C1: GET request → handler sees req.body === undefined', async () => {
+    let capturedBody: unknown = 'NOT_SET';
+    const getBodyRoute = {
+      urlPattern: '/api/bodycheck', methods: ['GET'] as const, kind: 'serverless' as const,
+      filePath: 'src/api/bodycheck.ts', config: {},
+      module: {
+        GET: async (req: any, reply: any) => {
+          capturedBody = req.body;
+          return reply.json({ ok: true });
+        },
+      },
+    };
+    const app = createApiApp({ routes: [getBodyRoute as any] });
+    await app.handle(new Request('http://localhost/api/bodycheck'));
+    expect(capturedBody).toBeUndefined();
+  });
 });
