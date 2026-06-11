@@ -85,37 +85,6 @@ export function compileRoutes(routes: ApiRoute[]): CompiledRoute[] {
   });
 }
 
-// ─── Match a request against compiled routes ───
-
-export function matchRoute(
-  routes: ApiRoute[] | CompiledRoute[],
-  method: string,
-  pathname: string,
-): RouteMatch | null {
-  // Auto-compile if given raw ApiRoute[]
-  const compiled: CompiledRoute[] =
-    routes.length > 0 && 'regex' in routes[0]
-      ? (routes as CompiledRoute[])
-      : compileRoutes(routes as ApiRoute[]);
-
-  const upperMethod = method.toUpperCase();
-
-  for (const { route, regex, paramNames } of compiled) {
-    if (!route.methods.includes(upperMethod as any)) continue;
-
-    const match = pathname.match(regex);
-    if (match) {
-      const params: Record<string, string> = {};
-      for (let i = 0; i < paramNames.length; i++) {
-        try { params[paramNames[i]] = decodeURIComponent(match[i + 1]); } catch { params[paramNames[i]] = match[i + 1]; }
-      }
-      return { route, params };
-    }
-  }
-
-  return null;
-}
-
 // ─── API Path Existence Check (method-agnostic) ───
 
 /**

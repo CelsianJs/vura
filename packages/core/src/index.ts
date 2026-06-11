@@ -58,7 +58,6 @@ export type {
 
 export {
   compileRoutes,
-  matchRoute,
   matchApiPath,
   compilePageRoutes,
   matchPageRoute,
