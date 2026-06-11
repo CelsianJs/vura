@@ -278,9 +278,14 @@ const landingPath = join(PAGES_DIR, 'index.html');
 if (existsSync(landingPath)) {
   const src = readFileSync(landingPath, 'utf8');
   const h1Match = src.match(/<h1[^>]*>([\s\S]*?)<\/h1>/);
-  const pageTitle = h1Match
-    ? h1Match[1].replace(/<[^>]+>/g, '').trim()
-    : null;
+  // Strip tags repeatedly until stable: a single pass can leave a re-assembled
+  // tag behind (e.g. "<scr<b>ipt") — CodeQL js/incomplete-multi-character-sanitization.
+  let titleText = h1Match ? h1Match[1] : '';
+  for (let prev; titleText !== prev; ) {
+    prev = titleText;
+    titleText = titleText.replace(/<[^>]*>/g, '');
+  }
+  const pageTitle = titleText.trim() || null;
   const html = renderLandingPage({
     title: pageTitle === 'Vura' ? null : pageTitle,
     bodyInner: src,
