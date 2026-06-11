@@ -16,7 +16,7 @@ self-host audit suite enforcing it in CI is being added in this release cycle.
 pnpm add @celsian/vura-core @celsian/vura-cli
 ```
 
-The CLI exposes `vura` and `thenjs` as safe command names. The legacy `then` bin is still shipped for compatibility, but new npm scripts should use `vura` or `thenjs` because `then` is a shell reserved word.
+The CLI exposes `vura` as the installed command. The package was historically named `then`/`thenjs`; `then` is a shell reserved word and was never a safe script name. Only `vura` ships as a bin — use it in all scripts.
 
 ## Requirements
 
@@ -114,7 +114,7 @@ The generated hot server serves API routes first, server/hybrid runtime pages ne
 ## Packages
 
 - `@celsian/vura-core` — manifest scanning, build pipeline, generated production server, and runtime helpers.
-- `@celsian/vura-cli` — `vura`, `thenjs`, and legacy `then` command-line interface.
+- `@celsian/vura-cli` — `vura` command-line interface (historically named `then`/`thenjs`; only `vura` ships as a bin).
 - `@celsian/vura-adapter-lambda` — AWS Lambda/API Gateway deployment artifacts.
 - `@celsian/vura-adapter-cloudflare` — Cloudflare Workers deployment artifacts.
 - `@celsian/vura-vite-plugin` — Vite integration.

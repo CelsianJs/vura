@@ -35,9 +35,11 @@ thenPlugin({ root: '/path/to/project' })
 
 ## Documentation
 
+_vura.dev docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
+
 - [Project structure — /reference/scaffold/](https://vura.dev/reference/scaffold/)
 - [Dev server — /ladder/0-create/](https://vura.dev/ladder/0-create/)
 
 ## License
 
-MIT — and [it will stay MIT](https://github.com/zvndev/vura/blob/main/GOVERNANCE.md).
+MIT — and [it will stay MIT](https://github.com/CelsianJs/vura/blob/main/GOVERNANCE.md).

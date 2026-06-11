@@ -25,11 +25,12 @@ import { revalidateTag } from '@celsian/vura-core';
 export const route = { kind: 'serverless' };
 
 export async function POST(req: CelsianRequest, reply: CelsianReply) {
-  const body = await req.parsedBody<{ title: string }>();
+  const body = req.parsedBody as { title: string };
   // ... persist the post
   await revalidateTag('posts');
   return reply.json({ ok: true });
 }
+
 ```
 
 **vura.config.ts** — typed project config:
@@ -45,6 +46,8 @@ export default defineConfig({
 
 ## Documentation
 
+_vura.dev docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
+
 - [Quick start — /ladder/0-create/](https://vura.dev/ladder/0-create/)
 - [Config reference — /reference/config/](https://vura.dev/reference/config/)
 - [API routes — /reference/api-routes/](https://vura.dev/reference/api-routes/)
@@ -53,4 +56,4 @@ export default defineConfig({
 
 ## License
 
-MIT — and [it will stay MIT](https://github.com/zvndev/vura/blob/main/GOVERNANCE.md).
+MIT — and [it will stay MIT](https://github.com/CelsianJs/vura/blob/main/GOVERNANCE.md).

@@ -31,8 +31,10 @@ const result = scanRoute(source, 'ts');
 
 ## Documentation
 
+_vura.dev docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
+
 - [Compiler internals — /reference/compiler/](https://vura.dev/reference/compiler/)
 
 ## License
 
-MIT — and [it will stay MIT](https://github.com/zvndev/vura/blob/main/GOVERNANCE.md).
+MIT — and [it will stay MIT](https://github.com/CelsianJs/vura/blob/main/GOVERNANCE.md).

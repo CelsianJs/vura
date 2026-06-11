@@ -27,7 +27,7 @@ permanent right to fork everything published to date.
 ## Decision making
 
 Vura is maintained by ZVN. Changes land via pull request with CI green
-(see RELEASING.md for the release gate). Breaking changes to public APIs
+(see RELEASING.md, landing this release cycle, for the release gate). Breaking changes to public APIs
 require a minor version bump pre-1.0 and a CHANGELOG entry.
 
 ## Reporting
