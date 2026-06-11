@@ -33,8 +33,14 @@ export interface ApiAppOptions {
    * mounted at /__vura/revalidate. The handler receives a plain-object
    * representation of the request (headers record + parsed body) so it
    * doesn't need to deal with Web Request APIs.
+   *
+   * Both `headers` and `body` are marked optional here so that what-isr's
+   * `WebhookRequest`-typed handler (`headers?: …; body?: …`) is directly
+   * assignable without a cast. The call site always passes both fields, so
+   * the looser parameter contract is safe — TypeScript's contravariance rule
+   * requires the *option* type to be no stricter than the callee's param type.
    */
-  revalidateWebhook?: (reqLike: { headers: Record<string, string>; body: unknown }) => Promise<{ status: number; body: unknown }>;
+  revalidateWebhook?: (reqLike: { headers?: Record<string, string>; body?: any }) => Promise<{ status: number; body?: unknown }>;
 }
 
 // Map Vura HttpMethod → CelsianApp method registrar name
