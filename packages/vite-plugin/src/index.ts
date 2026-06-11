@@ -2,40 +2,41 @@
  * @celsian/vura-vite-plugin
  *
  * Vite plugin for Vura that:
- * 1. Adds dev middleware for API routes (CelsianJS-compatible req/reply)
+ * 1. Adds dev middleware for API routes via CelsianApp.handle (A1.3)
  * 2. Adds dev middleware for server-mode pages (SSR with getServerData)
  * 3. Adds dev middleware for task management (/__tasks/*)
  * 4. Watches src/api/ and src/pages/ for file changes and hot-reloads
  * 5. Scans file-based routes on startup
  */
 
+import { renderToString as builtinRenderToString } from 'what-framework/server';
 import {
   buildManifest,
-  matchRoute,
   matchPageRoute as coreMatchPageRoute,
-  builtinRenderToString,
+  matchApiPath,
+  compileRoutes,
   wrapDocument,
   escapeHtml,
   parseNodeBody,
-  executeWithHooks,
-  finalizeNodeHandlerResult,
-  createHookRegistry,
-  validateRequest,
-  sendErrorResponse,
   reportError,
-  formatErrorResponse,
-  HttpError,
   getLogger,
+  createApiApp,
+  GLOBAL_HOOKS_FILENAMES,
+  nodeToWebRequest,
+  writeWebResponse,
 } from '@celsian/vura-core';
 import type {
   RouteManifest,
   PageRoute,
-  ThenRequest,
-  ThenReply,
-  HookRegistry,
-  RouteHooks,
+  RuntimeApiRoute,
+  GlobalHooks,
 } from '@celsian/vura-core';
+
+// CelsianApp type derived from createApiApp return — avoids needing @celsian/core as a direct dep
+type CelsianApp = ReturnType<typeof createApiApp>;
 import type { Plugin, ViteDevServer } from 'vite';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 export interface ThenPluginOptions {
   /** Project root (default: process.cwd()) */
@@ -68,9 +69,78 @@ export function isTaskAdminRequestAuthorized(
   return !taskSecret && isExplicitNonProduction && isLocal;
 }
 
+function findGlobalHooksFile(projectRoot: string): string | null {
+  for (const filename of GLOBAL_HOOKS_FILENAMES) {
+    if (existsSync(join(projectRoot, filename))) return filename;
+  }
+  return null;
+}
+
+/**
+ * Build a CelsianApp from the current manifest by loading each non-task route
+ * module via Vite's SSR module graph (gets HMR for free).
+ *
+ * Called once on startup and on every manifest rescan (file add/change/unlink).
+ */
+async function buildApiApp(
+  manifest: RouteManifest,
+  projectRoot: string,
+  server: ViteDevServer,
+): Promise<CelsianApp> {
+  // Load each non-task route module
+  const routes: RuntimeApiRoute[] = [];
+  for (const route of manifest.api) {
+    if (route.kind === 'task') continue; // tasks handled by /__tasks/* middleware
+    const modulePath = `/${route.filePath}`;
+    const mod = await server.ssrLoadModule(modulePath);
+    routes.push({ ...route, module: mod as Record<string, unknown> });
+  }
+
+  // Load global hooks if the project has a _hooks.ts file
+  let globalHooks: GlobalHooks | undefined;
+  const hooksFile = findGlobalHooksFile(projectRoot);
+  if (hooksFile) {
+    const hooksMod = await server.ssrLoadModule(`/${hooksFile}`);
+    const normalize = (v: unknown) =>
+      v == null ? [] : Array.isArray(v) ? v : [v];
+    globalHooks = {
+      onRequest: normalize(hooksMod.onRequest) as GlobalHooks['onRequest'],
+      onError: normalize(hooksMod.onError) as GlobalHooks['onError'],
+      onResponse: normalize(hooksMod.onResponse) as GlobalHooks['onResponse'],
+    };
+  }
+
+  // Inject a dev-only onError hook (appended after any user hooks) that prints
+  // handler errors to the terminal so they aren't silently swallowed by celsian's
+  // logger:false + 500 JSON response. Uses server.config.logger (same as Vite plugins).
+  const devErrorHook = (err: unknown, req: any, _reply: any) => {
+    const path: string = req?.url ?? req?.raw?.url ?? '(unknown path)';
+    const message = err instanceof Error ? err.message : String(err);
+    // Use Vite's logger so the output matches other Vite plugin messages.
+    // server is captured by closure; logger is available after configureServer.
+    server.config.logger.error(`  [then] Handler error on ${path}: ${message}`, {
+      error: err instanceof Error ? err : new Error(message),
+    });
+  };
+
+  const mergedHooks: GlobalHooks = {
+    onRequest: globalHooks?.onRequest ?? [],
+    // Append dev hook after user hooks — never clobbers user hooks.
+    onError: [...(globalHooks?.onError ?? []), devErrorHook],
+    onResponse: globalHooks?.onResponse ?? [],
+  };
+
+  return createApiApp({ routes, globalHooks: mergedHooks });
+}
+
 export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
   let manifest: RouteManifest;
   let projectRoot: string;
+  // The CelsianApp instance — rebuilt whenever the manifest is rescanned.
+  let apiApp: CelsianApp | null = null;
+  // Compiled API route regexes for path-existence pre-check (method-agnostic).
+  // Kept in sync with apiApp — rebuilt together whenever manifest rescans.
+  let compiledApiRoutes: ReturnType<typeof compileRoutes> = [];
 
   return {
     name: 'vite-plugin-then',
@@ -85,10 +155,11 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
       manifest = await buildManifest(projectRoot);
       console.log(`  [then] Scanned ${manifest.api.length} API routes, ${manifest.pages.length} pages`);
 
-      // Hook registry for the Vite dev server
       const logger = getLogger();
-      const hookRegistry = createHookRegistry();
-      hookRegistry.setLogger(logger);
+
+      // Build the initial CelsianApp and compile route regexes for 404 pre-check
+      apiApp = await buildApiApp(manifest, projectRoot, server);
+      compiledApiRoutes = compileRoutes(manifest.api.filter(r => r.kind !== 'task'));
 
       // Watch src/api/ and src/pages/ for changes
       const apiDir = `${projectRoot}/src/api`;
@@ -101,6 +172,9 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
           const rel = file.replace(projectRoot + '/', '');
           console.log(`  [then] Route changed: ${rel}`);
           manifest = await buildManifest(projectRoot);
+          // Rebuild the CelsianApp and route regexes with fresh modules
+          apiApp = await buildApiApp(manifest, projectRoot, server);
+          compiledApiRoutes = compileRoutes(manifest.api.filter(r => r.kind !== 'task'));
         }
       };
 
@@ -186,123 +260,39 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
         return next();
       });
 
-      // ─── API route middleware ───
+      // ─── API route middleware (served by CelsianApp.handle) ───
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
 
-        // Only handle /api/* routes
-        if (!url.pathname.startsWith('/api/')) {
+        // Only handle /api/* routes (and /__vura/revalidate which createApiApp registers)
+        if (!url.pathname.startsWith('/api/') && !url.pathname.startsWith('/__vura/')) {
           return next();
         }
 
-        const method = (req.method ?? 'GET').toUpperCase();
+        if (!apiApp) return next();
 
-        // Try to match a route
-        const matched = matchRoute(manifest.api, method, url.pathname);
-        if (!matched) {
+        // Route-existence pre-check (method-agnostic): if no manifest API route
+        // pattern matches this pathname, skip celsian entirely and let next()
+        // handle it. This avoids an unnecessary handle() call AND correctly
+        // distinguishes "no route" (next()) from a route handler intentionally
+        // returning 404 (pass the response through regardless of status).
+        if (!matchApiPath(compiledApiRoutes, url.pathname)) {
           return next();
         }
 
         try {
-          // Load the handler module via Vite's module graph (gets HMR for free)
-          const modulePath = `/${matched.route.filePath}`;
-          const mod = await server.ssrLoadModule(modulePath);
-          const handlerFn = mod[method];
-
-          if (typeof handlerFn !== 'function') {
-            res.statusCode = 405;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ error: `Method ${method} not exported by ${matched.route.filePath}` }));
-            return;
-          }
-
-          // Parse body if needed (uses shared body parser from @celsian/vura-core)
-          const body = await parseNodeBody(req);
-
-          // Create CelsianJS-compatible req/reply
-          const cReq: ThenRequest = {
-            method,
-            url: url.pathname,
-            headers: req.headers as Record<string, string>,
-            params: matched.params,
-            query: Object.fromEntries(url.searchParams.entries()),
-            body,
-            parsedBody: body,
-          };
-
-          let statusCode = 200;
-          const responseHeaders: Record<string, string> = { 'content-type': 'application/json' };
-
-          const cReply: ThenReply = {
-            status(code: number) { statusCode = code; return cReply; },
-            header(name: string, value: string) { responseHeaders[name] = value; return cReply; },
-            json(data: unknown) {
-              res.statusCode = statusCode;
-              for (const [k, v] of Object.entries(responseHeaders)) {
-                res.setHeader(k, v);
-              }
-              res.end(JSON.stringify(data));
-              return null;
-            },
-            send(data: string) {
-              res.statusCode = statusCode;
-              for (const [k, v] of Object.entries(responseHeaders)) {
-                res.setHeader(k, v);
-              }
-              res.end(data);
-              return null;
-            },
-            redirect(url: string, status?: number) {
-              res.statusCode = status || 302;
-              res.setHeader('location', url);
-              res.end('Redirecting to ' + url);
-              return null;
-            },
-          };
-
-          // Validate request if route exports a schema
-          if (mod.schema) {
-            const validationError = validateRequest(cReq, mod.schema);
-            if (validationError) {
-              res.statusCode = validationError.statusCode;
-              res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify(validationError.body));
-              return;
-            }
-          }
-
-          // Extract route-level hooks if the module exports them
-          const routeHooks: RouteHooks | undefined = mod.hooks;
-
-          // Execute handler with full hook lifecycle
-          const hookResult = await executeWithHooks(hookRegistry, cReq, cReply, async () => {
-            return handlerFn(cReq, cReply);
-          }, routeHooks);
-
-          // If hooks/handler errored and response wasn't sent, send structured error
-          if (hookResult.hadError && !res.writableEnded) {
-            const error = new HttpError(hookResult.statusCode, 'HANDLER_ERROR', 'Internal Server Error');
-            const { statusCode: errStatus, body: errBody } = formatErrorResponse(error, 'development');
-            reportError(error, { method, path: url.pathname }, logger);
-            res.statusCode = errStatus;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify(errBody));
-          }
-
-          if (!hookResult.hadError) {
-            await finalizeNodeHandlerResult(hookResult.result, res, {
-              statusCode,
-              headers: responseHeaders,
-            });
-          }
+          const webReq = nodeToWebRequest(req, url);
+          const webRes = await apiApp.handle(webReq);
+          // A matched route's response is always delivered — including intentional
+          // 404s from the handler. The pre-check above guarantees the route exists.
+          await writeWebResponse(res, webRes);
         } catch (err: any) {
           const error = err instanceof Error ? err : new Error(String(err));
-          reportError(error, { method, path: url.pathname }, logger);
+          reportError(error, { method: req.method ?? 'GET', path: url.pathname }, logger);
           if (!res.writableEnded) {
-            const { statusCode: errStatus, body: errBody } = formatErrorResponse(error, 'development');
-            res.statusCode = errStatus;
+            res.statusCode = 500;
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify(errBody));
+            res.end(JSON.stringify({ error: error.message }));
           }
         }
       });
@@ -389,8 +379,8 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
 
 // All rendering, matching, parsing, and escaping utilities are now imported
 // from @celsian/vura-core — no local copies needed. See:
-//   builtinRenderToString, wrapDocument, escapeHtml — from static-render.ts
+//   wrapDocument, escapeHtml — from static-render.ts; renderToString — from what-framework/server
 //   coreMatchPageRoute (matchPageRoute) — from match.ts
-//   parseNodeBody — from body-parser.ts
+//   createApiApp, nodeToWebRequest, writeWebResponse — A1.3 celsian API path
 
 export default thenPlugin;

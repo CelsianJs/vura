@@ -27,6 +27,12 @@ export interface ApiRoute {
   methods: HttpMethod[];
   /** Deployment target */
   kind: RouteKind;
+  /**
+   * Whether this route exports a `websocket(peer, req)` function.
+   * Only meaningful when kind === 'hot'. Optional so that older
+   * manifests/callers do not require backfilling the field.
+   */
+  hasWebsocket?: boolean;
   /** Raw route config from the file */
   config: Record<string, unknown>;
 }
@@ -76,12 +82,23 @@ export interface RouteManifest {
 const HTTP_METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
 
 /**
- * Extract exported HTTP methods and route config from a source file.
- * Uses regex-based static analysis (no eval, no import).
+ * Extract exported HTTP methods, route config, and websocket presence from a
+ * source file. Uses regex-based static analysis (no eval, no import).
+ *
+ * NOTE on comment-stripping: stripping `//`-comment lines before regex scanning
+ * would prevent false positives like `// export function websocket(peer, req) {}`.
+ * However, the existing balanced-brace extractor and kv-pattern regexes are
+ * tuned to the current source format and are not comment-aware in ways that
+ * would interact cleanly with a strip pass (e.g. `//`  inside string literals
+ * would be incorrectly stripped). Rather than risk regressions in the route/kind
+ * detection, we skip automatic comment stripping here.
+ * TODO(comment-false-positives): add a safe strip pass once extractApiExports
+ * has broader test coverage for edge cases.
  */
 export function extractApiExports(source: string): {
   methods: HttpMethod[];
   kind: RouteKind;
+  hasWebsocket: boolean;
   config: Record<string, unknown>;
 } {
   const methods: HttpMethod[] = [];
@@ -95,6 +112,10 @@ export function extractApiExports(source: string): {
       methods.push(method);
     }
   }
+
+  // Detect `export function websocket` or `export const websocket = …`
+  // Word boundary after `websocket` prevents false matches on `websocketHelper`, etc.
+  const hasWebsocket = /export\s+(?:async\s+)?(?:function\s+websocket\b|const\s+websocket\s*=)/.test(source);
 
   // Extract route config: export const route = { kind: 'serverless' }
   let kind: RouteKind = 'serverless'; // default
@@ -120,7 +141,16 @@ export function extractApiExports(source: string): {
     }
   }
 
-  return { methods, kind, config };
+  // Detect top-level `export const schedule = '...'` (task route schedule sugar).
+  // Route-config `schedule` takes precedence; this only fills in when absent.
+  if (!config.schedule) {
+    const scheduleMatch = source.match(/export\s+const\s+schedule\s*=\s*['"]([^'"]+)['"]/);
+    if (scheduleMatch) {
+      config.schedule = scheduleMatch[1];
+    }
+  }
+
+  return { methods, kind, hasWebsocket, config };
 }
 
 /**
@@ -327,9 +357,11 @@ export async function buildManifest(projectRoot: string): Promise<RouteManifest>
   for (const file of apiFiles) {
     const source = await readFile(file, 'utf-8');
     const relPath = relative(apiDir, file);
-    const { methods, kind, config } = extractApiExports(source);
+    const { methods, kind, hasWebsocket, config } = extractApiExports(source);
 
-    if (methods.length === 0) continue; // Skip files with no HTTP exports
+    // Skip files with no HTTP exports, UNLESS it's a hot route with a websocket
+    // handler (ws-only hot routes have no HTTP methods but are still valid routes).
+    if (methods.length === 0 && !(kind === 'hot' && hasWebsocket)) continue;
 
     api.push({
       filePath: relative(projectRoot, file),
@@ -339,6 +371,7 @@ export async function buildManifest(projectRoot: string): Promise<RouteManifest>
       ),
       methods,
       kind,
+      hasWebsocket,
       config,
     });
   }

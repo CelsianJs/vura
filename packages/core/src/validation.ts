@@ -249,7 +249,8 @@ export function validateRequest<
   // Attach validated data to request
   (req as any).validated = result.data;
   req.parsedBody = result.data!.body;
-  req.body = result.data!.body;
+  // body is shadowed via defineProperty by applyThenCompat; use cast for legacy compat path
+  (req as any).body = result.data!.body;
   req.query = result.data!.query as Record<string, string>;
   req.params = result.data!.params as Record<string, string>;
   return null;

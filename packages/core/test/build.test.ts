@@ -1,208 +1,24 @@
+/**
+ * Tests for the build pipeline — generateServerEntry (thin wiring file),
+ * generateFunctionEntry, and the build() bundling step.
+ *
+ * Phase B change: generateServerEntry now emits a THIN wiring file that
+ * imports startVuraServer from @celsian/vura-core instead of inlining all
+ * runtime code.  build() esbuild-bundles that thin source into a self-
+ * contained entry.js.  These tests verify the thin source structure and the
+ * bundling outcome.
+ */
+
 import { describe, it, expect } from 'vitest';
 import { generateServerEntry, generateFunctionEntry } from '../src/build.js';
 import type { RouteManifest, ApiRoute, PageRoute } from '../src/manifest.js';
-import { writeFileSync, mkdtempSync, rmSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-describe('generateServerEntry', () => {
-  it('generates a self-contained Node.js server with route table', () => {
-    const manifest: RouteManifest = {
-      api: [
-        {
-          filePath: 'src/api/hello.ts',
-          urlPattern: '/api/hello',
-          methods: ['GET'],
-          kind: 'serverless',
-          config: {},
-        },
-        {
-          filePath: 'src/api/users/index.ts',
-          urlPattern: '/api/users',
-          methods: ['GET', 'POST'],
-          kind: 'serverless',
-          config: {},
-        },
-      ],
-      pages: [],
-      layouts: [],
-      timestamp: new Date().toISOString(),
-    };
+// ─── generateServerEntry (thin wiring) ───
 
-    const entry = generateServerEntry(manifest, '/project');
-
-    // Self-contained — no @celsian/core dependency
-    expect(entry).not.toContain('@celsian/core');
-    // Uses Node built-in http
-    expect(entry).toContain("import { createServer } from 'node:http'");
-    // Route table with patterns
-    expect(entry).toContain("pattern: '/api/hello'");
-    expect(entry).toContain("pattern: '/api/users'");
-    expect(entry).toContain("'GET'");
-    expect(entry).toContain("'POST'");
-    // Inline route matching
-    expect(entry).toContain('function matchRoute');
-    expect(entry).toContain('function parseBody');
-    // Health check
-    expect(entry).toContain('/__health');
-    // Listens on port
-    expect(entry).toContain('server.listen(port');
-
-    // Graceful shutdown
-    expect(entry).toContain('_gracefulShutdown');
-    expect(entry).toContain("process.on('SIGTERM'");
-    expect(entry).toContain("process.on('SIGINT'");
-    expect(entry).toContain('_inFlightRequests');
-    expect(entry).toContain('_isShuttingDown');
-    expect(entry).toContain('THEN_SHUTDOWN_TIMEOUT');
-  });
-});
-
-describe('generateServerEntry integration', () => {
-  it('produces syntactically valid JavaScript with all key features', () => {
-    // Build a manifest that exercises API routes, server pages, tasks, and layouts
-    const manifest: RouteManifest = {
-      api: [
-        {
-          filePath: 'src/api/hello.ts',
-          urlPattern: '/api/hello',
-          methods: ['GET'],
-          kind: 'serverless',
-          config: {},
-        },
-        {
-          filePath: 'src/api/users/index.ts',
-          urlPattern: '/api/users',
-          methods: ['GET', 'POST'],
-          kind: 'hot',
-          config: {},
-        },
-        {
-          filePath: 'src/api/cleanup.task.ts',
-          urlPattern: '/api/cleanup',
-          methods: ['POST'],
-          kind: 'task',
-          config: { schedule: '0 * * * *', retries: 2, timeout: 10000 },
-        },
-      ],
-      pages: [
-        {
-          filePath: 'src/pages/index.tsx',
-          urlPattern: '/',
-          mode: 'server',
-          config: { title: 'Home' },
-          layouts: ['src/pages/_layout.tsx'],
-        } as PageRoute,
-      ],
-      layouts: [{ filePath: 'src/pages/_layout.tsx', urlPattern: '/' }],
-      timestamp: new Date().toISOString(),
-    };
-
-    const code = generateServerEntry(manifest, '/project');
-
-    // ── Syntactic validity: parse with new Function ──
-    // new Function() runs in script mode, so strip ESM-only syntax first:
-    // - import/export statements
-    // - import.meta references (used for __dirname equivalent in ESM)
-    const strippedCode = code
-      .replace(/^import\s.*$/gm, '// [import stripped]')
-      .replace(/^export\s.*$/gm, '// [export stripped]')
-      .replace(/import\.meta\.\w+/g, '"__stripped_import_meta__"');
-
-    let parseError: Error | null = null;
-    try {
-      new Function(strippedCode);
-    } catch (err) {
-      parseError = err as Error;
-    }
-    expect(parseError, `Generated code has syntax error: ${parseError?.message}`).toBeNull();
-
-    // ── Write to temp file to ensure it's a complete, writable artifact ──
-    const tmpDir = mkdtempSync(join(tmpdir(), 'then-build-test-'));
-    try {
-      const outPath = join(tmpDir, 'entry.js');
-      writeFileSync(outPath, code);
-      // If writeFile didn't throw, the file was written successfully
-      expect(true).toBe(true);
-    } finally {
-      rmSync(tmpDir, { recursive: true, force: true });
-    }
-
-    // ── Key features present ──
-
-    // Hooks lifecycle
-    expect(code).toContain('_executeWithHooks');
-    expect(code).toContain('_runHooks');
-    expect(code).toContain('onRequest');
-    expect(code).toContain('onError');
-    expect(code).toContain('onResponse');
-
-    // Request validation
-    expect(code).toContain('_validateRequest');
-    expect(code).toContain('safeParse');
-    expect(code).toContain('VALIDATION_ERROR');
-
-    // CORS support
-    expect(code).toContain('THEN_CORS_ORIGIN');
-    expect(code).toContain('access-control-allow-origin');
-    expect(code).toContain("method === 'OPTIONS'");
-
-    // Static file serving
-    expect(code).toContain('_tryServeStatic');
-    expect(code).toContain('_mimeTypes');
-    expect(code).toContain('_publicDir');
-
-    // Graceful shutdown
-    expect(code).toContain('_gracefulShutdown');
-    expect(code).toContain('THEN_SHUTDOWN_TIMEOUT');
-    expect(code).toContain('_inFlightRequests');
-
-    // Structured logging
-    expect(code).toContain('function _log(');
-    expect(code).toContain('THEN_LOG_LEVEL');
-    expect(code).toContain('_generateRequestId');
-
-    // Body parsing with size limits
-    expect(code).toContain('function parseBody');
-    expect(code).toContain('THEN_MAX_BODY_SIZE');
-
-    // Dotenv loader
-    expect(code).toContain('.env.local');
-    expect(code).toContain('.env.');
-
-    // Reply helpers (json, send, redirect)
-    expect(code).toContain('json(data)');
-    expect(code).toContain('send(data)');
-    expect(code).toContain('redirect(url');
-
-    // SSR rendering (triggered by server pages in manifest)
-    expect(code).toContain('function renderToString');
-    expect(code).toContain('function wrapDocument');
-    expect(code).toContain('function renderPage');
-    expect(code).toContain('function matchPageRoute');
-
-    // ISR cache (triggered by server pages)
-    expect(code).toContain('isrGet');
-    expect(code).toContain('isrSet');
-    expect(code).toContain('ISR_MAX_ENTRIES');
-
-    // Task runner (triggered by task route in manifest)
-    expect(code).toContain('enqueueTask');
-    expect(code).toContain('processQueue');
-    expect(code).toContain('registerCron');
-    expect(code).toContain('startCron');
-    expect(code).toContain("'0 * * * *'"); // the cron schedule we defined
-
-    // Health check
-    expect(code).toContain('/__health');
-
-    // No external framework dependency
-    expect(code).not.toContain('@celsian/core');
-    expect(code).not.toContain('@celsian/vura-core');
-  });
-});
-
-describe('production server error handling matches dev server', () => {
+describe('generateServerEntry — thin wiring file structure', () => {
   const manifest: RouteManifest = {
     api: [
       {
@@ -212,112 +28,158 @@ describe('production server error handling matches dev server', () => {
         kind: 'serverless',
         config: {},
       },
+      {
+        filePath: 'src/api/users/index.ts',
+        urlPattern: '/api/users',
+        methods: ['GET', 'POST'],
+        kind: 'serverless',
+        config: {},
+      },
     ],
     pages: [],
     layouts: [],
     timestamp: new Date().toISOString(),
   };
 
-  it('_executeWithHooks re-throws errors when no onError hooks handle them', () => {
-    const code = generateServerEntry(manifest, '/project');
-
-    // The old buggy code had: `if (!_hookHadError) throw err;`
-    // which was dead code because _hookHadError was always true at that point.
-    // The fix uses _runOnError with a `handled` flag and re-throws if unhandled.
-    expect(code).toContain('_runOnError');
-    expect(code).toContain('if (!errorResult.handled)');
-    expect(code).toContain('throw errorResult.error || err');
-
-    // The old dead code pattern should no longer exist
-    expect(code).not.toContain('if (!_hookHadError) throw err');
+  it('imports startVuraServer from @celsian/vura-core', () => {
+    const entry = generateServerEntry(manifest, '/project');
+    expect(entry).toContain("import { startVuraServer } from '@celsian/vura-core'");
   });
 
-  it('_runOnError returns handled:false when no error hooks exist', () => {
-    const code = generateServerEntry(manifest, '/project');
-
-    // _runOnError should return { handled: false } when allHooks is empty
-    expect(code).toContain('if (allHooks.length === 0) return { handled: false }');
+  it('imports route modules with correct relative paths', () => {
+    const entry = generateServerEntry(manifest, '/project');
+    expect(entry).toMatch(/import \* as route_api_hello from/);
+    expect(entry).toMatch(/import \* as route_api_users from/);
   });
 
-  it('_runOnError tracks handled state from individual hooks', () => {
-    const code = generateServerEntry(manifest, '/project');
-
-    // Should track `handled` flag per-hook, like the dev server does
-    expect(code).toContain('let handled = false');
-    expect(code).toContain('handled = true');
-    expect(code).toContain('return { handled, error: err }');
+  it('calls await startVuraServer with apiRoutes', () => {
+    const entry = generateServerEntry(manifest, '/project');
+    expect(entry).toContain('await startVuraServer({');
+    expect(entry).toContain('apiRoutes: [');
+    expect(entry).toContain("urlPattern: '/api/hello'");
+    expect(entry).toContain("urlPattern: '/api/users'");
   });
 
-  it('runs global + route-level onRequest hooks in order', () => {
-    const code = generateServerEntry(manifest, '/project');
-
-    // _executeWithHooks should call global hooks first, then route-level
-    expect(code).toContain('_globalHooks.onRequest');
-    expect(code).toContain('routeHooks && routeHooks.onRequest');
+  it('includes port from PORT env var', () => {
+    const entry = generateServerEntry(manifest, '/project');
+    expect(entry).toContain("process.env.PORT || '3000'");
   });
 
-  it('runs global + route-level onResponse hooks with error silencing', () => {
-    const code = generateServerEntry(manifest, '/project');
-
-    expect(code).toContain('_globalHooks.onResponse');
-    expect(code).toContain('routeHooks && routeHooks.onResponse');
-    // Both should be silenced on error
-    expect(code).toContain('/* onResponse errors are silenced */');
+  it('includes staticDirs with public and static dirs', () => {
+    const entry = generateServerEntry(manifest, '/project');
+    expect(entry).toContain('staticDirs:');
+    expect(entry).toContain("'..', 'public'");
+    expect(entry).toContain("'..', 'static'");
   });
 
-  it('declares _globalHooks with empty arrays when no hooks file exists', () => {
-    const code = generateServerEntry(manifest, '/project');
-
-    // Without a hooks file, should get empty global hooks
-    expect(code).toContain('No global hooks file found');
-    expect(code).toContain('const _globalHooks = { onRequest: null, onError: null, onResponse: null }');
+  it('includes installSignalHandlers: true', () => {
+    const entry = generateServerEntry(manifest, '/project');
+    expect(entry).toContain('installSignalHandlers: true');
   });
 
-  it('imports global hooks file when provided', () => {
-    const code = generateServerEntry(manifest, '/project', 'src/api/_hooks.ts');
-
-    expect(code).toContain("import * as _globalHooksMod from");
-    expect(code).toContain('_globalHooksMod.onRequest');
-    expect(code).toContain('_globalHooksMod.onError');
-    expect(code).toContain('_globalHooksMod.onResponse');
-    // Should NOT have the empty fallback comment
-    expect(code).not.toContain('No global hooks file found');
+  it('includes VURA_REVALIDATE_SECRET for cache config', () => {
+    const entry = generateServerEntry(manifest, '/project');
+    expect(entry).toContain('VURA_REVALIDATE_SECRET');
   });
 
-  it('generated code with global hooks is syntactically valid', () => {
-    const code = generateServerEntry(manifest, '/project', 'src/api/_hooks.ts');
-
-    const strippedCode = code
+  it('emits thin source that is syntactically valid ESM (after stripping imports/await)', () => {
+    const entry = generateServerEntry(manifest, '/project');
+    // Strip ESM-only syntax for new Function() parse check.
+    // Wrap in an async function so top-level await is valid.
+    const stripped = entry
       .replace(/^import\s.*$/gm, '// [import stripped]')
       .replace(/^export\s.*$/gm, '// [export stripped]')
-      .replace(/import\.meta\.\w+/g, '"__stripped_import_meta__"');
+      .replace(/import\.meta\.\w+/g, '"__stripped__"');
+
+    // Wrap in an async function body — new Function() supports async functions
+    const wrapped = `return (async function _vuraEntryCheck() {\n${stripped}\n})`;
 
     let parseError: Error | null = null;
-    try {
-      new Function(strippedCode);
-    } catch (err) {
-      parseError = err as Error;
-    }
-    expect(parseError, `Generated code has syntax error: ${parseError?.message}`).toBeNull();
+    try { new Function(wrapped); } catch (err) { parseError = err as Error; }
+    expect(parseError, `Syntax error: ${parseError?.message}`).toBeNull();
   });
 
-  it('generated code without global hooks is syntactically valid', () => {
-    const code = generateServerEntry(manifest, '/project');
-
-    const strippedCode = code
-      .replace(/^import\s.*$/gm, '// [import stripped]')
-      .replace(/^export\s.*$/gm, '// [export stripped]')
-      .replace(/import\.meta\.\w+/g, '"__stripped_import_meta__"');
-
-    let parseError: Error | null = null;
+  it('writes thin source to a file without error', () => {
+    const entry = generateServerEntry(manifest, '/project');
+    const tmpDir = mkdtempSync(join(tmpdir(), 'vura-build-test-'));
     try {
-      new Function(strippedCode);
-    } catch (err) {
-      parseError = err as Error;
+      writeFileSync(join(tmpDir, 'entry.source.mjs'), entry);
+      expect(true).toBe(true);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
     }
-    expect(parseError, `Generated code has syntax error: ${parseError?.message}`).toBeNull();
+  });
+
+  it('does NOT contain old inline codegen patterns (thin, not fat)', () => {
+    const entry = generateServerEntry(manifest, '/project');
+    expect(entry).not.toContain('function _log(');
+    expect(entry).not.toContain('function parseBody(');
+    expect(entry).not.toContain('function matchRoute(');
+    expect(entry).not.toContain('_gracefulShutdown');
+    expect(entry).not.toContain('isrGet');
+    expect(entry).not.toContain('_validateRequest');
+    expect(entry).not.toContain('_executeWithHooks');
+    expect(entry).not.toContain('function renderToString');
+    expect(entry).not.toContain('enqueueTask');
   });
 });
+
+describe('generateServerEntry — pages and layouts wiring', () => {
+  const manifest: RouteManifest = {
+    api: [],
+    pages: [
+      {
+        filePath: 'src/pages/index.tsx',
+        urlPattern: '/',
+        mode: 'server',
+        hasGetServerData: false,
+        config: { title: 'Home', mode: 'server' },
+        layouts: ['src/pages/_layout.tsx'],
+      } as PageRoute,
+    ],
+    layouts: [{ filePath: 'src/pages/_layout.tsx', urlPattern: '/', dirPattern: '' }],
+    timestamp: new Date().toISOString(),
+  };
+
+  it('imports page and layout modules', () => {
+    const entry = generateServerEntry(manifest, '/project');
+    expect(entry).toMatch(/import \* as page_index from/);
+    expect(entry).toMatch(/import \* as layout_/);
+  });
+
+  it('wires pages with layoutModules array', () => {
+    const entry = generateServerEntry(manifest, '/project');
+    expect(entry).toContain('pages: [');
+    expect(entry).toContain('layoutModules:');
+    expect(entry).toContain("urlPattern: '/'");
+  });
+});
+
+describe('generateServerEntry — global hooks', () => {
+  const manifest: RouteManifest = {
+    api: [{ filePath: 'src/api/hello.ts', urlPattern: '/api/hello', methods: ['GET'], kind: 'serverless', config: {} }],
+    pages: [],
+    layouts: [],
+    timestamp: new Date().toISOString(),
+  };
+
+  it('does NOT import globalHooksMod when no hooks file', () => {
+    const entry = generateServerEntry(manifest, '/project');
+    expect(entry).not.toContain('_globalHooksMod');
+    expect(entry).toContain('globalHooks: undefined');
+  });
+
+  it('imports globalHooksMod and wires globalHooks when hooks file provided', () => {
+    const entry = generateServerEntry(manifest, '/project', 'src/api/_hooks.ts');
+    expect(entry).toContain("import * as _globalHooksMod from");
+    expect(entry).toContain('_globalHooksMod.onRequest');
+    expect(entry).toContain('_globalHooksMod.onError');
+    expect(entry).toContain('_globalHooksMod.onResponse');
+    expect(entry).not.toContain('globalHooks: undefined');
+  });
+});
+
+// ─── generateFunctionEntry ───
 
 describe('generateFunctionEntry', () => {
   it('generates a self-contained serverless handler', () => {
@@ -331,14 +193,10 @@ describe('generateFunctionEntry', () => {
 
     const entry = generateFunctionEntry(route, '/project');
 
-    // Self-contained — no @celsian/core dependency
     expect(entry).not.toContain('@celsian/core');
-    // Worker-compatible fetch handler
     expect(entry).toContain('export default');
     expect(entry).toContain('async fetch(request)');
-    // Inline body parsing
     expect(entry).toContain('function parseBody');
-    // req/reply shim
     expect(entry).toContain('status(code)');
     expect(entry).toContain('json(data)');
   });
@@ -357,6 +215,8 @@ describe('generateFunctionEntry', () => {
     expect(entry).toContain('POST:');
   });
 });
+
+// ─── build() bundling error reporting ───
 
 describe('build route artifact bundling failures', () => {
   it('fails with route context when a manifest route source is missing', async () => {

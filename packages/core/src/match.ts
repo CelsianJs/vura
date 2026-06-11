@@ -85,35 +85,27 @@ export function compileRoutes(routes: ApiRoute[]): CompiledRoute[] {
   });
 }
 
-// ─── Match a request against compiled routes ───
+// ─── API Path Existence Check (method-agnostic) ───
 
-export function matchRoute(
+/**
+ * Returns true if ANY compiled API route's URL pattern matches pathname,
+ * regardless of HTTP method. Used by dev middlewares to distinguish an
+ * intentional handler 404 (route exists, handler returned 404) from a
+ * "no such route" 404 (celsian's default when nothing matches).
+ */
+export function matchApiPath(
   routes: ApiRoute[] | CompiledRoute[],
-  method: string,
   pathname: string,
-): RouteMatch | null {
-  // Auto-compile if given raw ApiRoute[]
+): boolean {
   const compiled: CompiledRoute[] =
     routes.length > 0 && 'regex' in routes[0]
       ? (routes as CompiledRoute[])
       : compileRoutes(routes as ApiRoute[]);
 
-  const upperMethod = method.toUpperCase();
-
-  for (const { route, regex, paramNames } of compiled) {
-    if (!route.methods.includes(upperMethod as any)) continue;
-
-    const match = pathname.match(regex);
-    if (match) {
-      const params: Record<string, string> = {};
-      for (let i = 0; i < paramNames.length; i++) {
-        try { params[paramNames[i]] = decodeURIComponent(match[i + 1]); } catch { params[paramNames[i]] = match[i + 1]; }
-      }
-      return { route, params };
-    }
+  for (const { regex } of compiled) {
+    if (regex.test(pathname)) return true;
   }
-
-  return null;
+  return false;
 }
 
 // ─── Page Route Matching ───

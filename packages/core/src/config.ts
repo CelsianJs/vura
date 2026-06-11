@@ -50,6 +50,9 @@ export interface ThenConfig {
 
   /** Vite config overrides */
   vite?: Record<string, unknown>;
+
+  /** ISR / on-demand revalidation cache configuration */
+  cache?: import('./runtime/cache.js').VuraCacheConfig;
 }
 
 /**

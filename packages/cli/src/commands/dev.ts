@@ -13,35 +13,30 @@
  *   vura dev --port 8080  — Start on custom port
  */
 
+import { renderToString as builtinRenderToString } from 'what-framework/server';
+import { importRouteModule } from './shared.js';
 import {
   buildManifest,
-  matchRoute,
-  compileRoutes,
   compilePageRoutes,
   matchPageRoute,
+  compileRoutes,
+  matchApiPath,
   getLogger,
-  builtinRenderToString,
   wrapDocument,
   escapeHtml,
   parseNodeBody,
-  executeWithHooks,
-  finalizeNodeHandlerResult,
-  createHookRegistry,
-  validateRequest,
-  sendErrorResponse,
   reportError,
-  formatErrorResponse,
-  HttpError,
   getMimeType,
+  createApiApp,
+  GLOBAL_HOOKS_FILENAMES,
+  nodeToWebRequest,
+  writeWebResponse,
 } from '@celsian/vura-core';
 import type {
   PageRoute,
-  ThenRequest,
-  ThenReply,
-  CompiledRoute,
   CompiledPageRoute,
-  HookRegistry,
-  RouteHooks,
+  RuntimeApiRoute,
+  GlobalHooks,
 } from '@celsian/vura-core';
 
 interface DevOptions {
@@ -205,49 +200,76 @@ async function startStandaloneServer(
 ): Promise<void> {
   const { createServer } = await import('node:http');
   const { watch } = await import('node:fs');
-  const { readFile: readFileAsync, writeFile: writeFileAsync, mkdir: mkdirAsync } = await import('node:fs/promises');
-  const { join, resolve } = await import('node:path');
-  const { pathToFileURL } = await import('node:url');
-  const { build: esbuild } = await import('esbuild');
+  const { join } = await import('node:path');
 
-  const tmpDir = join(opts.projectRoot, 'node_modules', '.then-dev-cache');
-  await mkdirAsync(tmpDir, { recursive: true });
-
-  // Determine JSX import source
-  let jsxImportSource = '@celsian/vura-core';
-  try {
-    // @ts-ignore — optional dependency
-    await import('what-framework/jsx-runtime');
-    jsxImportSource = 'what-framework';
-  } catch {}
-
+  // Thin wrapper so call-sites inside this function keep the same shape
   async function loadHandler(filePath: string): Promise<any> {
-    const absPath = resolve(opts.projectRoot, filePath);
-    const isPage = filePath.endsWith('.tsx') || filePath.endsWith('.jsx');
-    const result = await esbuild({
-      entryPoints: [absPath],
-      bundle: true,
-      format: 'esm',
-      target: 'es2022',
-      platform: 'node',
-      write: false,
-      outfile: 'handler.mjs',
-      ...(isPage ? { jsx: 'automatic', jsxImportSource } : {}),
-    });
-    const hash = Date.now().toString(36);
-    const outPath = join(tmpDir, `${filePath.replace(/[/\\:]/g, '_')}_${hash}.mjs`);
-    await writeFileAsync(outPath, result.outputFiles[0].text);
-    return import(pathToFileURL(outPath).href);
+    return importRouteModule(opts.projectRoot, filePath);
   }
 
   const logger = getLogger();
 
-  // Hook registry for the dev server — routes can register hooks via exports
-  const hookRegistry = createHookRegistry();
-  hookRegistry.setLogger(logger);
+  const { existsSync } = await import('node:fs');
 
-  // Pre-compile route regexes at startup — recompiled only on file change
-  let compiledRoutes: CompiledRoute[] = compileRoutes(manifest.api);
+  function findGlobalHooksFile(): string | null {
+    for (const filename of GLOBAL_HOOKS_FILENAMES) {
+      if (existsSync(join(opts.projectRoot, filename))) return filename;
+    }
+    return null;
+  }
+
+  /**
+   * Build a CelsianApp from the current manifest by loading each non-task route
+   * module via esbuild + dynamic import. Called on startup and on file changes.
+   */
+  async function buildStandaloneApiApp(): Promise<{
+    app: ReturnType<typeof createApiApp>;
+    compiledApiRoutes: ReturnType<typeof compileRoutes>;
+  }> {
+    const routes: RuntimeApiRoute[] = [];
+    for (const route of manifest.api) {
+      if (route.kind === 'task') continue;
+      const mod = await loadHandler(route.filePath);
+      routes.push({ ...route, module: mod as Record<string, unknown> });
+    }
+
+    let globalHooks: GlobalHooks | undefined;
+    const hooksFile = findGlobalHooksFile();
+    if (hooksFile) {
+      const hooksMod = await loadHandler(hooksFile);
+      const normalize = (v: unknown) =>
+        v == null ? [] : Array.isArray(v) ? v : [v];
+      globalHooks = {
+        onRequest: normalize(hooksMod.onRequest) as GlobalHooks['onRequest'],
+        onError: normalize(hooksMod.onError) as GlobalHooks['onError'],
+        onResponse: normalize(hooksMod.onResponse) as GlobalHooks['onResponse'],
+      };
+    }
+
+    // Inject a dev-only onError hook (appended after any user hooks) that prints
+    // handler errors to the terminal via reportError so they aren't swallowed by
+    // celsian's logger:false + 500 JSON response.
+    const devErrorHook = (err: unknown, req: any, _reply: any) => {
+      const path: string = req?.url ?? req?.raw?.url ?? '(unknown path)';
+      const error = err instanceof Error ? err : new Error(String(err));
+      reportError(error, { method: 'handler', path }, logger);
+    };
+
+    const mergedHooks: GlobalHooks = {
+      onRequest: globalHooks?.onRequest ?? [],
+      // Append dev hook after user hooks — never clobbers user hooks.
+      onError: [...(globalHooks?.onError ?? []), devErrorHook],
+      onResponse: globalHooks?.onResponse ?? [],
+    };
+
+    // Compile route regexes for the path-existence pre-check (method-agnostic).
+    const compiledApiRoutes = compileRoutes(routes);
+
+    return { app: createApiApp({ routes, globalHooks: mergedHooks }), compiledApiRoutes };
+  }
+
+  // Build initial CelsianApp and page route table
+  let { app: apiApp, compiledApiRoutes } = await buildStandaloneApiApp();
   // In dev mode, compile ALL page routes — not just server/hybrid.
   // Static and client pages also need on-the-fly SSR rendering during development
   // because there's no Vite to serve them as static assets.
@@ -378,83 +400,31 @@ async function startStandaloneServer(
       return;
     }
 
-    // Try API route matching (uses pre-compiled regexes)
-    const match = matchRoute(compiledRoutes, method, url.pathname);
-    if (match) {
-      const mod = await loadHandler(match.route.filePath);
-      const handlerFn = mod[method];
-
-      if (typeof handlerFn !== 'function') {
-        res.writeHead(405, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: `Method ${method} not exported` }));
-        return;
-      }
-
-      const body = await parseNodeBody(req);
-
-      const cReq: ThenRequest = {
-        method,
-        url: url.pathname,
-        headers: req.headers,
-        params: match.params,
-        query: Object.fromEntries(url.searchParams.entries()),
-        body,
-        parsedBody: body,
-      };
-
-      let statusCode = 200;
-      const headers: Record<string, string> = { 'content-type': 'application/json' };
-      const cReply: ThenReply = {
-        status(code: number) { statusCode = code; return cReply; },
-        header(name: string, value: string) { headers[name] = value; return cReply; },
-        json(data: unknown) {
-          res.writeHead(statusCode, headers);
-          res.end(JSON.stringify(data));
-          return null;
-        },
-        send(data: string) {
-          res.writeHead(statusCode, headers);
-          res.end(data);
-          return null;
-        },
-        redirect(url: string, status?: number) {
-          res.writeHead(status || 302, { 'location': url });
-          res.end('Redirecting to ' + url);
-          return null;
-        },
-      };
-
-      // Extract route-level hooks if the module exports them
-      const routeHooks: RouteHooks | undefined = mod.hooks;
-
-      // Validate request if route exports a schema
-      if (mod.schema) {
-        const validationError = validateRequest(cReq, mod.schema);
-        if (validationError) {
-          res.writeHead(validationError.statusCode, { 'content-type': 'application/json' });
-          res.end(JSON.stringify(validationError.body));
+    // Try API route matching via CelsianApp.handle (A1.3 dev/prod parity)
+    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/__vura/')) {
+      // Route-existence pre-check (method-agnostic): if no manifest API route
+      // pattern matches this pathname, skip celsian entirely and fall through to
+      // pages/404. This also correctly passes through intentional handler 404s —
+      // if the route exists but returns 404, that response is delivered as-is.
+      if (matchApiPath(compiledApiRoutes, url.pathname)) {
+        try {
+          const webReq = nodeToWebRequest(req, url);
+          const webRes = await apiApp.handle(webReq);
+          // A matched route's response is always delivered — including intentional
+          // 404s from the handler. The pre-check above guarantees the route exists.
+          await writeWebResponse(res, webRes);
+          return;
+        } catch (err: any) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          reportError(error, { method, path: url.pathname, requestId: reqCtx.requestId }, logger);
+          if (!res.writableEnded) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: error.message }));
+          }
           return;
         }
       }
-
-      // Execute handler with full hook lifecycle
-      const result = await executeWithHooks(hookRegistry, cReq, cReply, async () => {
-        return handlerFn(cReq, cReply);
-      }, routeHooks);
-
-      // If hooks/handler errored and response wasn't sent, send structured error
-      if (result.hadError && !res.writableEnded) {
-        const error = new HttpError(result.statusCode, 'HANDLER_ERROR', 'Internal Server Error');
-        const { statusCode: errStatus, body: errBody } = formatErrorResponse(error, 'development');
-        reportError(error, { method, path: url.pathname, requestId: reqCtx.requestId }, logger);
-        res.writeHead(errStatus, { 'content-type': 'application/json' });
-        res.end(JSON.stringify(errBody));
-      }
-
-      if (!result.hadError) {
-        await finalizeNodeHandlerResult(result.result, res, { statusCode, headers });
-      }
-      return;
+      // No manifest route matched — fall through to pages/404.
     }
 
     // Try server-mode page matching (uses shared compilePageRoutes/matchPageRoute)
@@ -530,10 +500,11 @@ async function startStandaloneServer(
       const watcher = watch(dir, { recursive: true }, async (event, filename) => {
         const prefix = dir === apiDir ? 'src/api' : 'src/pages';
         console.log(`  [vura] ${event}: ${prefix}/${filename} — re-scanning routes`);
-        const { buildManifest: rescan, compileRoutes: recompile, compilePageRoutes: recompilePages } = await import('@celsian/vura-core');
+        const { buildManifest: rescan, compilePageRoutes: recompilePages } = await import('@celsian/vura-core');
         manifest = await rescan(opts.projectRoot);
-        compiledRoutes = recompile(manifest.api);
         compiledPages = recompilePages(manifest.pages);
+        // Rebuild CelsianApp and route regexes with fresh modules after manifest rescan
+        ({ app: apiApp, compiledApiRoutes } = await buildStandaloneApiApp());
       });
       process.on('SIGINT', () => { watcher.close(); process.exit(0); });
     } catch {
@@ -556,6 +527,6 @@ async function startStandaloneServer(
 
 // All rendering, matching, parsing, and escaping utilities are now imported
 // from @celsian/vura-core — no local copies needed. See:
-//   builtinRenderToString, wrapDocument, escapeHtml — from static-render.ts
+//   wrapDocument, escapeHtml — from static-render.ts; renderToString — from what-framework/server
 //   compilePageRoutes, matchPageRoute — from match.ts
-//   parseNodeBody — from body-parser.ts
+//   createApiApp, nodeToWebRequest, writeWebResponse — A1.3 celsian API path

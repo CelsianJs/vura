@@ -39,7 +39,6 @@ export type {
 export {
   renderStaticPages,
   wrapDocument,
-  builtinRenderToString,
   escapeHtml,
 } from './static-render.js';
 
@@ -59,7 +58,7 @@ export type {
 
 export {
   compileRoutes,
-  matchRoute,
+  matchApiPath,
   compilePageRoutes,
   matchPageRoute,
 } from './match.js';
@@ -70,6 +69,20 @@ export type {
   CompiledPageRoute,
   PageRouteMatch,
 } from './match.js';
+
+/**
+ * Canonical list of filenames (relative to project root) that Vura treats as
+ * global hook files. Exported here so vite-plugin and cli stay in sync without
+ * duplicating the list.
+ */
+export const GLOBAL_HOOKS_FILENAMES: readonly string[] = [
+  'src/api/_hooks.ts',
+  'src/api/_hooks.js',
+  'src/api/_hooks.mjs',
+  'src/hooks.ts',
+  'src/hooks.js',
+  'src/hooks.mjs',
+] as const;
 
 export {
   finalizeNodeHandlerResult,
@@ -83,23 +96,6 @@ export type {
   NodeHandlerFinalizationResult,
 } from './handler.js';
 
-export {
-  MemoryQueue,
-  TaskRunner,
-  CronScheduler,
-  parseCron,
-  cronFieldMatches,
-  createTaskRunner,
-  createCronScheduler,
-} from './tasks.js';
-
-export type {
-  TaskJob,
-  TaskConfig,
-  TaskHandler,
-  TaskDefinition,
-  CronFields,
-} from './tasks.js';
 
 export {
   Logger,
@@ -191,3 +187,90 @@ export type {
   StreamableResponse,
   StreamableRequest,
 } from './streaming.js';
+
+export {
+  buildWhatRoutes,
+  createVuraRenderRoute,
+  createPagesHandler,
+} from './runtime/pages.js';
+
+export type {
+  RuntimePage,
+  WhatPageRoute,
+  PagesHandlerOptions,
+} from './runtime/pages.js';
+
+export {
+  createVuraCache,
+  revalidatePath,
+  revalidateTag,
+} from './runtime/cache.js';
+
+export type {
+  VuraCacheConfig,
+} from './runtime/cache.js';
+
+export {
+  createApiApp,
+} from './runtime/api-app.js';
+
+export type {
+  RuntimeApiRoute,
+  GlobalHooks,
+  ApiAppOptions,
+} from './runtime/api-app.js';
+
+export {
+  applyThenCompat,
+} from './compat.js';
+// Note: ThenRequest/ThenReply/ThenHandler are exported via handler.js above
+// (handler.js re-exports them from compat.js — no duplication needed here).
+
+export {
+  startVuraServer,
+  serveStaticIfFound,
+} from './runtime/server.js';
+
+export type {
+  VuraServerOptions,
+  VuraServer,
+} from './runtime/server.js';
+
+export {
+  runTaskOnce,
+  createTaskResultStore,
+  isTaskAdminAuthorized,
+  registerTaskCrons,
+  readOptionalJsonBody,
+} from './runtime/tasks.js';
+
+export type {
+  TaskRunResult,
+  TaskRunDefinition,
+  TaskAdminJob,
+} from './runtime/tasks.js';
+
+export type {
+  HotPeer,
+  HotPeerEvents,
+  HotRequest,
+  HotWebsocketHandler,
+} from './runtime/hot.js';
+
+// Re-export Node↔Web bridge helpers from @celsian/core so vite-plugin and cli
+// can import them without taking a direct @celsian/core dep.
+export { nodeToWebRequest, writeWebResponse } from '@celsian/core';
+
+// Canonical request/reply types for API route handlers (the non-deprecated
+// names behind the ThenRequest/ThenReply compat aliases).
+export type { CelsianRequest, CelsianReply } from '@celsian/core';
+
+export {
+  cookieSession,
+  jwt,
+  createJWTGuard,
+} from './auth.js';
+
+export type {
+  CookieSessionOpts,
+} from './auth.js';
