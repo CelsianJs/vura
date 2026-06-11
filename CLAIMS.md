@@ -37,8 +37,8 @@ published at v0.4.0) but must be cleaned before publish.
 
 | Ref | File | Hit | Assessment |
 |---|---|---|---|
-| P1 | `packages/compiler-native/README.md` | "optional native-speed alternative" | Accurate but forward-looking; acceptable as-is while package is private |
-| P2 | `packages/compiler/README.md` | "transforms routes, pages, and API endpoints into optimized build output" | "optimized" is vague but not a measurable superlative; acceptable as descriptive prose |
+| P1 | `packages/compiler-native/README.md` | "optional native-speed alternative" | Resolved (Task 10): wording replaced with "AST-based route scanner and JSX transformer written in Rust" — describes mechanism, not a speed claim |
+| P2 | `packages/compiler/README.md` | "transforms routes, pages, and API endpoints into optimized build output" | Resolved (Task 10): "optimized" removed; new wording is "regex-based route scanning and JSX transforms" — descriptive, no unmeasured superlatives |
 
 ---
 
