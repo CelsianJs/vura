@@ -49,6 +49,25 @@ describe('manifest websocket detection', () => {
     expect(out.hasWebsocket).toBe(false);
   });
 
+  it("accepts the `export const kind = 'hot'` shorthand (Phase 0 wedge contract)", () => {
+    const src = `export const kind = 'hot';\nexport function websocket(peer, req) {}`;
+    const out = extractApiExports(src);
+    expect(out.kind).toBe('hot');
+    expect(out.hasWebsocket).toBe(true);
+  });
+
+  it('route config kind wins over the kind shorthand', () => {
+    const src = `export const kind = 'hot';\nexport const route = { kind: 'task' };\nexport async function POST() {}`;
+    const out = extractApiExports(src);
+    expect(out.kind).toBe('task');
+  });
+
+  it('ignores invalid kind shorthand values', () => {
+    const src = `export const kind = 'banana';\nexport function GET(req) {}`;
+    const out = extractApiExports(src);
+    expect(out.kind).toBe('serverless');
+  });
+
   it('detects const websocket = ... form', () => {
     const src = `export const route = { kind: 'hot' };\nexport const websocket = (peer, req) => {};`;
     const out = extractApiExports(src);

@@ -141,6 +141,16 @@ export function extractApiExports(source: string): {
     }
   }
 
+  // Detect top-level `export const kind = 'hot'` (route-kind shorthand — the
+  // Phase 0 wedge contract). Route-config `kind` takes precedence; this only
+  // applies when no `export const route = { ... }` block set one.
+  if (!routeBody) {
+    const kindShorthand = source.match(/export\s+const\s+kind\s*=\s*['"](\w+)['"]/);
+    if (kindShorthand && isRouteKind(kindShorthand[1]!)) {
+      kind = kindShorthand[1]!;
+    }
+  }
+
   // Detect top-level `export const schedule = '...'` (task route schedule sugar).
   // Route-config `schedule` takes precedence; this only fills in when absent.
   if (!config.schedule) {

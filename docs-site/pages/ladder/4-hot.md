@@ -15,7 +15,7 @@ type boundaries, one new failure mode.
 Vura's answer is one line, in the project you already have:
 
 ```ts
-export const route = { kind: 'hot' };
+export const kind = 'hot';
 ```
 
 ## A complete hot route
@@ -24,7 +24,7 @@ export const route = { kind: 'hot' };
 // src/api/live/room.ts
 import type { HotPeer, HotRequest } from '@celsian/vura-core';
 
-export const route = { kind: 'hot' };
+export const kind = 'hot';
 
 type Client = { peer: HotPeer; name: string };
 const rooms = new Map<string, Set<Client>>();
@@ -72,7 +72,7 @@ the client the same way.
 
 ### Key API differences from a serverless route
 
-- The export is `export const route = { kind: 'hot' }` (not just `kind: 'hot'`).
+- The kind annotation is `export const kind = 'hot'` (shorthand) or `export const route = { kind: 'hot', ... }` when you also need route config — the route object wins if both are present.
 - The websocket handler is named `websocket`, not `ws`.
 - The first argument is a `HotPeer` object, not a raw `WebSocket`.
   Use `peer.send()`, `peer.on()`, `peer.broadcast()`, `peer.close()`.
