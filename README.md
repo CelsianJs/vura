@@ -2,6 +2,14 @@
 
 Vura is the OSS distribution of the ThenJS full-stack framework: file-based API routes, static/server pages, and deployment adapters for Node, AWS Lambda, and Cloudflare Workers.
 
+## License: MIT, forever
+
+Vura is MIT-licensed and will stay MIT-licensed — no relicensing, ever, and no
+framework feature will ever be gated behind the managed platform. Everything
+(websockets, cache revalidation, tasks, cron) works fully self-hosted. This
+commitment is written down in [GOVERNANCE.md](./GOVERNANCE.md); an automated
+self-host audit suite enforcing it in CI is being added in this release cycle.
+
 ## Install
 
 ```sh
