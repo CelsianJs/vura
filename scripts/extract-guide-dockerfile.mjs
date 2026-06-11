@@ -27,7 +27,8 @@ import { fileURLToPath } from 'node:url';
  * @returns {string|null}
  */
 export function extractFencedBlock(md, lang) {
-  const langLower = lang.toLowerCase();
+  // Escape regex metacharacters: lang comes from argv (CodeQL js/regex-injection).
+  const langLower = lang.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   // Match both ``` and ~~~ fences; case-insensitive on the language token.
   // The content between fences is captured as group 1.
   const pattern = new RegExp(
