@@ -51,6 +51,6 @@ published at v0.4.0) but must be cleaned before publish.
 ## Sign-off
 
 Sign-off pending: requires review of built docs-site against this register at
-the v0.5 gate (see RELEASING.md, landing this release cycle). Reviewer should run `pnpm release:check` and
+the v0.5 gate (see RELEASING.md). Reviewer should run `pnpm release:check` and
 confirm each "verified" row's command returns clean output against the
 published tarball before any landing-page or docs copy quotes a claim.
