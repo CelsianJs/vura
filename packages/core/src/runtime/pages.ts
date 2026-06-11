@@ -26,6 +26,7 @@
 // createRequestHandler. The bundled type stubs (server.d.ts) don't yet
 // declare it, so we use @ts-ignore on that specific import.
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// TODO(what-fw): server.d.ts doesn't declare createRequestHandler — fix upstream, then drop this shim
 // @ts-ignore — createRequestHandler is exported at runtime, not yet in .d.ts
 import { renderToString, createRequestHandler as _createRequestHandler } from 'what-framework/server';
 import { wrapDocument } from '../static-render.js';
@@ -47,6 +48,12 @@ export interface RuntimePage extends PageRoute {
     getServerData?: (ctx: any) => Promise<any> | any;
     page?: Record<string, any>;
   };
+  /**
+   * Loaded layout module objects, outermost first.
+   * NOTE: PageRoute.layouts (from the manifest) holds file-path strings.
+   * The server entry MUST load those paths (PageRoute.layouts) into actual
+   * modules and populate this field (layoutModules) before calling buildWhatRoutes.
+   */
   layoutModules?: Array<{ default: (props: any) => unknown }>;
 }
 
@@ -80,7 +87,9 @@ export interface WhatPageRoute {
  *   - server mode + revalidate    → { mode: 'static', revalidate, tags } (ISR/HIT/STALE/MISS)
  */
 export function buildWhatRoutes(pages: RuntimePage[]): WhatPageRoute[] {
-  return pages.map((p) => {
+  // caller contract: only server-mode pages reach the runtime;
+  // static/client/hybrid are prebuilt and must not appear here.
+  return pages.filter((p) => p.mode === 'server').map((p) => {
     const revalidate = typeof p.config.revalidate === 'number' ? p.config.revalidate : undefined;
 
     // tags may be a comma-separated string or already an array
@@ -132,40 +141,52 @@ export function createVuraRenderRoute() {
     csrfToken?: string;
   }): Promise<{ html: string; status: number; tags: string[]; path: string }> {
     const { route, params, query, path } = routeMatch;
-    const p = route.vura;
-    const mod = p.module;
-    const pageConfig = mod.page ?? {};
 
-    // Run getServerData if present
-    let serverData: Record<string, unknown> = {};
-    if (typeof mod.getServerData === 'function') {
-      serverData = await mod.getServerData({ params, url: path, query });
-    }
+    try {
+      const p = route.vura;
+      const mod = p.module;
+      const pageConfig = mod.page ?? {};
 
-    // Render component tree: page wrapped by layout chain (outermost first)
-    let vnode: unknown = mod.default({ ...serverData, params });
-    const layouts = p.layoutModules ?? [];
-    for (let i = layouts.length - 1; i >= 0; i--) {
-      const Layout = layouts[i]!.default;
-      if (typeof Layout === 'function') {
-        vnode = Layout({ children: vnode, params });
+      // Run getServerData if present.
+      // ctx.url is the pathname string (not a URL object) — matches legacy build.ts RENDER_PAGE_CODE
+      let serverData: Record<string, unknown> = {};
+      if (typeof mod.getServerData === 'function') {
+        serverData = await mod.getServerData({ params, url: path, query });
       }
+
+      // Render component tree: page wrapped by layout chain (outermost first)
+      let vnode: unknown = mod.default({ ...serverData, params });
+      const layouts = p.layoutModules ?? [];
+      for (let i = layouts.length - 1; i >= 0; i--) {
+        const Layout = layouts[i]!.default;
+        if (typeof Layout === 'function') {
+          vnode = Layout({ children: vnode, params });
+        }
+      }
+
+      // Produce full HTML document
+      const html = wrapDocument(renderToString(vnode as any), {
+        title: pageConfig.title ?? 'Vura App',
+        meta: pageConfig.meta ?? [],
+        styles: pageConfig.styles ?? [],
+        scripts: pageConfig.scripts ?? [],
+        head: pageConfig.head ?? '',
+      });
+
+      // tags come from route.page (= routeMatch.config), not the render return,
+      // but we echo them back for any cache engines that read the result.
+      const tags: string[] = routeMatch.config?.tags ?? [];
+
+      return { html, status: 200, tags, path };
+    } catch (err) {
+      console.error(`[vura] renderRoute error for path "${path}":`, err);
+      return {
+        html: '<!DOCTYPE html><html><body><h1>500 — Server Error</h1></body></html>',
+        status: 500,
+        tags: [],
+        path,
+      };
     }
-
-    // Produce full HTML document
-    const html = wrapDocument(renderToString(vnode as any), {
-      title: pageConfig.title ?? 'Vura App',
-      meta: pageConfig.meta ?? [],
-      styles: pageConfig.styles ?? [],
-      scripts: pageConfig.scripts ?? [],
-      head: pageConfig.head ?? '',
-    });
-
-    // tags come from route.page (= routeMatch.config), not the render return,
-    // but we echo them back for any cache engines that read the result.
-    const tags: string[] = routeMatch.config?.tags ?? [];
-
-    return { html, status: 200, tags, path };
   };
 }
 

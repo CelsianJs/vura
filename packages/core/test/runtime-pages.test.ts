@@ -45,4 +45,65 @@ describe('createPagesHandler', () => {
     const res = await handler(new Request('http://localhost/nope'));
     expect(res.status).toBe(404);
   });
+
+  it('wraps page in layout chain when layoutModules provided', async () => {
+    const layoutModule = { default: ({ children }: any) => h('div', { id: 'layout' }, children) };
+    const handler = createPagesHandler({
+      routes: buildWhatRoutes([
+        {
+          urlPattern: '/layout-test',
+          mode: 'server',
+          config: {},
+          filePath: 'src/pages/layout-test.tsx',
+          hasGetServerData: false,
+          module: {
+            default: () => h('h1', null, 'Inner'),
+            page: { title: 'Layout Test' },
+          },
+          layoutModules: [layoutModule],
+        },
+      ]),
+    });
+    const res = await handler(new Request('http://localhost/layout-test'));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('<div id="layout">');
+    expect(html).toContain('<h1>Inner</h1>');
+  });
+
+  it('returns status 500 when getServerData throws', async () => {
+    const handler = createPagesHandler({
+      routes: buildWhatRoutes([
+        {
+          urlPattern: '/boom',
+          mode: 'server',
+          config: {},
+          filePath: 'src/pages/boom.tsx',
+          hasGetServerData: true,
+          module: {
+            default: () => h('h1', null, 'ok'),
+            getServerData: async () => { throw new Error('db exploded'); },
+          },
+        },
+      ]),
+    });
+    const res = await handler(new Request('http://localhost/boom'));
+    expect(res.status).toBe(500);
+    const text = await res.text();
+    expect(text).toContain('Server Error');
+  });
+
+  it('flows tags through buildWhatRoutes for ISR pages', () => {
+    const routes = buildWhatRoutes([
+      {
+        urlPattern: '/tagged',
+        mode: 'server',
+        config: { revalidate: 60, tags: 'blog,post' },
+        filePath: 'src/pages/tagged.tsx',
+        hasGetServerData: false,
+        module: { default: () => h('div', null, '') },
+      },
+    ]);
+    expect(routes[0]!.page.tags).toEqual(['blog', 'post']);
+  });
 });
