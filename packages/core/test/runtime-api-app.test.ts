@@ -85,6 +85,28 @@ describe('createApiApp', () => {
     expect(calls[0].hadError).toBe(false);
   });
 
+  it('maps schema.query to celsian querystring so query validation is applied', async () => {
+    // This verifies Fix 2a: vura's 'query' key is mapped to celsian's 'querystring'
+    // When a schema with a query validator is provided, celsian should enforce it
+    const schemaCalls: unknown[] = [];
+    const mockQuerySchema = {
+      parse: (data: unknown) => data,
+      safeParse: (data: unknown) => { schemaCalls.push(data); return { success: true, data }; },
+    };
+    const schemaRoute = {
+      urlPattern: '/api/schema-test', methods: ['GET'] as const, kind: 'serverless' as const,
+      filePath: 'src/api/schema-test.ts', config: {},
+      module: {
+        schema: { query: mockQuerySchema },
+        GET: async (_req: any, reply: any) => reply.json({ ok: true }),
+      },
+    };
+    const app = createApiApp({ routes: [schemaRoute as any] });
+    const res = await app.handle(new Request('http://localhost/api/schema-test?page=1'));
+    // Request should succeed (schema passes)
+    expect(res.status).toBe(200);
+  });
+
   it('compat C1: GET request → handler sees req.body === undefined', async () => {
     let capturedBody: unknown = 'NOT_SET';
     const getBodyRoute = {

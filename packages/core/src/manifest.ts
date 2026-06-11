@@ -139,6 +139,19 @@ export function extractApiExports(source: string): {
       const value = kv[2] ?? kv[3] ?? (kv[4] ? Number(kv[4]) : kv[5] === 'true');
       config[key] = value;
     }
+
+    // Extract array values: key: ['a', 'b'] or key: ["a", "b"]
+    const arrayPattern = /(\w+)\s*:\s*\[([^\]]*)\]/g;
+    let arr;
+    while ((arr = arrayPattern.exec(body)) !== null) {
+      const key = arr[1]!;
+      const rawItems = arr[2]!;
+      // parse items: either 'foo' or "foo"
+      const items = [...rawItems.matchAll(/['"]([^'"]*)['"]/g)].map(m => m[1]!);
+      if (items.length > 0) {
+        config[key] = items;
+      }
+    }
   }
 
   // Detect top-level `export const kind = 'hot'` (route-kind shorthand — the
@@ -189,6 +202,19 @@ export function extractPageConfig(source: string): {
       const key = kv[1]!;
       const value = kv[2] ?? kv[3] ?? (kv[4] ? Number(kv[4]) : kv[5] === 'true');
       config[key] = value;
+    }
+
+    // Extract array values: key: ['a', 'b'] or key: ["a", "b"]
+    const arrayPattern = /(\w+)\s*:\s*\[([^\]]*)\]/g;
+    let arr;
+    while ((arr = arrayPattern.exec(body)) !== null) {
+      const key = arr[1]!;
+      const rawItems = arr[2]!;
+      // parse items: either 'foo' or "foo"
+      const items = [...rawItems.matchAll(/['"]([^'"]*)['"]/g)].map(m => m[1]!);
+      if (items.length > 0) {
+        config[key] = items;
+      }
     }
   }
 

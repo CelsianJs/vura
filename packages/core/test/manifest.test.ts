@@ -105,6 +105,25 @@ describe('extractPageConfig', () => {
     `;
     expect(extractPageConfig(source).mode).toBe('server');
   });
+
+  it('parses array tags from page config', () => {
+    const source = `
+      export const page = {
+        mode: 'server',
+        revalidate: 60,
+        tags: ['posts', 'featured'],
+      };
+      export default function Page() {}
+    `;
+    const result = extractPageConfig(source);
+    expect(result.config.tags).toEqual(['posts', 'featured']);
+  });
+
+  it('parses single-element array tag from page config', () => {
+    const source = `export const page = { mode: 'server', revalidate: 60, tags: ['posts'] };`;
+    const result = extractPageConfig(source);
+    expect(result.config.tags).toEqual(['posts']);
+  });
 });
 
 describe('fileToUrlPattern', () => {
@@ -165,6 +184,22 @@ describe('buildManifest', () => {
     expect(manifest.pages.map((page) => page.urlPattern)).not.toContain('/_layout');
     expect(manifest.pages.map((page) => page.urlPattern)).not.toContain('/blog/layout');
     expect(manifest.layouts.map((layout) => layout.dirPattern).sort()).toEqual(['', 'blog']);
+  });
+
+  it('preserves array tags in page config', async () => {
+    const root = createManifestFixture();
+    writeFixtureFile(root, 'src/pages/posts.tsx', `
+      export const page = {
+        mode: 'server',
+        revalidate: 60,
+        tags: ['posts', 'featured'],
+      };
+      export default function Posts() {}
+    `);
+    const manifest = await buildManifest(root);
+    const posts = manifest.pages.find(p => p.urlPattern === '/posts');
+    expect(posts).toBeDefined();
+    expect(posts!.config.tags).toEqual(['posts', 'featured']);
   });
 
   it('scans the serverless-poc example', async () => {

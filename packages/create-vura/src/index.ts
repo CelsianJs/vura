@@ -147,7 +147,7 @@ export function getFiles(projectName: string): Record<string, string> {
           dev: 'vura dev',
           build: 'vura build',
         },
-        dependencies: getScaffoldDependencyVersions(),
+        dependencies: { ...getScaffoldDependencyVersions(), 'ws': '^8.18.0' },
       },
       null,
       2
