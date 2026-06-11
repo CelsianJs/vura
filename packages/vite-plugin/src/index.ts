@@ -9,11 +9,11 @@
  * 5. Scans file-based routes on startup
  */
 
+import { renderToString as builtinRenderToString } from 'what-framework/server';
 import {
   buildManifest,
   matchRoute,
   matchPageRoute as coreMatchPageRoute,
-  builtinRenderToString,
   wrapDocument,
   escapeHtml,
   parseNodeBody,

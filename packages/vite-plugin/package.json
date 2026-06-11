@@ -10,7 +10,8 @@
     }
   },
   "dependencies": {
-    "@celsian/vura-core": "workspace:0.2.0"
+    "@celsian/vura-core": "workspace:0.2.0",
+    "what-framework": "^0.11.1"
   },
   "peerDependencies": {
     "vite": "^5.0.0 || ^6.0.0"

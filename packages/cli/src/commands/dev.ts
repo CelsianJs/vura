@@ -13,6 +13,7 @@
  *   vura dev --port 8080  — Start on custom port
  */
 
+import { renderToString as builtinRenderToString } from 'what-framework/server';
 import {
   buildManifest,
   matchRoute,
@@ -20,7 +21,6 @@ import {
   compilePageRoutes,
   matchPageRoute,
   getLogger,
-  builtinRenderToString,
   wrapDocument,
   escapeHtml,
   parseNodeBody,
