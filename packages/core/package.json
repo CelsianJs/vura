@@ -29,7 +29,10 @@
     "prepack": "pnpm run build"
   },
   "dependencies": {
-    "esbuild": "^0.27.3"
+    "esbuild": "^0.27.3",
+    "what-framework": "^0.11.1",
+    "what-isr": "^0.11.1",
+    "@celsian/core": "^0.5.2"
   },
   "publishConfig": {
     "access": "public"

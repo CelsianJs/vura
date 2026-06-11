@@ -7,12 +7,12 @@
  *   - hybrid: static shell + island markers for client hydration
  *   - client: minimal shell + JS bundle for SPA
  *
- * Uses What Framework's renderToString when available,
- * falls back to a built-in minimal renderer.
+ * Uses What Framework's renderToString (required peer dependency).
  */
 
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
+import { renderToString } from 'what-framework/server';
 import type { PageRoute } from './manifest.js';
 
 export interface PageRenderResult {
@@ -44,17 +44,6 @@ export async function renderStaticPages(
   // Server pages are skipped (rendered at runtime).
   const buildTimePages = pages.filter(p => p.mode !== 'server');
   const results: PageRenderResult[] = [];
-
-  // Try to load What Framework's renderToString
-  let renderToString: (vnode: any) => string;
-  try {
-    // @ts-ignore — optional dependency, resolved at runtime
-    const whatServer = await import('what-framework/server');
-    renderToString = whatServer.renderToString;
-  } catch {
-    // Fall back to built-in minimal renderer
-    renderToString = builtinRenderToString;
-  }
 
   for (const page of buildTimePages) {
     const mod = await loadModule(page.filePath);
@@ -157,94 +146,6 @@ export function wrapDocument(bodyHtml: string, opts: DocumentOptions): string {
 </html>`;
 }
 
-// ─── Built-in Minimal VNode Renderer ───
-
-export function builtinRenderToString(vnode: any): string {
-  if (vnode == null || typeof vnode === 'boolean') return '';
-  if (typeof vnode === 'string') return escapeHtml(vnode);
-  if (typeof vnode === 'number') return String(vnode);
-
-  // Signal/reactive function — call to get value
-  if (typeof vnode === 'function' && !vnode.type && !vnode.tag) {
-    return builtinRenderToString(vnode());
-  }
-
-  // Array of VNodes
-  if (Array.isArray(vnode)) {
-    return vnode.map(builtinRenderToString).join('');
-  }
-
-  // VNode object: { type, props, children } or What Framework { tag, props, children }
-  const type = vnode.type ?? vnode.tag;
-  const { props = {}, children } = vnode;
-
-  // Function component
-  if (typeof type === 'function') {
-    const result = type({ ...props, children });
-    return builtinRenderToString(result);
-  }
-
-  // HTML element
-  if (typeof type === 'string') {
-    const attrs = renderAttributes(props);
-    const tag = type;
-
-    // Void elements
-    if (VOID_ELEMENTS.has(tag)) {
-      return `<${tag}${attrs}>`;
-    }
-
-    // Render children
-    let childHtml = '';
-    if (props.dangerouslySetInnerHTML) {
-      // Mirrors React semantics: dangerouslySetInnerHTML is trusted caller-provided HTML.
-      // Vura does not sanitize it; callers must sanitize untrusted content before passing __html.
-      childHtml = props.dangerouslySetInnerHTML.__html ?? '';
-    } else if (children != null) {
-      if (Array.isArray(children)) {
-        childHtml = children.map(builtinRenderToString).join('');
-      } else {
-        childHtml = builtinRenderToString(children);
-      }
-    }
-
-    return `<${tag}${attrs}>${childHtml}</${tag}>`;
-  }
-
-  // Fragment (type is undefined/null or Symbol.for('Fragment'))
-  if ((!type || typeof type === 'symbol') && children) {
-    if (Array.isArray(children)) {
-      return children.map(builtinRenderToString).join('');
-    }
-    return builtinRenderToString(children);
-  }
-
-  return '';
-}
-
-function renderAttributes(props: Record<string, any>): string {
-  let result = '';
-  for (const [key, value] of Object.entries(props)) {
-    if (key === 'children' || key === 'dangerouslySetInnerHTML') continue;
-    if (key.startsWith('on') && key.length > 2) continue; // Skip event handlers
-    if (value == null || value === false) continue;
-
-    const attrName = key === 'className' ? 'class' : key === 'htmlFor' ? 'for' : key;
-
-    if (value === true) {
-      result += ` ${attrName}`;
-    } else if (key === 'style' && typeof value === 'object') {
-      const css = Object.entries(value)
-        .map(([prop, val]) => `${camelToKebab(prop)}: ${val}`)
-        .join('; ');
-      result += ` style="${escapeHtml(css)}"`;
-    } else {
-      result += ` ${attrName}="${escapeHtml(String(value))}"`;
-    }
-  }
-  return result;
-}
-
 export function escapeHtml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
@@ -253,12 +154,3 @@ export function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
-
-function camelToKebab(str: string): string {
-  return str.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`);
-}
-
-const VOID_ELEMENTS = new Set([
-  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
-  'link', 'meta', 'param', 'source', 'track', 'wbr',
-]);

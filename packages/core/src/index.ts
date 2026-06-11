@@ -39,7 +39,6 @@ export type {
 export {
   renderStaticPages,
   wrapDocument,
-  builtinRenderToString,
   escapeHtml,
 } from './static-render.js';
 
