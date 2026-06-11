@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { generateServerEntry } from '../src/build.js';
+import { build } from '../src/build.js';
 import type { RouteManifest } from '../src/manifest.js';
 
 const childProcesses = new Set<ChildProcess>();
@@ -34,14 +34,10 @@ async function httpGet(port: number, path: string): Promise<{ statusCode: number
 
 async function startServer(root: string, manifest: RouteManifest): Promise<{ port: number; child: ChildProcess }> {
   const port = pickPort();
+  // Phase B: use build() to produce a bundled, self-contained entry.js
+  const buildResult = await build(manifest, {}, root);
+  const entryPath = buildResult.serverEntry;
   const serverDir = join(root, 'dist', 'server');
-  mkdirSync(serverDir, { recursive: true });
-  writeFileSync(join(serverDir, 'package.json'), JSON.stringify({ type: 'module' }) + '\n');
-  const entryPath = join(serverDir, 'entry.mjs');
-  writeFileSync(entryPath, generateServerEntry(manifest, root).replace(
-    "parseInt(process.env.PORT || '3000', 10)",
-    String(port),
-  ));
 
   const child = fork(entryPath, [], {
     cwd: serverDir,
@@ -91,8 +87,9 @@ describe('generated production server static fallback', () => {
     writeFile(root, 'dist/static/index.html', '<h1>Home Static</h1>');
     writeFile(root, 'dist/static/about/index.html', '<h1>About Static</h1>');
     writeFile(root, 'dist/static/dashboard/index.html', '<h1>Dashboard Static</h1>');
-    writeFile(root, 'dist/server/api/hello.js', `
-export async function GET(_req, reply) {
+    // Phase B: build() bundles from src/ — write the TypeScript source, not pre-compiled JS
+    writeFile(root, 'src/api/hello.ts', `
+export async function GET(_req: any, reply: any) {
   return reply.json({ ok: true, source: 'api' });
 }
 `);

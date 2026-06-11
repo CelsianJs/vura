@@ -295,6 +295,10 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
   const address = server.address() as { port: number };
   const port = address.port;
 
+  // Signal readiness so child-process harnesses can detect startup.
+  // Uses process.stdout.write to avoid NODE_ENV='test' log suppression.
+  process.stdout.write(`[vura] listening on port ${port}\n`);
+
   // ── Graceful shutdown helpers ──
   const close = (): Promise<void> =>
     new Promise((resolve) => {

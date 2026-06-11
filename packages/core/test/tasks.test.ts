@@ -291,7 +291,10 @@ describe('CronScheduler', () => {
 // ─── Server Entry with Tasks ───
 
 describe('server entry with task routes', () => {
-  it('includes task runner code for task routes', () => {
+  // Phase B (Task 5): the thin entry passes task routes as regular apiRoutes entries
+  // to startVuraServer. Task admin endpoints (/__tasks) and cron scheduling are
+  // deferred to Task 11 of the rebase plan.
+  it('passes task routes to startVuraServer as apiRoutes with kind=task (thin entry)', () => {
     const manifest: RouteManifest = {
       api: [
         {
@@ -315,17 +318,17 @@ describe('server entry with task routes', () => {
 
     const entry = generateServerEntry(manifest, '/project');
 
-    // Should include task routes
-    expect(entry).toContain('taskRoutes');
-    expect(entry).toContain("name: 'jobs.cleanup'");
-    // Should include task runner code
-    expect(entry).toContain('enqueueTask');
-    expect(entry).toContain('processQueue');
-    // Should include cron code
-    expect(entry).toContain('registerCron');
-    expect(entry).toContain('*/5 * * * *');
-    // Should include task management endpoints
-    expect(entry).toContain('/__tasks');
+    // Thin entry: task routes are wired into apiRoutes (silently skipped by
+    // startVuraServer until Task 11 adds task admin support)
+    expect(entry).toContain("import { startVuraServer } from '@celsian/vura-core'");
+    expect(entry).toContain("apiRoutes: [");
+    expect(entry).toContain("urlPattern: '/api/jobs/cleanup'");
+    expect(entry).toContain("kind: 'task'");
+    expect(entry).toContain("*/5 * * * *");
+    // NOT inline task runner code — that lives in @celsian/vura-core (Task 11)
+    expect(entry).not.toContain('enqueueTask');
+    expect(entry).not.toContain('processQueue');
+    expect(entry).not.toContain('registerCron');
   });
 
   it('skips task code when no task routes exist', () => {
