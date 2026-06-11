@@ -1,6 +1,6 @@
 # Vura
 
-Vura is the OSS distribution of the ThenJS full-stack framework: file-based API routes, static/server pages, and deployment adapters for Node, AWS Lambda, and Cloudflare Workers.
+Vura is an MIT full-stack meta-framework built on What Framework and CelsianJS — static pages, cached SSR, typed API routes, websocket hot routes, and background tasks in one project, self-hostable anywhere.
 
 ## License: MIT, forever
 
