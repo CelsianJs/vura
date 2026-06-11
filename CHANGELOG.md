@@ -6,8 +6,12 @@ Hot routes, background tasks, and auth helpers.
 
 ### Hot routes (`kind: 'hot'`)
 
-- Routes with `export const route = { kind: 'hot' }` now enable a real WebSocket
-  upgrade path backed by the Celsian `WSRegistry`.
+- Routes with `export const kind = 'hot'` (shorthand) or
+  `export const route = { kind: 'hot' }` now enable a real WebSocket upgrade
+  path backed by the Celsian `WSRegistry`. The route object wins when both are
+  present; the shorthand also works for `'task'`.
+- WebSocket messages are capped at 1 MB per frame (`maxPayload`) — ws's 100 MB
+  default is too permissive for a public server.
 - Export `websocket(peer: HotPeer, req: HotRequest)` in the route file to handle
   connections. Called once per open connection.
 - `peer.send(data)` — fire-and-forget string or `ArrayBuffer` to this peer; no-op
@@ -86,6 +90,27 @@ the `packages/core/src/runtime/tasks.ts` source.
   example with inline documentation of the full peer contract.
 - Default scaffold now includes `src/api/cleanup.ts` — a scheduled task example
   (`0 3 * * *`) with `vura tasks run cleanup` documented in a comment.
+- Scaffold declares `ws` as a dependency (the chat example needs it) and
+  ignores `.env` files by default.
+
+### Fixes
+
+- **Client-mode pages now actually mount in production builds.** Previous
+  versions bundled the raw page module and never called `mount()` — the page
+  sat on its loading placeholder forever. The build now generates a
+  mount/hydrate entry per client/hybrid page, and `vura dev` serves client
+  pages with the same contract instead of SSR-ing them (which crashed hook
+  components).
+- Array values in route/page config are parsed (`tags: ['posts']` no longer
+  silently dropped; string form also works).
+- Schema `query` keys now validate the querystring (mapped to celsian's
+  `querystring`). Validated values are NOT coerced back into `req.query` yet —
+  read raw strings; coercion write-back is planned.
+- Building with the Cloudflare or Lambda adapter warns when hot routes are
+  skipped (they need a persistent host) instead of dropping them silently.
+- `revalidateTag`/`revalidatePath` imported inside Lambda function bundles are
+  warn-only stubs (build parity with Cloudflare; real revalidation must reach
+  the cache host's `/__vura/revalidate` webhook).
 
 ## 0.3.0 - 2026-06-11
 
