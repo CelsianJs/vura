@@ -7,3 +7,10 @@ dist/
 .output/
 artifacts/
 .internal/
+# Rust build artifacts
+target/
+# Native Node addons
+*.node
+# Example build artifacts
+examples/phase0-cursors/
+
