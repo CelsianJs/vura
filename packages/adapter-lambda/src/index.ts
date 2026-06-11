@@ -83,7 +83,7 @@ export interface LambdaAdapterOptions {
   timeout?: number;
   /** CloudFormation stack name (default: then-app) */
   stackName?: string;
-  /** Lambda runtime (default: nodejs20.x) */
+  /** Lambda runtime (default: nodejs22.x) */
   runtime?: string;
   /** Lambda architecture (default: arm64) */
   architecture?: 'x86_64' | 'arm64';
@@ -344,17 +344,15 @@ ${corsHeaders}` : '';
     const schedule = fn.route.config.schedule as string | undefined;
 
     if (isTask && schedule) {
-      // Task function with EventBridge cron trigger
+      // Task function with EventBridge cron trigger.
+      // Runtime/Architectures/MemorySize/Timeout are inherited from Globals
+      // to avoid SAM lint errors about duplicate values (E3032/E3037).
+      const taskTimeout = fn.route.config.timeout ? Math.ceil((fn.route.config.timeout as number) / 1000) : undefined;
       resources.push(`  ${fn.name}Function:
     Type: AWS::Serverless::Function
     Properties:
       Handler: ${fn.handler}
-      CodeUri: ${fn.codeUri}
-      Runtime: ${options.runtime}
-      Architectures:
-        - ${options.architecture}
-      MemorySize: ${options.memory}
-      Timeout: ${fn.route.config.timeout ? Math.ceil((fn.route.config.timeout as number) / 1000) : options.timeout}
+      CodeUri: ${fn.codeUri}${taskTimeout !== undefined && taskTimeout !== options.timeout ? `\n      Timeout: ${taskTimeout}` : ''}
       Events:
         Schedule:
           Type: Schedule
@@ -363,16 +361,13 @@ ${corsHeaders}` : '';
             Enabled: true`);
     } else {
       const apiPath = toApiGatewayPath(fn.route.urlPattern);
+      // Runtime/Architectures/MemorySize/Timeout are inherited from Globals
+      // to avoid SAM lint errors about duplicate values (E3032/E3037).
       resources.push(`  ${fn.name}Function:
     Type: AWS::Serverless::Function
     Properties:
       Handler: ${fn.handler}
       CodeUri: ${fn.codeUri}
-      Runtime: ${options.runtime}
-      Architectures:
-        - ${options.architecture}
-      MemorySize: ${options.memory}
-      Timeout: ${options.timeout}
       Events:
         Api:
           Type: HttpApi
@@ -679,7 +674,7 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
   const memory = options.memory ?? 256;
   const timeout = options.timeout ?? 30;
   const stackName = options.stackName ?? 'then-app';
-  const runtime = options.runtime ?? 'nodejs20.x';
+  const runtime = options.runtime ?? 'nodejs22.x';
   const architecture = options.architecture ?? 'arm64';
 
   return {
@@ -717,7 +712,10 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
           await mkdir(funcDir, { recursive: true });
 
           // Write the handler file and bundled route module.
+          // The package.json marks the directory as an ES module so that
+          // Lambda's Node.js runtime accepts the 'import' syntax in index.js.
           const handlerCode = generateHandlerFile(route);
+          await writeFile(join(funcDir, 'package.json'), JSON.stringify({ type: 'module' }) + '\n');
           await writeFile(join(funcDir, 'index.js'), handlerCode);
           await bundleRouteModule(route, ctx.projectRoot, join(funcDir, 'route.js'));
 
@@ -747,6 +745,7 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
         await mkdir(funcDir, { recursive: true });
 
         const handlerCode = generateHandlerFile(route);
+        await writeFile(join(funcDir, 'package.json'), JSON.stringify({ type: 'module' }) + '\n');
         await writeFile(join(funcDir, 'index.js'), handlerCode);
         await bundleRouteModule(route, ctx.projectRoot, join(funcDir, 'route.js'));
 

@@ -139,7 +139,7 @@ The `__cf_env` and `__cf_ctx` fields are intentionally narrow — they expose CF
 
 ---
 
-> **CI-tested:** this guide is verified by the `cloudflare` job in `.github/workflows/selfhost.yml` (landing with Task 7). The job builds the project with the Cloudflare adapter and runs `wrangler dev --local` (workerd, local emulation) to smoke-test `/api/hello` and the static page. It does **not** deploy to Cloudflare — no cloud credentials are in CI; Cloudflare's edge network behavior is out of scope.
+> **CI-tested:** this guide is verified by the `cloudflare` job in `.github/workflows/selfhost.yml`. The job builds the project with the Cloudflare adapter and runs `wrangler dev --local` (workerd, local emulation) to smoke-test `/api/hello`. It does **not** deploy to Cloudflare — no cloud credentials are in CI; Cloudflare's edge network behavior is out of scope.
 
 ---
 

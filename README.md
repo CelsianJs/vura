@@ -7,8 +7,8 @@ Vura is an MIT full-stack meta-framework built on What Framework and CelsianJS â
 Vura is MIT-licensed and will stay MIT-licensed â€” no relicensing, ever, and no
 framework feature will ever be gated behind the managed platform. Everything
 (websockets, cache revalidation, tasks, cron) works fully self-hosted. This
-commitment is written down in [GOVERNANCE.md](./GOVERNANCE.md); an automated
-self-host audit suite enforcing it in CI is being added in this release cycle.
+commitment is written down in [GOVERNANCE.md](./GOVERNANCE.md) and enforced by
+[`tests/self-host-audit/`](./tests/self-host-audit/) in CI on every commit.
 
 ## Install
 

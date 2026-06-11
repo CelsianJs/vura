@@ -1,6 +1,5 @@
 {
-  "buildCommand": "",
-  "installCommand": "",
-  "outputDirectory": "sites/landing",
-  "framework": null
+  "buildCommand": "npm --prefix docs-site install && npm --prefix docs-site run build",
+  "outputDirectory": "docs-site/dist",
+  "trailingSlash": true
 }

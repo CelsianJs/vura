@@ -27,13 +27,13 @@ export default defineConfig({
     memory: 256,
     timeout: 30,
     stackName: 'my-vura-app',
-    runtime: 'nodejs20.x',
+    runtime: 'nodejs22.x',
     architecture: 'arm64',
   }),
 });
 ```
 
-All options have defaults: `region` is `us-east-1`, `memory` is `256`, `timeout` is `30` seconds, `stackName` is `then-app`, `runtime` is `nodejs20.x`, `architecture` is `arm64`.
+All options have defaults: `region` is `us-east-1`, `memory` is `256`, `timeout` is `30` seconds, `stackName` is `then-app`, `runtime` is `nodejs22.x`, `architecture` is `arm64`.
 
 ### 3. Build
 
@@ -70,7 +70,7 @@ Description: Vura Application
 
 Globals:
   Function:
-    Runtime: nodejs20.x
+    Runtime: nodejs22.x
     Architectures:
       - arm64
     MemorySize: 256
@@ -90,7 +90,7 @@ Resources:
     Properties:
       Handler: index.handler
       CodeUri: lambda/api_hello_get/
-      Runtime: nodejs20.x
+      Runtime: nodejs22.x
       Architectures:
         - arm64
       MemorySize: 256
@@ -108,7 +108,7 @@ Resources:
     Properties:
       Handler: index.handler
       CodeUri: lambda/task_api_cleanup/
-      Runtime: nodejs20.x
+      Runtime: nodejs22.x
       Architectures:
         - arm64
       MemorySize: 256
@@ -211,7 +211,7 @@ Cold-start latency has not been measured for this adapter — no numbers are sta
 
 ---
 
-> **CI-tested:** this guide is verified by the `lambda` job in `.github/workflows/selfhost.yml` (landing with Task 7). The job builds the project with the Lambda adapter, runs `sam validate --lint` on `dist/template.yaml`, and boots the handler under `sam local start-api` (Docker-backed Lambda emulation) to curl `/api/hello`. It does **not** deploy to AWS — no cloud credentials are in CI; API Gateway, IAM, and real Lambda networking behavior are out of scope.
+> **CI-tested:** this guide is verified by the `lambda` job in `.github/workflows/selfhost.yml`. The job builds the project with the Lambda adapter, runs `sam validate --lint` on `dist/template.yaml`, and boots the handler under `sam local start-api` (Docker-backed Lambda emulation) to curl `/api/hello`. It does **not** deploy to AWS — no cloud credentials are in CI; API Gateway, IAM, and real Lambda networking behavior are out of scope.
 
 ---
 

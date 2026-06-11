@@ -35,3 +35,24 @@ jobs:
       - run: pnpm test
       - run: pnpm verify:publish
       - run: pnpm audit
+
+  # Self-host audit runs as a separate job parallel to verify.
+  # Rationale: scaffoldAndBuild() packs all workspace packages, runs npm install
+  # inside a tmpdir, and runs vura build — roughly 2–4 min on a cold runner.
+  # Running this in the verify matrix would double its wall-clock time for every
+  # Node version. A single Node-22 job is sufficient: the suite is testing runtime
+  # correctness (no platform calls, ws, cron logic), not Node version compat.
+  selfhost-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.11.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test:selfhost-audit

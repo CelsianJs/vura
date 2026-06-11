@@ -21,6 +21,9 @@ importers:
       '@types/node':
         specifier: 22.19.18
         version: 22.19.18
+      '@types/ws':
+        specifier: ^8.5.14
+        version: 8.18.1
       esbuild:
         specifier: ^0.27.3
         version: 0.27.7
@@ -39,6 +42,9 @@ importers:
       wrangler:
         specifier: ^4.72.0
         version: 4.99.0
+      ws:
+        specifier: ^8.18.0
+        version: 8.21.0
 
   examples/adapter-test: {}
 

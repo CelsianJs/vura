@@ -64,9 +64,9 @@ Expected: a JSON response from the hello route.
 For WebSocket smoke-test (requires `wscat` or equivalent):
 
 ```sh
-wscat -c ws://localhost:3000/api/live/room
+wscat -c ws://localhost:3000/api/chat
 > ping
-< {"type":"message","name":"anon","body":"ping"}
+< You: ping
 ```
 
 Then `Ctrl-C` the server.
@@ -134,14 +134,14 @@ curl -fsS https://your-domain.com/ | grep -q '<h1'
 curl -fsS https://your-domain.com/api/hello
 
 # WebSocket
-wscat -c wss://your-domain.com/api/live/room
+wscat -c wss://your-domain.com/api/chat
 ```
 
 Expected: the static page returns HTML with an `<h1`, the API route returns JSON, and the WebSocket connection stays open (send a message to verify echo or broadcast).
 
 ---
 
-> **CI-tested:** this guide is verified by the `node-vps` job in `.github/workflows/selfhost.yml` (landing with Task 7). The job boots the built server on `PORT=3000`, curls `/`, curls `/api/hello`, and opens a WebSocket to `/api/live/room`. It does **not** test systemd or Caddy configuration — those require a real Linux host.
+> **CI-tested:** this guide is verified by the `node-vps` job in `.github/workflows/selfhost.yml`. The job boots the built server on `PORT=3000`, curls `/`, curls `/api/hello`, and opens a WebSocket to `/api/chat` (verifying the Welcome message). It does **not** test systemd or Caddy configuration — those require a real Linux host.
 
 ---
 

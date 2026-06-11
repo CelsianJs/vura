@@ -17,13 +17,13 @@ Hot routes (WebSockets, in-memory state) require a persistent process. Cloudflar
 
 ## The CI-tested promise
 
-Every guide below runs in CI on every commit — the exact commands you'll paste. The job names link to the workflow file at `.github/workflows/selfhost.yml` (landing with Task 7). Until then, the guides have been manually verified against v0.4 build output on 2026-06-11.
+Every guide below runs in CI on every commit — the exact commands you'll paste, executed by the six jobs in [`.github/workflows/selfhost.yml`](https://github.com/CelsianJs/vura/blob/main/.github/workflows/selfhost.yml). If a guide breaks, the build is red.
 
 The CI jobs execute fenced code blocks extracted directly from each guide, so a guide can never silently drift from what CI actually runs.
 
 ## No-gating commitment
 
-No framework capability is gated on the managed platform or any paid tier. The MIT license and no-gating commitment are documented in [GOVERNANCE.md](https://github.com/CelsianJs/vura/blob/main/GOVERNANCE.md) and enforced by an automated test suite.
+No framework capability is gated on the managed platform or any paid tier. The MIT license and no-gating commitment are documented in [GOVERNANCE.md](https://github.com/CelsianJs/vura/blob/main/GOVERNANCE.md) and enforced by [`tests/self-host-audit/`](https://github.com/CelsianJs/vura/tree/main/tests/self-host-audit) — assertions A0–A9 run in CI on every commit via the `selfhost-audit` job in `.github/workflows/ci.yml`.
 
 ## Choose a target
 
