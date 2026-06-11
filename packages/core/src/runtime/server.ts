@@ -132,9 +132,13 @@ function sendStaticFile(
 /**
  * Attempt to serve a static file from one of `staticDirs`.
  *
- * Dirs are tried in order: first match wins.  The first dir uses immutable
- * caching (public/ assets), subsequent dirs use must-revalidate (dist/static
- * SSG output).
+ * Dirs are tried in order: first match wins.  The first dir (globalIndex 0,
+ * i.e. public/) uses immutable caching; subsequent dirs use must-revalidate
+ * (dist/static SSG output).
+ *
+ * `globalIndexOffset` lets callers pass a subset of dirs (e.g. slice(1)) while
+ * preserving the correct cache-control and allowIndexFallback semantics for
+ * each dir's position in the original full array.
  *
  * Returns true if a file was found and the response was started; false if the
  * caller should continue to page/API routing.
@@ -144,6 +148,7 @@ export async function serveStaticIfFound(
   pathname: string,
   method: string,
   res: import('node:http').ServerResponse,
+  globalIndexOffset = 0,
 ): Promise<boolean> {
   if (method !== 'GET' && method !== 'HEAD') return false;
 
@@ -153,13 +158,15 @@ export async function serveStaticIfFound(
     let realDir = dir;
     try { realDir = realpathSync(dir); } catch (_) { continue; }
 
-    // First dir = public/ → immutable (long-lived user assets)
-    // Others   = dist/static → must-revalidate (SSG output, may redeploy)
-    const cacheControl = i === 0
+    const globalI = i + globalIndexOffset;
+    // First dir overall (globalI === 0) = public/ → immutable (long-lived user assets)
+    // Others = dist/static → must-revalidate (SSG output, may redeploy)
+    const cacheControl = globalI === 0
       ? 'public, max-age=31536000, immutable'
       : 'public, max-age=0, must-revalidate';
 
-    const realFile = tryResolveStaticFile(dir, realDir, pathname, i > 0);
+    // Allow index.html fallback only for dirs beyond public/ (SSG-style dirs)
+    const realFile = tryResolveStaticFile(dir, realDir, pathname, globalI > 0);
     if (realFile && sendStaticFile(realFile, method, res, cacheControl)) return true;
   }
 
@@ -256,38 +263,65 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
     }
 
     inFlight++;
+    // Register 'close' before any async work so the decrement cannot be
+    // skipped if an early throw unwinds the stack before the handler exits.
     nodeRes.on('close', () => { inFlight--; });
 
-    const url = new URL(
-      nodeReq.url ?? '/',
-      `http://${nodeReq.headers.host ?? 'localhost'}`,
-    );
+    try {
+      const url = new URL(
+        nodeReq.url ?? '/',
+        `http://${nodeReq.headers.host ?? 'localhost'}`,
+      );
 
-    // ── Health check ──
-    if (url.pathname === '/__health') {
-      nodeRes.writeHead(200, { 'content-type': 'application/json' });
-      nodeRes.end(JSON.stringify({ ok: true, framework: 'Vura' }));
-      return;
-    }
-
-    // ── Static files (public/ first, then dist/static) ──
-    if (opts.staticDirs && opts.staticDirs.length > 0) {
-      if (await serveStaticIfFound(opts.staticDirs, url.pathname, nodeReq.method ?? 'GET', nodeRes)) {
+      // ── Health check ──
+      if (url.pathname === '/__health') {
+        nodeRes.writeHead(200, { 'content-type': 'application/json' });
+        nodeRes.end(JSON.stringify({ ok: true, framework: 'Vura' }));
         return;
       }
+
+      // Request-dispatch ordering:
+      //   1. public/ (first staticDir) — long-lived user assets, served before API
+      //      so static files are never shadowed by API route matching.
+      //   2. API routes (/api/*) + ISR webhook (/__vura/*).
+      //   3. Remaining staticDirs (dist/static SSG output) — after API so
+      //      framework-generated assets don't shadow application handlers.
+      //   4. SSR pages (what-fw pagesHandler).
+
+      // ── Static files: public/ only (first dir, globalIndex 0) ──
+      if (opts.staticDirs && opts.staticDirs.length > 0) {
+        if (await serveStaticIfFound([opts.staticDirs[0]!], url.pathname, nodeReq.method ?? 'GET', nodeRes, 0)) {
+          return;
+        }
+      }
+
+      // ── Convert to Web Request ──
+      const webReq = nodeToWebRequest(nodeReq, url);
+
+      // ── API + ISR webhook routes ──
+      if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/__vura/')) {
+        await writeWebResponse(nodeRes, await app.handle(webReq));
+        return;
+      }
+
+      // ── Static files: dist/static and beyond (remaining dirs, globalIndex 1+) ──
+      if (opts.staticDirs && opts.staticDirs.length > 1) {
+        if (await serveStaticIfFound(opts.staticDirs.slice(1), url.pathname, nodeReq.method ?? 'GET', nodeRes, 1)) {
+          return;
+        }
+      }
+
+      // ── SSR pages ──
+      await writeWebResponse(nodeRes, await pagesHandler(webReq));
+    } catch (err) {
+      console.error('[vura] unhandled request error:', err);
+      if (!nodeRes.writableEnded) {
+        try {
+          nodeRes.writeHead(500, { 'content-type': 'application/json' });
+          nodeRes.end(JSON.stringify({ error: 'Internal Server Error' }));
+        } catch { /* headers already sent mid-stream — destroy */ nodeRes.destroy(); }
+      }
     }
-
-    // ── Convert to Web Request ──
-    const webReq = nodeToWebRequest(nodeReq, url);
-
-    // ── API + ISR webhook routes ──
-    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/__vura/')) {
-      await writeWebResponse(nodeRes, await app.handle(webReq));
-      return;
-    }
-
-    // ── SSR pages ──
-    await writeWebResponse(nodeRes, await pagesHandler(webReq));
   });
 
   // ── Listen ──

@@ -191,13 +191,23 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
   lines.push('  ],');
 
   // pages
+  // Emit a build-time warning for hybrid pages — they are not yet served at runtime.
+  const hybridPages = serverPages.filter(p => p.mode === 'hybrid');
+  if (hybridPages.length > 0) {
+    console.warn(
+      `[vura] hybrid pages are not yet served at runtime (v0.4): ${hybridPages.map(p => p.filePath).join(', ')}`,
+    );
+  }
+
   lines.push('  pages: [');
   for (const page of serverPages) {
     const varName = pageVarNames.get(page.filePath)!;
     const layoutModulesStr = page.layouts && page.layouts.length > 0
       ? `[${page.layouts.map(lp => layoutVarNames.get(lp)!).join(', ')}]`
       : '[]';
-    lines.push(`    { urlPattern: '${page.urlPattern}', filePath: '${page.filePath}', mode: '${page.mode}', config: ${JSON.stringify(page.config ?? {})}, module: ${varName}, layoutModules: ${layoutModulesStr} },`);
+    // layouts: string paths for inspection/debugging; layoutModules: loaded modules for runtime.
+    const layoutsStr = JSON.stringify(page.layouts ?? []);
+    lines.push(`    { urlPattern: '${page.urlPattern}', filePath: '${page.filePath}', mode: '${page.mode}', config: ${JSON.stringify(page.config ?? {})}, module: ${varName}, layoutModules: ${layoutModulesStr}, layouts: ${layoutsStr} },`);
   }
   lines.push('  ],');
 
