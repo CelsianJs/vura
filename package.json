@@ -17,7 +17,8 @@
     "verify:registry": "node scripts/verify-registry-install.mjs",
     "assert:release-private": "node scripts/assert-release-private.mjs",
     "release:check": "node scripts/release-check.mjs",
-    "package:size": "node scripts/check-package-size.mjs"
+    "package:size": "node scripts/check-package-size.mjs",
+    "docs:build": "npm --prefix docs-site run build"
   },
   "devDependencies": {
     "@types/node": ">=20 <23",
