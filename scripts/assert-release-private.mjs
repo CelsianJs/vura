@@ -2,6 +2,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { publishPackages } from './package-list.mjs';
 
+const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', '.then-dev-cache']);
+
 function findExamplePackageJsons(dir) {
   const entries = readdirSync(dir, { withFileTypes: true });
   const packageJsons = [];
@@ -9,7 +11,7 @@ function findExamplePackageJsons(dir) {
   for (const entry of entries) {
     const path = `${dir}/${entry.name}`;
     if (entry.isDirectory()) {
-      packageJsons.push(...findExamplePackageJsons(path));
+      if (!SKIP_DIRS.has(entry.name)) packageJsons.push(...findExamplePackageJsons(path));
     } else if (entry.isFile() && entry.name === 'package.json') {
       packageJsons.push(path);
     }

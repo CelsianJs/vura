@@ -7,9 +7,9 @@ describe('create-vura templates', () => {
     const packageJson = JSON.parse(files['package.json']);
 
     expect(packageJson.dependencies).toEqual({
-      'what-framework': '^0.8.1',
-      '@celsian/vura-core': '0.2.0',
-      '@celsian/vura-cli': '0.2.0',
+      'what-framework': '^0.11.1',
+      '@celsian/vura-core': '0.3.0',
+      '@celsian/vura-cli': '0.3.0',
     });
     expect(JSON.stringify(packageJson.dependencies)).not.toContain('latest');
   });

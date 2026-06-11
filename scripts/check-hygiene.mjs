@@ -3,7 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 const root = process.cwd();
-const ignoredDirs = new Set(['.git', 'node_modules', 'dist', '.then-dev-cache', '.omx']);
+const ignoredDirs = new Set(['.git', 'node_modules', 'dist', '.then-dev-cache', '.omx', '.vercel', 'target', 'artifacts']);
 const checkedExtensions = new Set(['.js', '.mjs', '.ts', '.tsx', '.json', '.md', '.yml', '.yaml']);
 const failures = [];
 
