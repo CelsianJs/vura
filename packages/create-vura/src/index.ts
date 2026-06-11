@@ -183,6 +183,8 @@ dist/
 .then/
 *.log
 .DS_Store
+.env
+.env.*
 `,
 
     'src/api/hello.ts': `import type { CelsianRequest, CelsianReply } from '@celsian/vura-core';
