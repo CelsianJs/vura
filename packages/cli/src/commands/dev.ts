@@ -40,6 +40,7 @@ import type {
   CompiledPageRoute,
   RuntimeApiRoute,
   GlobalHooks,
+  RouteManifest,
 } from '@celsian/vura-core';
 
 interface DevOptions {
@@ -249,15 +250,20 @@ export async function startStandaloneServer(
   }
 
   /**
-   * Build a CelsianApp from the current manifest by loading each non-task route
-   * module via esbuild + dynamic import. Called on startup and on file changes.
+   * Build a CelsianApp from the GIVEN manifest by loading each non-task route
+   * module via esbuild + dynamic import. Called on startup (initial manifest)
+   * and on file changes (the freshly rescanned manifest). Takes the manifest
+   * as a parameter — NOT the `manifest` closure variable — because the rescan
+   * swaps `manifest` only after a successful rebuild; reading the closure here
+   * would rebuild against the stale route set (deleted files would be
+   * re-esbuilt and throw forever; added files would be missed).
    */
-  async function buildStandaloneApiApp(): Promise<{
+  async function buildStandaloneApiApp(forManifest: RouteManifest): Promise<{
     app: ReturnType<typeof createApiApp>;
     compiledApiRoutes: ReturnType<typeof compileRoutes>;
   }> {
     const routes: RuntimeApiRoute[] = [];
-    for (const route of manifest.api) {
+    for (const route of forManifest.api) {
       if (route.kind === 'task') continue;
       // Cached: HTTP handlers and websocket() must observe the SAME module
       // instance (module-level state is shared between them, as in prod).
@@ -301,7 +307,7 @@ export async function startStandaloneServer(
   }
 
   // Build initial CelsianApp and page route table
-  let { app: apiApp, compiledApiRoutes } = await buildStandaloneApiApp();
+  let { app: apiApp, compiledApiRoutes } = await buildStandaloneApiApp(manifest);
   // In dev mode, compile ALL page routes — not just server/hybrid.
   // Static and server pages are SSR'd on the fly; client pages are served as
   // a shell + on-demand browser bundle (SSR'ing them would run hooks like
@@ -667,10 +673,17 @@ export async function startStandaloneServer(
           // rebuild loads edited files; restore the snapshot on failure so
           // HTTP and ws keep serving the SAME old instances during a broken
           // edit (no ws/http state split until a successful rescan).
+          // Accepted residual: a ws connection arriving mid-rebuild may load
+          // and keep an orphaned fresh module instance until it reconnects —
+          // the failure path below restores a consistent old set for everyone
+          // else.
           const prevModules = new Map(moduleCache);
           moduleCache.clear();
           try {
-            ({ app: apiApp, compiledApiRoutes } = await buildStandaloneApiApp());
+            // Rebuild against the FRESH manifest (nextManifest) — `manifest`
+            // is only swapped after success, so building from the closure
+            // variable would use the stale route set (see buildStandaloneApiApp).
+            ({ app: apiApp, compiledApiRoutes } = await buildStandaloneApiApp(nextManifest));
           } catch (err) {
             moduleCache.clear();
             for (const [k, v] of prevModules) moduleCache.set(k, v);

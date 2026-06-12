@@ -17,7 +17,13 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildManifest } from '@celsian/vura-core';
+import {
+  buildManifest,
+  compileRoutes,
+  createWsUpgradeHandler,
+  createNoServerWebSocketServer,
+} from '@celsian/vura-core';
+import type { ApiRoute, WsRegistryLike } from '@celsian/vura-core';
 import WebSocket from 'ws';
 import { startStandaloneServer } from '../src/commands/dev.js';
 
@@ -69,12 +75,20 @@ export function websocket(peer) {
 }
 `;
 
-// Syntactically broken (missing paren) — but the static manifest scan still
-// sees a hot route with a websocket export. Loading it at upgrade time fails,
-// which must surface as a diagnosable 500 handshake failure, not ECONNRESET.
+// Syntactically broken (missing paren) — the static manifest scan still sees
+// a hot route with a websocket export, but esbuild fails on it. The rescan's
+// build-then-swap must fail ATOMICALLY: the route never becomes matchable and
+// every existing route keeps serving its old consistent module set.
 const BROKEN = `export const route = { kind: 'hot' };
 export function websocket(peer) {
   peer.send('hello'
+}
+`;
+
+// The same route, fixed — once it esbuilds, the rescan succeeds and it serves.
+const BROKEN_FIXED = `export const route = { kind: 'hot' };
+export function websocket(peer) {
+  peer.on('message', (data) => peer.send('fixed:' + data));
 }
 `;
 
@@ -239,19 +253,98 @@ describe('standalone vura dev — hot route websocket upgrades', () => {
     expect(first).toBe('count2:1');
   }, 15000);
 
-  it('rejects the handshake with 500 (not bare ECONNRESET) when the module fails to load', async () => {
-    await writeFile(join(root, 'src', 'api', 'broken.ts'), BROKEN);
-    // Until the rescan picks the file up the path 404s; once matched, the
-    // esbuild failure at upgrade time must surface as a 500 handshake error.
-    let message = '';
-    for (let attempt = 0; attempt < 40; attempt++) {
+  it('fails the rescan ATOMICALLY when an added file is broken — 404 until fixed, then serves', async () => {
+    // Adding a broken file must fail the build-then-swap rebuild as a whole:
+    // the manifest is NOT advanced (the route never matches → 404, not a
+    // half-built app), existing routes keep serving, and the next successful
+    // rescan (the fixed file) recovers. Detect the failed rescan via its
+    // console.error diagnostic instead of sleeping blind.
+    const errSpy = vi.spyOn(console, 'error');
+    try {
+      await writeFile(join(root, 'src', 'api', 'broken.ts'), BROKEN);
+      let rescanFailed = false;
+      for (let attempt = 0; attempt < 40; attempt++) {
+        rescanFailed = errSpy.mock.calls.some((args) =>
+          args.some((a) => typeof a === 'string' && a.includes('route re-scan failed')),
+        );
+        if (rescanFailed) break;
+        await sleep(250);
+      }
+      expect(rescanFailed).toBe(true);
+
+      // The broken route never became matchable…
       const err = await wsHandshakeError(`ws://127.0.0.1:${port}/api/broken`);
-      message = err.message;
-      if (message.includes('500')) break;
+      expect(err.message).toContain('404');
+      // …and the old app keeps serving.
+      expect(await wsRoundTrip(`ws://127.0.0.1:${port}/api/echo`, 'hi')).toBe('echo:hi');
+    } finally {
+      errSpy.mockRestore();
+    }
+
+    // Fix the file → the next rescan succeeds and the route serves.
+    await writeFile(join(root, 'src', 'api', 'broken.ts'), BROKEN_FIXED);
+    let reply = '';
+    for (let attempt = 0; attempt < 40; attempt++) {
+      try {
+        reply = await wsRoundTrip(`ws://127.0.0.1:${port}/api/broken`, 'hi');
+        if (reply === 'fixed:hi') break;
+      } catch {
+        // 404 until the rescan lands — retry.
+      }
       await sleep(250);
     }
-    expect(message).toContain('500');
-  }, 15000);
+    expect(reply).toBe('fixed:hi');
+  }, 30000);
+
+  it('rejects the handshake with 500 (not bare ECONNRESET) when the module fails to load at upgrade time', async () => {
+    // In standalone dev the atomic build-then-swap eagerly loads every module
+    // at rebuild time, so an upgrade-time load failure is only reachable in
+    // the (accepted) mid-rebuild race window. But the shared upgrade handler
+    // also serves Vite dev, where ssrLoadModule loads LAZILY at upgrade time
+    // and genuinely fails on a broken edit — cover the path directly against
+    // a real HTTP server with a rejecting loadModule.
+    const { createServer } = await import('node:http');
+    const httpSrv = createServer((_req, res) => { res.writeHead(404); res.end(); });
+
+    const brokenRoute: ApiRoute = {
+      filePath: 'src/api/broken.ts',
+      urlPattern: '/api/broken',
+      methods: [],
+      kind: 'hot',
+      hasWebsocket: true,
+      config: {},
+    };
+    // Never reached: the handler rejects before touching the registry.
+    const registry: WsRegistryLike = {
+      hasPath: () => false,
+      register: () => {},
+      addConnection: () => {},
+      removeConnection: () => {},
+      getConnectionCount: () => 0,
+      broadcast: () => {},
+    };
+    const wsModule = await import('ws');
+    httpSrv.on('upgrade', createWsUpgradeHandler({
+      wss: createNoServerWebSocketServer(wsModule),
+      getWsRoutes: () => compileRoutes([brokenRoute]),
+      loadModule: () => Promise.reject(new Error('esbuild failed: syntax error')),
+      getWsRegistry: () => registry,
+      onUnmatched: 'reject',
+    }));
+
+    await new Promise<void>((resolve) => httpSrv.listen(0, '127.0.0.1', resolve));
+    const unitPort = (httpSrv.address() as { port: number }).port;
+    // Silence the handler's intentional console.error diagnostic.
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const err = await wsHandshakeError(`ws://127.0.0.1:${unitPort}/api/broken`);
+      expect(err.message).toContain('500');
+    } finally {
+      errSpy.mockRestore();
+      (httpSrv as any).closeAllConnections?.();
+      await new Promise<void>((resolve) => httpSrv.close(() => resolve()));
+    }
+  });
 
   it('warns once (not per connection) for allowlist entries that do not URL-normalize', async () => {
     // /api/guarded-bare has not been connected to before this test, so its
