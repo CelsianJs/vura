@@ -354,7 +354,7 @@ describe('standalone vura dev — hot route websocket upgrades', () => {
       await wsRoundTrip(`ws://127.0.0.1:${port}/api/guarded-bare`, 'a', { origin: 'http://allowed.test' });
       await wsRoundTrip(`ws://127.0.0.1:${port}/api/guarded-bare`, 'b', { origin: 'http://allowed.test' });
       const bareWarnings = warnSpy.mock.calls.filter((args) =>
-        args.some((a) => typeof a === 'string' && a.includes('bare.example.com')),
+        args.some((a) => typeof a === 'string' && a.includes('origins entry "bare.example.com" is not a parseable URL')),
       );
       expect(bareWarnings.length).toBe(1);
     } finally {
