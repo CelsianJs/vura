@@ -73,9 +73,12 @@ export async function POST(req: CelsianRequest, reply: CelsianReply) {
 
 The cache engine (`what-isr`) stores rendered HTML in memory by default. When
 `revalidateTag` is called, what-isr evicts all entries carrying that tag so
-the next request triggers a fresh render. By default the store is in-process
-memory. Redis backing requires wiring a custom store to `startVuraServer` —
-config-level wiring is planned.
+the next request triggers a fresh render. To persist the cache across server
+restarts, set `cache: { store: 'filesystem' }` in `vura.config` — `vura build`
+wires it into the generated entry (a relative `dir` resolves from the server
+process cwd). Redis needs a live client and so cannot be wired through the
+generated entry; use `createVuraCache({ store: 'redis', redisClient })` with
+`startVuraServer()` in your own server entry.
 
 Cache-Control headers for CDN integration are emitted automatically when a CDN
 adapter is configured. Without an adapter, caching is server-side only.

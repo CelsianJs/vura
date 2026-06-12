@@ -13,7 +13,7 @@ function locOf(dir: string): number {
 }
 
 describe('A1.4 success metric', () => {
-  it('vura-core src LOC is below the post-A3-fixes ceiling of 5970', () => {
+  it('vura-core src LOC is below the post-Task-2 ceiling of 6280', () => {
     // v0.2.0 baseline (commit 19d9442) was 5001 LOC.
     // Task 9 (hot routes A2.5): +~335 → ~5336; quality pass → ~5478.
     // Task 11 (A2.6): deleted old tasks.ts (-402), added runtime/tasks.ts
@@ -28,6 +28,28 @@ describe('A1.4 success metric', () => {
     // A3 truthfulness fixes (2026-06-11): array tag parsing in manifest.ts
     //   (+13 lines) + schema.query→querystring mapping in api-app.ts (+3 lines)
     //   → actual 5935. Ceiling 5970 leaves ~35 headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(5970);
+    // v0.4.x backlog Task 3 (2026-06-11): ws Origin allowlist — new
+    //   runtime/ws-upgrade.ts (isOriginAllowed, mostly JSDoc rationale) +
+    //   403 rejection in server.ts upgrade handler → actual 6043.
+    //   Ceiling 6080 leaves ~37 headroom.
+    // v0.4.x backlog Task 4 (2026-06-11): extracted the inline ws upgrade
+    //   handler from server.ts into a createWsUpgradeHandler factory in
+    //   runtime/ws-upgrade.ts so `vura dev` (vite + standalone) can share it.
+    //   The moved body is LOC-neutral; the +129 is the factory's options
+    //   interface/JSDoc, the createNoServerWebSocketServer helper, and the
+    //   one-time unparseable-allowlist-entry warning → actual 6172.
+    //   Ceiling 6210 leaves ~38 headroom.
+    // Task 4 quality pass (2026-06-12): ws-upgrade.ts hardening — WsRegistryLike
+    //   /RawWsSocket types replacing `any`, loadModule-failure → 500 reject,
+    //   explicit error for unresolvable WebSocketServer → actual 6208.
+    // v0.4.x backlog Task 2 (2026-06-12, integrated after the Task 4 quality
+    //   pass): wire VuraCacheConfig from vura.config into the generated server
+    //   entry — build.ts cache block now emits store/dir/maxEntries/cdn-id
+    //   literals, env-only secrets, redis build error, secret-literal warning
+    //   (+~33; Task 2 measured 6205 against its pre-quality-pass base) and
+    //   Task 5 (same day) replaced the hybrid warning in build.ts with a
+    //   narrowed param-only version (+9) → combined actual 6250.
+    //   Ceiling 6280 leaves ~30 headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(6280);
   });
 });

@@ -64,6 +64,16 @@ Persistent process. The server holds a WebSocket open for each connection. In-me
 - `req.query` — `URLSearchParams` from the upgrade URL
 - `req.params` — path params extracted from the route pattern (e.g. `{ room: '7' }` for `/api/rooms/:room`)
 
+**`route` config fields:**
+
+| Field | Type | Default | Effect |
+|---|---|---|---|
+| `origins` | `string[]` | unset | Origin allowlist for the WebSocket handshake. When set, upgrade requests whose `Origin` header is not on the list are rejected with `403` before the handshake. Entries are compared as URL origins, case-insensitively (trailing slashes/paths/default ports are normalized away). Requests with **no** `Origin` header always pass — browsers always send one, and non-browser clients can forge any value anyway. **Default is open**: without `origins`, any site can open a WebSocket to this route — set it for any cookie-authenticated app. Entries must be inline string literals inside the `route` export — identifiers, spreads, and template literals are not extracted at build time and leave the route open. Note `origins: []` is also dropped at build time, so it leaves the route **open** rather than denying all browser origins (the runtime treats an empty allowlist as deny-all, but an empty array literal never survives extraction). |
+
+```ts
+export const route = { kind: 'hot', origins: ['https://app.example.com'] };
+```
+
 **Known limitation — backpressure:** `peer.send()` is fire-and-forget with no bufferedAmount cap. A slow consumer can buffer unbounded data in the socket write queue. Implement your own flow-control in the message handler for high-throughput binary streams.
 
 **Lifecycle:** server boots → per-connection `websocket(peer, req)` called on upgrade → `peer.on('message', ...)` fires per frame → `peer.on('close', ...)` fires on disconnect. State in module scope persists across all connections for the lifetime of the process.

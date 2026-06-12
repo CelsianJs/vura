@@ -14,14 +14,16 @@
  *      req.url is already the full URL).
  *
  * @deprecated ThenRequest/ThenReply — use CelsianRequest/CelsianReply from
- * @celsian/core. Will be removed in vura v0.5.
+ * @celsian/core. Will be removed in vura v0.6.
  */
 
 import type { CelsianRequest, CelsianReply } from '@celsian/core';
 
-/** @deprecated Use CelsianRequest from @celsian/core. Removed in vura v0.5. */
+/** @deprecated Use CelsianRequest from @celsian/core. Removed in vura v0.6. */
 export type ThenRequest = CelsianRequest & {
   body?: unknown;
+  /** Validated + coerced query (set by celsian when a `schema.query` is declared). */
+  parsedQuery?: unknown;
   validated?: { body: unknown; query: unknown; params: unknown };
 };
 

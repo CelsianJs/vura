@@ -1,5 +1,5 @@
 /**
- * Self-host audit suite — A0–A9
+ * Self-host audit suite — A0–A12
  *
  * GOVERNANCE.md's promise, executable:
  *   Every Vura primitive (ISR cache, hot routes/ws, in-memory state, tasks, cron)
@@ -279,6 +279,79 @@ describe('rung 5 — tasks and cron', () => {
     const mockHandler = () => { fired = true; };
     if (shouldRun(parsed, now)) mockHandler();
     expect(fired).toBe(true);
+  });
+});
+
+// ─── A10/A11/A12: Hybrid runtime serving — one entry serves every page mode ──
+//
+// All three assertions hit the SAME booted dist/server/entry.js as A0–A9.
+// Runtime dispatch order (packages/core/src/runtime/server.ts:428–460):
+//   /__health → /__tasks → public/ → /api/* + /__vura/* → dist/static → SSR pagesHandler
+//
+// Static, client, and hybrid pages are all prerendered into dist/static at
+// build time, so in production they are served by the dist/static layer
+// (cache-control: public, max-age=0, must-revalidate — server.ts:176–178),
+// never by the SSR pagesHandler.
+
+describe('hybrid runtime serving — static/client/hybrid pages from one entry', () => {
+  it('A10: GET / serves the prerendered static page from dist/static', async () => {
+    const res = await fetch(`http://localhost:${server.port}/`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    // The dist/static cache rule (server.ts:176–178): globalIndex > 0 ⇒ must-revalidate
+    expect(res.headers.get('cache-control')).toBe('public, max-age=0, must-revalidate');
+
+    const html = await res.text();
+    expect(html).toContain('vura-audit-static-home');
+  });
+
+  it('A11: GET /widget serves the client shell + its browser bundle', async () => {
+    // Shell: build-time emitted dist/static/widget/index.html with a module
+    // script pointing at the generated mount entry.
+    const shell = await fetch(`http://localhost:${server.port}/widget`);
+    expect(shell.status).toBe(200);
+    expect(shell.headers.get('content-type')).toContain('text/html');
+
+    const html = await shell.text();
+    expect(html).toMatch(/<script[^>]*\bsrc="\/_then\/pages\/widget\.js"/);
+
+    // Bundle: dist/static/_then/pages/widget.js, served with a JS MIME type.
+    const js = await fetch(`http://localhost:${server.port}/_then/pages/widget.js`);
+    expect(js.status).toBe(200);
+    expect(js.headers.get('content-type')).toContain('javascript');
+    // The bundle is the generated client entry — it must actually boot the page
+    const jsBody = await js.text();
+    expect(jsBody).toContain('mount');
+  });
+
+  it('A12: GET /mixed serves SSR markup + hydration script (via the static layer)', async () => {
+    const res = await fetch(`http://localhost:${server.port}/mixed`);
+    expect(res.status).toBe(200);
+
+    const html = await res.text();
+    // SSR-visible markup, present before any JS executes
+    expect(html).toContain('vura-audit-hybrid-ssr');
+    // Hydration entry (generateClientPageEntry calls hydrate(), not mount())
+    expect(html).toMatch(/<script[^>]*\bsrc="\/_then\/pages\/mixed\.js"/);
+
+    // ── Layer attribution (observed behavior) ──
+    // /mixed is served by the dist/static layer (the build-time prerendered
+    // file), NOT by the SSR pagesHandler:
+    //   - x-what-cache is ABSENT. what-isr stamps X-What-Cache (HIT/MISS/…)
+    //     on pagesHandler ISR responses (e.g. /posts in A1); plain static
+    //     file serving never sets it.
+    //   - cache-control is exactly the dist/static rule (server.ts:176–178),
+    //     which only serveStaticIfFound emits.
+    // This also matches the code: buildWhatRoutes (runtime/pages.ts) registers
+    // only mode === 'server' pages with the pagesHandler, so a hybrid page is
+    // ONLY reachable through its prerendered static file.
+    expect(res.headers.get('x-what-cache')).toBeNull();
+    expect(res.headers.get('cache-control')).toBe('public, max-age=0, must-revalidate');
+
+    // Control: /posts (server mode + revalidate) IS served by the pagesHandler
+    // and carries the what-isr header — proving the attribution signal works.
+    const ssr = await fetch(`http://localhost:${server.port}/posts`);
+    expect(ssr.headers.get('x-what-cache')).not.toBeNull();
   });
 });
 

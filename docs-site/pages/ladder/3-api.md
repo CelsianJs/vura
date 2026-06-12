@@ -56,23 +56,27 @@ export const schema = defineSchema({
     qty: z.number().int().positive(),
   }),
   query: z.object({
-    draft: z.coerce.boolean().optional(),
+    page: z.coerce.number().int().positive().default(1),
   }),
 });
 
 export async function POST(req: CelsianRequest, reply: CelsianReply) {
   // req.parsedBody is the validated+typed body ({ item: string; qty: number })
-  // req.query is validated (bad values are rejected with a 400) but the
-  // raw string values are not coerced — read req.query.get('draft') === 'true'.
+  // req.parsedQuery is the validated+coerced query ({ page: number }) —
+  // z.coerce turned the raw "2" string into a real number.
+  const { page } = req.parsedQuery as { page: number };
+  // req.query stays the raw strings (e.g. req.query.page === '2').
   const order = await db.orders.create(req.parsedBody);
   return reply.status(201).json(order);
 }
 ```
 
 `defineSchema` is a thin wrapper that infers the Zod output types so
-`req.parsedBody` is the validated, typed body. Query params are validated
-(invalid requests get a 400) but reach the handler as raw strings — coercion
-write-back is planned. `zod` is a
+`req.parsedBody` is the validated, typed body. Query params work the same
+way: invalid requests get a 400, and the validated+coerced result is on
+`req.parsedQuery` (numbers from `z.coerce` arrive as real numbers).
+`req.query` is left untouched — it always holds the
+raw string values from the URL. `zod` is a
 peer dependency — install it once per project (`npm install zod`). Any
 Zod-compatible library works.
 

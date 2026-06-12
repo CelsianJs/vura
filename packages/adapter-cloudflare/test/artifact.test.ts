@@ -154,6 +154,68 @@ console.log(JSON.stringify({
   }
 });
 
+it('query coercion: handler sees coerced req.parsedQuery while req.query stays raw strings', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'vura-cf-query-'));
+  try {
+    mkdirSync(join(root, 'src', 'api'), { recursive: true });
+    writeFileSync(join(root, 'src', 'api', 'echo.ts'), `
+export const schema = {
+  query: {
+    safeParse(input) {
+      const n = Number(input.page);
+      if (Number.isNaN(n)) {
+        return { success: false, error: { issues: [{ path: ['page'], message: 'Expected number', code: 'invalid_type' }] } };
+      }
+      return { success: true, data: { page: n } };
+    }
+  }
+};
+export async function GET(req) {
+  return {
+    rawPage: req.query.page,
+    rawType: typeof req.query.page,
+    parsedQuery: req.parsedQuery,
+    parsedType: typeof req.parsedQuery.page,
+    validatedQuery: req.validated.query,
+  };
+}
+`);
+
+    const outDir = join(root, 'dist');
+    await cloudflareAdapter({ name: 'test-worker', compatibilityDate: '2026-05-10' }).buildEnd({
+      serverEntry: join(outDir, 'server', 'entry.js'),
+      clientDir: join(outDir, 'client'),
+      manifest: manifest([route({ methods: ['GET'] })]),
+      projectRoot: root,
+      outDir,
+    });
+
+    const result = runModuleJson(join(outDir, 'cloudflare', 'entry.js'), `
+const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
+const okResponse = await mod.default.fetch(new Request('https://example.com/api/echo?page=2'), {}, ctx);
+const invalidResponse = await mod.default.fetch(new Request('https://example.com/api/echo?page=abc'), {}, ctx);
+console.log(JSON.stringify({
+  ok: { status: okResponse.status, body: await okResponse.json() },
+  invalid: { status: invalidResponse.status, body: await invalidResponse.json() },
+}));
+`);
+    expect(result.ok.status).toBe(200);
+    // req.query is untouched — raw string from the URL
+    expect(result.ok.body.rawPage).toBe('2');
+    expect(result.ok.body.rawType).toBe('string');
+    // coerced result lands on req.parsedQuery (matches the Node/celsian runtime)
+    expect(result.ok.body.parsedQuery).toEqual({ page: 2 });
+    expect(result.ok.body.parsedType).toBe('number');
+    // req.validated.query still carries the coerced data
+    expect(result.ok.body.validatedQuery).toEqual({ page: 2 });
+    // invalid query → 400 unchanged
+    expect(result.invalid.status).toBe(400);
+    expect(result.invalid.body.code).toBe('VALIDATION_ERROR');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it('runs only scheduled tasks matching the Cloudflare cron event', async () => {
   const root = mkdtempSync(join(tmpdir(), 'vura-cf-cron-'));
   try {

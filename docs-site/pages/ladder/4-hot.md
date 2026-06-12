@@ -133,11 +133,16 @@ dependency. For projects created before this version: `npm install ws`.
 
 ## Try it now
 
-WebSocket upgrades require a persistent process: they work in the production
-build but **not** in `vura dev` today (the dev server is a plain HTTP server
-with no upgrade handler; ws support in dev is planned).
+Hot routes work directly in `vura dev`: the dev server (both the Vite mode
+and the standalone fallback) accepts WebSocket upgrades for `kind: 'hot'`
+routes, with edits to a route file applying on the next connection. After an
+edit, reconnect any open WebSocket clients — connections opened before the
+edit keep the pre-edit module and room registry, so broadcasts won't reach
+them until they reconnect. Start
+`vura dev` and connect with `npx wscat -c "ws://localhost:3000/api/live/room?name=alice"`.
 
-Build first, then run:
+For the production-parity check, build and run the real server entry —
+WebSocket upgrades require a persistent process in production too:
 
 ```sh
 # 1. Build
@@ -201,6 +206,28 @@ when a hot route is present and a non-persistent adapter is active, so you
 find out at build time, not in production. See the
 [Fly.io guide](/self-host/fly/) for the full path, or
 [Node/VPS](/self-host/node-vps/) for the simplest one.
+
+## Restrict origins in production
+
+By default a hot route accepts WebSocket upgrades from **any** Origin. If your
+app authenticates with cookies, that means any website a logged-in user visits
+can open a socket to your route with their credentials attached
+(cross-site WebSocket hijacking). Lock it down with the `origins` route config:
+
+```ts
+export const route = {
+  kind: 'hot',
+  origins: ['https://yourapp.example'],
+};
+```
+
+Upgrade requests from any other browser Origin are rejected with `403` before
+the handshake. Requests with no `Origin` header (curl, wscat, server-to-server
+clients) still connect — browsers always send Origin, and non-browser clients
+can forge any value, so blocking them would add no security. Recommended for
+**any cookie-authenticated app**; harmless to set everywhere. Entries must be
+inline string literals in the `route` export — identifiers, spreads, or
+template literals are not extracted at build time, leaving the route open.
 
 ## Graceful drain on deploy
 

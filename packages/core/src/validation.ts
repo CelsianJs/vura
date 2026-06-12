@@ -120,7 +120,8 @@ export interface ValidationResult<
  *     page: z.coerce.number().default(1),
  *   }),
  * });
- * // In handler: req.parsedBody is the validated body, req.query has validated query params
+ * // In handler: req.parsedBody is the validated body, req.parsedQuery the
+ * // validated+coerced query (req.query keeps the raw strings)
  * ```
  */
 export function defineSchema<
@@ -252,7 +253,12 @@ export function validateRequest<
   req.parsedBody = result.data!.body;
   // body is shadowed via defineProperty by applyThenCompat; use cast for legacy compat path
   (req as any).body = result.data!.body;
-  req.query = result.data!.query as Record<string, string>;
+  // Match the Node/celsian runtime: req.query keeps the raw strings, the
+  // validated+coerced result is surfaced on req.parsedQuery — but only when
+  // the schema actually declares a query (mirrors the adapter templates).
+  if (schema.query) {
+    req.parsedQuery = result.data!.query;
+  }
   req.params = result.data!.params as Record<string, string>;
   return null;
 }

@@ -22,7 +22,7 @@ import { nodeToWebRequest, writeWebResponse } from '@celsian/core';
 import { createApiApp, type RuntimeApiRoute, type GlobalHooks } from './api-app.js';
 import { buildWhatRoutes, createPagesHandler, type RuntimePage } from './pages.js';
 import { createVuraCache, type VuraCacheConfig } from './cache.js';
-import { createHotPeer } from './hot.js';
+import { createWsUpgradeHandler, createNoServerWebSocketServer } from './ws-upgrade.js';
 import { compileRoutes, type CompiledRoute } from '../match.js';
 import {
   runTaskOnce,
@@ -502,9 +502,6 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
   let wsRegistry: any = null;
 
   if (wsRoutes.length > 0) {
-    let wss: any = null;
-    let createWSConnectionFn: any = null;
-
     // Import 'ws' in its own try/catch so only ERR_MODULE_NOT_FOUND triggers the
     // "not installed" warning.  Errors from WSS construction or app.ws() are
     // genuine bugs and must surface, not be swallowed silently.
@@ -531,14 +528,8 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
       }
     } else {
       // 'ws' is available — set up WSS and upgrade handler.
-      const coreMod = await import('@celsian/core');
-      const WSS = (wsMod as any).WebSocketServer ?? (wsMod as any).default?.WebSocketServer;
-      const { createWSConnection } = coreMod as any;
-      createWSConnectionFn = createWSConnection;
       wsRegistry = app.wsRegistry;
-      // 1MB per-message cap: ws defaults to 100MB, which lets a single client
-      // force large allocations on a public websocket server.
-      wss = new WSS({ noServer: true, maxPayload: 1 << 20 });
+      const wss = createNoServerWebSocketServer(wsMod);
 
       // Register each hot ws route via app.ws() so celsian-level connection
       // tracking is aware of the route.  Event wiring goes through HotPeer.
@@ -548,122 +539,21 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
         });
       }
 
-      server.on('upgrade', async (req: import('node:http').IncomingMessage, socket: any, head: Buffer) => {
-        // Reject upgrades during shutdown so load-balancers get a clean 503
-        // instead of an abrupt TCP RST mid-upgrade.
-        if (shuttingDown) {
-          try {
-            socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
-            socket.destroy();
-          } catch { /* socket already gone */ }
-          return;
-        }
-
-        try {
-          const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-          const pathname = url.pathname;
-
-          // Match against compiled route patterns so :param routes are found.
-          let matchedRoute: (typeof wsRoutes)[number] | undefined;
-          let matchedParams: Record<string, string> = {};
-          for (const { route, regex, paramNames } of compiledWsRoutes) {
-            const m = pathname.match(regex);
-            if (m) {
-              matchedRoute = route as (typeof wsRoutes)[number];
-              for (let i = 0; i < paramNames.length; i++) {
-                try { matchedParams[paramNames[i]] = decodeURIComponent(m[i + 1]); }
-                catch { matchedParams[paramNames[i]] = m[i + 1]; }
-              }
-              break;
-            }
-          }
-
-          if (!matchedRoute) {
-            // Unmatched upgrade path — destroy cleanly without crashing
-            try { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); socket.destroy(); } catch { /* already closed */ }
-            return;
-          }
-
-          wss.handleUpgrade(req, socket, head, (ws: any) => {
-            const conn = createWSConnectionFn({
-              send: (data: string | ArrayBuffer) => {
-                try { ws.send(data); } catch { /* no-op on closed socket */ }
-              },
-              close: (code?: number, reason?: string) => {
-                try { ws.close(code ?? 1000, reason ?? ''); } catch { /* ignore */ }
-              },
-            });
-
-            // Key registry by the concrete pathname so broadcast() is scoped to
-            // this specific room (e.g. /api/rooms/7), not the pattern.
-            // WSRegistry.addConnection() is a no-op for paths that were never
-            // register()ed.  For param routes the pattern (/api/rooms/:id) was
-            // registered but not the concrete path (/api/rooms/7), so we must
-            // register the concrete path on first use.
-            if (!wsRegistry.hasPath(pathname)) {
-              wsRegistry.register(pathname, {});
-            }
-            wsRegistry.addConnection(pathname, conn);
-            openRawSockets.add(ws as RawWsHandle);
-
-            // Build the HotPeer — delegates events through raw ws listeners
-            const peer = createHotPeer(conn, ws, wsRegistry, pathname);
-
-            // Build a HotRequest: web headers + parsed query + extracted params
-            const hotReq = {
-              url: url.toString(),
-              headers: new Headers(req.headers as Record<string, string>),
-              query: url.searchParams,
-              params: matchedParams,
-            };
-
-            // Call the user's websocket(peer, req) handler
-            const handler = (matchedRoute!.module as any).websocket as Function;
-            try {
-              const result = handler(peer, hotReq);
-              if (result && typeof (result as any).catch === 'function') {
-                (result as Promise<void>).catch((err: unknown) => {
-                  console.error('[vura] websocket handler error:', err);
-                });
-              }
-            } catch (err) {
-              console.error('[vura] websocket handler threw synchronously:', err);
-            }
-
-            ws.on('close', () => {
-              wsRegistry.removeConnection(pathname, conn);
-              openRawSockets.delete(ws as RawWsHandle);
-              // Evict ephemeral concrete-path entries (e.g. /api/rooms/7) once
-              // the last peer leaves.  Startup-registered exact patterns (where
-              // pathname === urlPattern) are never evicted so their handlers stay
-              // available for future connections.  Without this, hot servers that
-              // serve many unique room IDs accumulate one Map entry per room
-              // indefinitely — an unbounded memory leak.
-              // TODO: upstream an unregister(path) method to @celsian/core WSRegistry.
-              if (
-                pathname !== matchedRoute!.urlPattern &&
-                wsRegistry.getConnectionCount(pathname) === 0
-              ) {
-                const reg = wsRegistry as unknown as {
-                  handlers: Map<string, unknown>;
-                  connections: Map<string, unknown>;
-                };
-                reg.handlers.delete(pathname);
-                reg.connections.delete(pathname);
-              }
-            });
-
-            ws.on('error', (err: Error) => {
-              console.error('[vura] WebSocket error:', err.message);
-            });
-          });
-        } catch (err) {
-          // Wrap entire upgrade handler body in try/catch — destroy socket on
-          // any failure including URL parse errors (unhandled rejection otherwise).
-          console.error('[vura] WebSocket upgrade error:', err);
-          try { socket.destroy(); } catch { /* ignore */ }
-        }
-      });
+      // Per-upgrade work (match, 503/403/404 rejections, HotPeer wiring,
+      // registry registration/eviction) lives in the shared factory — the
+      // same handler the dev servers (vite-plugin, standalone) consume.
+      server.on('upgrade', createWsUpgradeHandler({
+        wss,
+        getWsRoutes: () => compiledWsRoutes,
+        // Prod modules are bundled into the route table — identity load.
+        loadModule: async (route) => (route as RuntimeApiRoute).module,
+        getWsRegistry: () => wsRegistry,
+        isShuttingDown: () => shuttingDown,
+        onUnmatched: 'reject',
+        // Drain-set tracking so closeWebSockets() can drain open sockets.
+        onOpen: (ws) => { openRawSockets.add(ws as RawWsHandle); },
+        onClose: (ws) => { openRawSockets.delete(ws as RawWsHandle); },
+      }));
     }
   }
 

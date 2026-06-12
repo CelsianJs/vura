@@ -21,6 +21,8 @@ import {
   reportError,
   getLogger,
   createApiApp,
+  createWsUpgradeHandler,
+  createNoServerWebSocketServer,
   GLOBAL_HOOKS_FILENAMES,
   nodeToWebRequest,
   writeWebResponse,
@@ -167,20 +169,88 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
       server.watcher.add(apiDir);
       server.watcher.add(pagesDir);
 
+      // Open ws connection count — used by the rescan notice below.
+      let openWsConnections = 0;
       const rescanOnChange = async (file: string) => {
         if (file.startsWith(apiDir) || file.startsWith(pagesDir)) {
           const rel = file.replace(projectRoot + '/', '');
           console.log(`  [then] Route changed: ${rel}`);
-          manifest = await buildManifest(projectRoot);
-          // Rebuild the CelsianApp and route regexes with fresh modules
-          apiApp = await buildApiApp(manifest, projectRoot, server);
-          compiledApiRoutes = compileRoutes(manifest.api.filter(r => r.kind !== 'task'));
+          try {
+            const nextManifest = await buildManifest(projectRoot);
+            // Rebuild the CelsianApp and route regexes with fresh modules,
+            // swapping only on success — a broken edit (syntax error) must
+            // not crash the dev server via an unhandled rejection.
+            apiApp = await buildApiApp(nextManifest, projectRoot, server);
+            manifest = nextManifest;
+            compiledApiRoutes = compileRoutes(manifest.api.filter(r => r.kind !== 'task'));
+            // The rebuilt app has a NEW wsRegistry; peers connected before this
+            // rescan stay in the old one, so broadcasts split until reconnect.
+            if (openWsConnections > 0) {
+              console.log('  [then] routes re-scanned — open WebSocket clients keep their old room registry; reconnect to rejoin');
+            }
+          } catch (err) {
+            console.error(`  [then] route re-scan failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
         }
       };
 
       server.watcher.on('change', rescanOnChange);
       server.watcher.on('add', rescanOnChange);
       server.watcher.on('unlink', rescanOnChange);
+
+      // ─── WebSocket upgrades for hot routes ───
+      // Vite's own HMR websocket shares this HTTP server: its listener only
+      // claims upgrades whose sec-websocket-protocol is vite-hmr/vite-ping at
+      // the HMR base path (vite@6 createWebSocketServer). Our handler returns
+      // WITHOUT touching the socket for those — and for any path that matches
+      // no hot route (onUnmatched: 'ignore') — so co-listeners stay functional.
+      const hasHotWsRoutes = () =>
+        manifest.api.some((r) => r.kind === 'hot' && r.hasWebsocket);
+      let wsMod: unknown;
+      try {
+        wsMod = await import('ws');
+      } catch {
+        // 'ws' is an optional peer dep — warn only when the project actually
+        // has websocket hot routes that would silently not work.
+        if (hasHotWsRoutes()) {
+          console.warn(
+            '  [then] Hot routes export websocket() but the "ws" package is not installed. ' +
+            'Install it with: pnpm add ws (or npm install ws). WebSocket upgrades are disabled in dev.',
+          );
+        }
+      }
+      if (wsMod !== undefined && server.httpServer) {
+        const wss = createNoServerWebSocketServer(wsMod);
+        const upgradeHandler = createWsUpgradeHandler({
+          wss,
+          // Re-read the manifest closure on every upgrade — rescanOnChange
+          // keeps it fresh, so hot routes added/renamed mid-session connect
+          // without rewiring.
+          getWsRoutes: () =>
+            compileRoutes(manifest.api.filter((r) => r.kind === 'hot' && r.hasWebsocket)),
+          // ssrLoadModule → edits to the route file apply on next connection.
+          loadModule: (route) => server.ssrLoadModule(`/${route.filePath}`),
+          // apiApp is rebuilt on rescan — always use the LATEST app's registry.
+          // Non-null: apiApp is built above before this handler is wired.
+          getWsRegistry: () => apiApp!.wsRegistry,
+          onUnmatched: 'ignore',
+          onOpen: () => { openWsConnections++; },
+          onClose: () => { openWsConnections--; },
+        });
+        server.httpServer.on('upgrade', (req, socket, head) => {
+          // Vite HMR/ping traffic is Vite's — never touch it (cheap check
+          // first). The header is a comma-separated subprotocol list: compare
+          // exact trimmed tokens so e.g. `x-vite-hmr` is NOT mistaken for it.
+          const protocol = req.headers['sec-websocket-protocol'];
+          const isViteTraffic = typeof protocol === 'string' &&
+            protocol.split(',').some((p) => {
+              const token = p.trim();
+              return token === 'vite-hmr' || token === 'vite-ping';
+            });
+          if (isViteTraffic) return;
+          upgradeHandler(req, socket, head);
+        });
+      }
 
       // ─── Task management middleware ───
       server.middlewares.use(async (req, res, next) => {

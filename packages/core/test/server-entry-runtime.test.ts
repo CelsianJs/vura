@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { fork, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -36,11 +36,18 @@ async function startGeneratedServer(
   manifest: RouteManifest,
   env: Record<string, string> = {},
 ): Promise<{ process: ChildProcess; port: number }> {
-  const port = pickPort();
   // Phase B: use build() to produce a bundled entry.js (self-contained ESM)
   const buildResult = await build(manifest, {}, root);
-  const entryPath = buildResult.serverEntry; // dist/server/entry.js
+  return bootBuiltEntry(buildResult.serverEntry, root, env);
+}
 
+/** Fork an already-built dist/server/entry.js and wait for it to listen. */
+async function bootBuiltEntry(
+  entryPath: string,
+  root: string,
+  env: Record<string, string> = {},
+): Promise<{ process: ChildProcess; port: number }> {
+  const port = pickPort();
   const child = fork(entryPath, [], {
     cwd: join(root, 'dist', 'server'),
     stdio: 'pipe',
@@ -499,4 +506,69 @@ export async function GET(_req: any, reply: any) {
     expect(JSON.parse(res.body)).toEqual({ done: true });
     expect(exit.code).toBe(0);
   }, 10000);
+
+  it('wires a filesystem cache store from vura.config that persists ISR entries across restarts', async () => {
+    const root = createTempProject();
+    // A revalidate page whose body embeds a per-process random token: if the
+    // second boot re-rendered (i.e. the store were memory, not filesystem),
+    // the token would change and the cross-boot body assertion would fail.
+    writeModule(root, 'src/pages/cached.tsx', `
+import { h } from 'what-framework';
+export const page = { mode: 'server', revalidate: 300, title: 'Cached' };
+const bootToken = Math.random().toString(36).slice(2);
+export default function CachedPage() {
+  return h('p', { id: 'cached' }, 'token-' + bootToken);
+}
+`);
+
+    const manifest: RouteManifest = {
+      api: [],
+      pages: [{
+        filePath: 'src/pages/cached.tsx',
+        urlPattern: '/cached',
+        mode: 'server',
+        hasGetServerData: false,
+        config: { mode: 'server', revalidate: 300 },
+      }],
+      layouts: [],
+      timestamp: new Date().toISOString(),
+    };
+
+    // Build with a filesystem store from vura.config — this is the wiring
+    // under test. The relative dir resolves from the server process cwd
+    // (dist/server here, /app in the generated Docker image).
+    const buildResult = await build(
+      manifest,
+      { cache: { store: 'filesystem', dir: '.vura/cache', maxEntries: 500 } },
+      root,
+    );
+
+    // The artifact must carry the literals but never any secret value.
+    const thinSource = readFileSync(join(root, 'dist', 'server', 'entry.source.mjs'), 'utf8');
+    expect(thinSource).toContain('store: "filesystem"');
+    expect(thinSource).toContain('dir: ".vura/cache"');
+    expect(thinSource).toContain('maxEntries: 500');
+    expect(thinSource).toContain('revalidateSecret: process.env.VURA_REVALIDATE_SECRET');
+
+    // Boot 1 — MISS then HIT populates the on-disk store.
+    const first = await bootBuiltEntry(buildResult.serverEntry, root);
+    const r1 = await httpGet(first.port, '/cached');
+    expect(r1.statusCode).toBe(200);
+    expect(r1.headers['x-what-cache']).toBe('MISS');
+    const r2 = await httpGet(first.port, '/cached');
+    // HIT here proves the entry was read back from the filesystem store
+    // (the store's get() reads from disk on every call).
+    expect(r2.headers['x-what-cache']).toBe('HIT');
+    first.process.kill('SIGTERM');
+    await waitForExit(first.process);
+
+    // Boot 2 — a fresh process. A memory store starts empty and would MISS;
+    // only on-disk persistence can serve HIT on the very first request.
+    const second = await bootBuiltEntry(buildResult.serverEntry, root);
+    const r3 = await httpGet(second.port, '/cached');
+    expect(r3.headers['x-what-cache']).toBe('HIT');
+    // Same body as boot 1 — the render (and its boot token) came from disk,
+    // not from a re-render in the new process.
+    expect(r3.body).toBe(r1.body);
+  }, 30000);
 });

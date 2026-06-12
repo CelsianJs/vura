@@ -152,7 +152,9 @@ export function createHotPeer(
   rawWs: {
     on(event: string, cb: (...args: any[]) => void): void;
   },
-  registry: WSRegistry,
+  // Only broadcast() is used — widened from WSRegistry so callers can pass
+  // any registry-shaped object (e.g. ws-upgrade's WsRegistryLike).
+  registry: Pick<WSRegistry, 'broadcast'>,
   /** The concrete pathname of the connection (e.g. `/api/rooms/7`). Registry keyed by this. */
   path: string,
 ): HotPeer {

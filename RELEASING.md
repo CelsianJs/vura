@@ -18,7 +18,7 @@ in the release PR description:
 
 - [ ] `CI / verify (20)` and `CI / verify (22)` — lint, build, test,
       verify-publish, audit (matrix: Node 20 + 22)
-- [ ] `CI / selfhost-audit` — assertions A0–A9 (no-platform-gating)
+- [ ] `CI / selfhost-audit` — assertions A0–A12 (no-platform-gating)
 - [ ] `Self-host guides / scaffold` + all five target jobs:
       `Self-host guides / node-vps`,
       `Self-host guides / docker`,

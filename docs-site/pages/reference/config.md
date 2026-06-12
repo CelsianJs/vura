@@ -40,11 +40,15 @@ These are the fields of `VuraCacheConfig`, nested under the `cache` key.
 | `cache.cdn.apiToken` | `string` | — | Cloudflare or Fastly API token. |
 | `cache.cdn.serviceId` | `string` | — | Fastly service ID. Required when `provider === 'fastly'`. |
 
-## What is wired today vs planned
+## How the generated entry wires `cache`
 
-The generated server entry (`dist/server/entry.js`) currently wires **only `revalidateSecret`** from the `cache` config — it injects `process.env.VURA_REVALIDATE_SECRET` at build time so the webhook handler is active in production. The rest of the `VuraCacheConfig` fields (`store`, `dir`, `redisClient`, `maxEntries`, `cdn`) are accepted by `defineConfig` and type-safe, but the generated entry does not yet pass them through to `createVuraCache()`. A `TODO` in `packages/core/src/build.ts` marks this gap: _"wire full VuraCacheConfig from vura.config when Task X lands"_.
+`vura build` passes the non-secret `cache` fields from `vura.config` into the generated server entry (`dist/server/entry.js`) as build-time literals: `store`, `dir`, `maxEntries`, and `cdn.provider` / `cdn.zoneId` / `cdn.serviceId`.
 
-**Practical consequence:** to use `filesystem` or `redis` store today, call `createVuraCache()` directly in a `src/server.ts` global hooks file rather than relying on the generated entry. The `revalidateSecret` path works as-is via the env variable.
+**Secrets are never serialized into the build artifact.** `cache.revalidateSecret` and `cache.cdn.apiToken` are always read from the environment when the server starts — set `VURA_REVALIDATE_SECRET` and `VURA_CDN_API_TOKEN` on the server process. If either field holds a value in `vura.config` at build time, the build prints a warning and ignores the value.
+
+**`store: 'redis'` is a build error.** A redis store needs a live client instance, which cannot be serialized into a generated file. Use the programmatic path instead — `createVuraCache({ store: 'redis', redisClient })` with `startVuraServer()` in your own server entry. The generated entry supports `memory` and `filesystem`.
+
+**A relative `cache.dir` resolves from the server process cwd.** The value passes through verbatim; with the generated `dist/Dockerfile` (`WORKDIR /app`), the default `.vura/cache` lands at `/app/.vura/cache`. Use an absolute path (or mount a volume at the relative location) if the cache should live elsewhere.
 
 ## Full example
 
@@ -61,7 +65,9 @@ export default defineConfig({
   },
   cache: {
     store: 'filesystem',
-    revalidateSecret: process.env.VURA_REVALIDATE_SECRET,
+    dir: '.vura/cache',
+    // revalidateSecret / cdn.apiToken: do NOT put secrets here — the generated
+    // entry reads VURA_REVALIDATE_SECRET / VURA_CDN_API_TOKEN at runtime.
   },
 });
 ```

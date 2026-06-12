@@ -47,7 +47,7 @@ dist/cloudflare/
   wrangler.toml
   entry.js
   routes/
-    api_hello.js
+    src_api_hello.js
     ...
 ```
 

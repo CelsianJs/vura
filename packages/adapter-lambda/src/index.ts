@@ -536,7 +536,9 @@ function validateRequest(req, schema) {
   if (schema.query) {
     const r = schema.query.safeParse(req.query);
     if (!r.success) errors.push(validationIssues('query', r.error));
-    else req.query = r.data;
+    // Match the Node/celsian runtime: req.query keeps the raw strings,
+    // the validated+coerced result is surfaced on req.parsedQuery.
+    else req.parsedQuery = r.data;
   }
   if (schema.params) {
     const r = schema.params.safeParse(req.params);
@@ -548,7 +550,7 @@ function validateRequest(req, schema) {
     const message = 'Validation failed: ' + issueCount + ' issue' + (issueCount > 1 ? 's' : '') + ' in ' + errors.map(e => e.target).join(', ');
     return { statusCode: 400, body: { error: message, code: 'VALIDATION_ERROR', details: errors } };
   }
-  req.validated = { body: req.parsedBody, query: req.query, params: req.params };
+  req.validated = { body: req.parsedBody, query: schema.query ? req.parsedQuery : req.query, params: req.params };
   return null;
 }
 
