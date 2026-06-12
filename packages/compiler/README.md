@@ -33,7 +33,7 @@ const result = scanRoute(source, 'ts');
 
 _vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
 
-- [Compiler internals — /reference/compiler/](https://vura.io/reference/compiler/)
+- [Compiler internals — /reference/compiler/](https://vura.io/reference/cli/)
 
 ## License
 

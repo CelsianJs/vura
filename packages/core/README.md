@@ -50,9 +50,9 @@ _vura.io docs site launches with v0.5 — until then, see the repo README and CH
 
 - [Quick start — /ladder/0-create/](https://vura.io/ladder/0-create/)
 - [Config reference — /reference/config/](https://vura.io/reference/config/)
-- [API routes — /reference/api-routes/](https://vura.io/reference/api-routes/)
-- [Cache revalidation — /reference/cache/](https://vura.io/reference/cache/)
-- [Auth helpers — /reference/auth/](https://vura.io/reference/auth/)
+- [API routes — /reference/api-routes/](https://vura.io/ladder/3-api/)
+- [Cache revalidation — /reference/cache/](https://vura.io/ladder/2-cache/)
+- [Auth helpers — /reference/auth/](https://vura.io/reference/route-kinds/)
 
 ## License
 

@@ -52,3 +52,5 @@ published at v0.4.0) but must be cleaned before publish.
 ## Sign-off
 
 Signed off: claims-review agent (independent), 2026-06-11, vura v0.4.0, docs-site commit de932e2 — all rows verified against the built site; vura.io cutover pending merge.
+
+Signed off: v0.5.0, 2026-06-12 — new-in-0.5 claims (dev WebSockets, origins allowlist, cache config wiring + env-only secrets, req.parsedQuery, A0–A12 audit) verified empirically by the release smoke-audit (fresh scaffold from packed tarballs, real ws frames, cache HIT across process restart, browser-checked docs) attached to PR #25; vura.io live with the v0.5.0 badge.

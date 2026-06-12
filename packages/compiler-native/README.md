@@ -23,7 +23,7 @@ const { code } = transformJsx(source, 'what-framework', false);
 
 _vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
 
-- [Compiler reference — /reference/compiler/](https://vura.io/reference/compiler/)
+- [Compiler reference — /reference/compiler/](https://vura.io/reference/cli/)
 
 ## License
 

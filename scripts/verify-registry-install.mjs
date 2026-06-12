@@ -102,9 +102,9 @@ async function assertScaffoldBuildAndBoot(scaffoldDir) {
   child.stdout.on('data', (chunk) => { output += chunk.toString(); });
   child.stderr.on('data', (chunk) => { output += chunk.toString(); });
   try {
-    await waitForText(`http://127.0.0.1:${port}/`, 'Welcome to ThenJS');
+    await waitForText(`http://127.0.0.1:${port}/`, 'Welcome to Vura');
     await waitForText(`http://127.0.0.1:${port}/about`, 'This project was scaffolded');
-    await waitForText(`http://127.0.0.1:${port}/api/hello`, 'Hello from ThenJS');
+    await waitForText(`http://127.0.0.1:${port}/api/hello`, 'Hello from Vura!');
   } catch (err) {
     throw new Error(`registry scaffold boot smoke failed: ${err instanceof Error ? err.message : String(err)}\n${output}`);
   } finally {

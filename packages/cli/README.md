@@ -44,7 +44,7 @@ vura tasks run cleanup --input '{"dryRun":true}'
 _vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
 
 - [Quick start — /ladder/0-create/](https://vura.io/ladder/0-create/)
-- [Task routes — /reference/tasks/](https://vura.io/reference/tasks/)
+- [Task routes — /reference/tasks/](https://vura.io/ladder/5-tasks/)
 - [Self-host — /self-host/](https://vura.io/self-host/)
 
 ## License
