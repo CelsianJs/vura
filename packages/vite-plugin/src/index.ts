@@ -175,14 +175,21 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
         if (file.startsWith(apiDir) || file.startsWith(pagesDir)) {
           const rel = file.replace(projectRoot + '/', '');
           console.log(`  [then] Route changed: ${rel}`);
-          manifest = await buildManifest(projectRoot);
-          // Rebuild the CelsianApp and route regexes with fresh modules
-          apiApp = await buildApiApp(manifest, projectRoot, server);
-          compiledApiRoutes = compileRoutes(manifest.api.filter(r => r.kind !== 'task'));
-          // The rebuilt app has a NEW wsRegistry; peers connected before this
-          // rescan stay in the old one, so broadcasts split until reconnect.
-          if (openWsConnections > 0) {
-            console.log('  [then] routes re-scanned — open WebSocket clients keep their old room registry; reconnect to rejoin');
+          try {
+            const nextManifest = await buildManifest(projectRoot);
+            // Rebuild the CelsianApp and route regexes with fresh modules,
+            // swapping only on success — a broken edit (syntax error) must
+            // not crash the dev server via an unhandled rejection.
+            apiApp = await buildApiApp(nextManifest, projectRoot, server);
+            manifest = nextManifest;
+            compiledApiRoutes = compileRoutes(manifest.api.filter(r => r.kind !== 'task'));
+            // The rebuilt app has a NEW wsRegistry; peers connected before this
+            // rescan stay in the old one, so broadcasts split until reconnect.
+            if (openWsConnections > 0) {
+              console.log('  [then] routes re-scanned — open WebSocket clients keep their old room registry; reconnect to rejoin');
+            }
+          } catch (err) {
+            console.error(`  [then] route re-scan failed: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
       };

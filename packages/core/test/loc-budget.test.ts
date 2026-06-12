@@ -46,10 +46,10 @@ describe('A1.4 success metric', () => {
     //   pass): wire VuraCacheConfig from vura.config into the generated server
     //   entry — build.ts cache block now emits store/dir/maxEntries/cdn-id
     //   literals, env-only secrets, redis build error, secret-literal warning
-    //   (+~33; Task 2 measured 6205 against its pre-quality-pass base) →
-    //   combined actual 6241. Task 5 (same day) replaced the hybrid warning
-    //   in build.ts with a narrowed param-only version (≈LOC-neutral).
-    //   Ceiling 6280 leaves ~39 headroom.
+    //   (+~33; Task 2 measured 6205 against its pre-quality-pass base) and
+    //   Task 5 (same day) replaced the hybrid warning in build.ts with a
+    //   narrowed param-only version (+9) → combined actual 6250.
+    //   Ceiling 6280 leaves ~30 headroom.
     expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(6280);
   });
 });

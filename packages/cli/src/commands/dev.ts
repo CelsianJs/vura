@@ -661,21 +661,31 @@ export async function startStandaloneServer(
         console.log(`  [vura] ${event}: ${prefix}/${filename} — re-scanning routes`);
         try {
           const { buildManifest: rescan, compilePageRoutes: recompilePages } = await import('@celsian/vura-core');
-          manifest = await rescan(opts.projectRoot);
-          compiledPages = recompilePages(manifest.pages);
-          browserBundleCache.clear();
-          // Drop cached module instances so the edit applies on the next
-          // connection/request (the rebuild below re-fills the cache).
+          const nextManifest = await rescan(opts.projectRoot);
+          const nextPages = recompilePages(nextManifest.pages);
+          // Build-then-swap: snapshot the module cache and clear it so the
+          // rebuild loads edited files; restore the snapshot on failure so
+          // HTTP and ws keep serving the SAME old instances during a broken
+          // edit (no ws/http state split until a successful rescan).
+          const prevModules = new Map(moduleCache);
           moduleCache.clear();
-          // Rebuild CelsianApp and route regexes with fresh modules after manifest rescan
-          ({ app: apiApp, compiledApiRoutes } = await buildStandaloneApiApp());
+          try {
+            ({ app: apiApp, compiledApiRoutes } = await buildStandaloneApiApp());
+          } catch (err) {
+            moduleCache.clear();
+            for (const [k, v] of prevModules) moduleCache.set(k, v);
+            throw err;
+          }
+          manifest = nextManifest;
+          compiledPages = nextPages;
+          browserBundleCache.clear();
+          if (openWsConnections > 0) {
+            console.log('  [vura] routes re-scanned — open WebSocket clients keep their old room registry; reconnect to rejoin');
+          }
         } catch (err) {
           // A broken edit (e.g. syntax error) must not crash the dev server —
           // keep serving the previous app; the next successful rescan recovers.
           console.error(`  [vura] route re-scan failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
-        if (openWsConnections > 0) {
-          console.log('  [vura] routes re-scanned — open WebSocket clients keep their old room registry; reconnect to rejoin');
         }
       });
       watchers.push(watcher);
