@@ -2,7 +2,7 @@
  * Handler Types — deprecated aliases for CelsianRequest/CelsianReply.
  *
  * @deprecated Import from @celsian/core or @vura/core directly.
- * ThenRequest/ThenReply/ThenHandler will be removed in vura v0.5.
+ * ThenRequest/ThenReply/ThenHandler will be removed in vura v0.6.
  * The runtime functions (finalizeNodeHandlerResult) remain here until
  * the Node dev/hot-server paths are migrated in Tasks 5-7.
  */
