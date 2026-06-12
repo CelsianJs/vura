@@ -23,6 +23,7 @@ import { createApiApp, type RuntimeApiRoute, type GlobalHooks } from './api-app.
 import { buildWhatRoutes, createPagesHandler, type RuntimePage } from './pages.js';
 import { createVuraCache, type VuraCacheConfig } from './cache.js';
 import { createHotPeer } from './hot.js';
+import { isOriginAllowed } from './ws-upgrade.js';
 import { compileRoutes, type CompiledRoute } from '../match.js';
 import {
   runTaskOnce,
@@ -581,6 +582,20 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
           if (!matchedRoute) {
             // Unmatched upgrade path — destroy cleanly without crashing
             try { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); socket.destroy(); } catch { /* already closed */ }
+            return;
+          }
+
+          // Origin allowlist (opt-in per route: `origins: ['https://app.example.com']`).
+          // Reject BEFORE handleUpgrade so no ws handshake bytes are written —
+          // RFC 6455 pre-upgrade rejection is a plain HTTP error response.
+          const allowedOrigins = Array.isArray(matchedRoute.config?.origins)
+            ? (matchedRoute.config.origins as string[])
+            : undefined;
+          if (!isOriginAllowed(req.headers.origin, allowedOrigins)) {
+            try {
+              socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+              socket.destroy();
+            } catch { /* already closed */ }
             return;
           }
 

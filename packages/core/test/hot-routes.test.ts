@@ -15,6 +15,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { startVuraServer, type VuraServer } from '../src/runtime/server.js';
 import { extractApiExports } from '../src/manifest.js';
+import { isOriginAllowed } from '../src/runtime/ws-upgrade.js';
 import WebSocket from 'ws';
 
 let srv: VuraServer | undefined;
@@ -72,6 +73,60 @@ describe('manifest websocket detection', () => {
     const src = `export const route = { kind: 'hot' };\nexport const websocket = (peer, req) => {};`;
     const out = extractApiExports(src);
     expect(out.hasWebsocket).toBe(true);
+  });
+});
+
+// ─── Origin allowlist: isOriginAllowed unit tests ───
+
+describe('isOriginAllowed', () => {
+  it('allows any origin when no allowlist is set (backward compatible)', () => {
+    expect(isOriginAllowed('http://evil.test', undefined)).toBe(true);
+    expect(isOriginAllowed(undefined, undefined)).toBe(true);
+  });
+
+  it('allows requests with no Origin header even when an allowlist is set', () => {
+    // Browsers always send Origin on ws handshakes; absence means non-browser
+    // client, which could forge any Origin anyway — CSWSH is a browser attack.
+    expect(isOriginAllowed(undefined, ['https://app.example.com'])).toBe(true);
+  });
+
+  it('allows an exact allowlisted origin', () => {
+    expect(isOriginAllowed('https://app.example.com', ['https://app.example.com'])).toBe(true);
+    expect(isOriginAllowed('http://allowed.test', ['https://other.test', 'http://allowed.test'])).toBe(true);
+  });
+
+  it('rejects an origin not on the allowlist', () => {
+    expect(isOriginAllowed('http://evil.test', ['http://allowed.test'])).toBe(false);
+    expect(isOriginAllowed('https://app.example.com.evil.test', ['https://app.example.com'])).toBe(false);
+  });
+
+  it('compares case-insensitively', () => {
+    expect(isOriginAllowed('HTTP://ALLOWED.TEST', ['http://allowed.test'])).toBe(true);
+    expect(isOriginAllowed('http://allowed.test', ['HTTP://Allowed.Test'])).toBe(true);
+  });
+
+  it('normalizes allowlist entries via URL.origin (trailing slash, path, default port)', () => {
+    expect(isOriginAllowed('https://app.example.com', ['https://app.example.com/'])).toBe(true);
+    expect(isOriginAllowed('https://app.example.com', ['https://app.example.com/some/path'])).toBe(true);
+    expect(isOriginAllowed('https://app.example.com:443', ['https://app.example.com'])).toBe(true);
+  });
+
+  it('distinguishes scheme and port', () => {
+    expect(isOriginAllowed('http://app.example.com', ['https://app.example.com'])).toBe(false);
+    expect(isOriginAllowed('https://app.example.com:8443', ['https://app.example.com'])).toBe(false);
+  });
+
+  it('rejects a malformed Origin header when an allowlist is set', () => {
+    expect(isOriginAllowed('not a url', ['http://allowed.test'])).toBe(false);
+    expect(isOriginAllowed('', ['http://allowed.test'])).toBe(false);
+    // Opaque origin serialization ('null' — sandboxed iframe, file://, data:)
+    expect(isOriginAllowed('null', ['http://allowed.test'])).toBe(false);
+  });
+
+  it('empty allowlist denies all browser origins (explicit opt-in to deny-all)', () => {
+    expect(isOriginAllowed('http://allowed.test', [])).toBe(false);
+    // ...but no-Origin (non-browser) clients still pass.
+    expect(isOriginAllowed(undefined, [])).toBe(true);
   });
 });
 
@@ -462,5 +517,92 @@ describe('hot route websockets', () => {
     expect(rejected).toBe(true);
 
     await closePromise;
+  });
+
+  // ─── Origin allowlist: integration (real handshake) ───
+
+  it('rejects disallowed Origin with 403, allows allowlisted and no-Origin clients', async () => {
+    srv = await startVuraServer({
+      port: 0,
+      apiRoutes: [
+        {
+          urlPattern: '/api/guarded',
+          methods: [],
+          kind: 'hot',
+          hasWebsocket: true,
+          filePath: 'src/api/guarded.ts',
+          config: { origins: ['http://allowed.test'] },
+          module: {
+            websocket: (peer: any) => {
+              peer.on('message', (data: string) => peer.send(`echo:${data}`));
+            },
+          },
+        } as any,
+      ],
+      pages: [],
+    });
+
+    const url = `ws://127.0.0.1:${srv.port}/api/guarded`;
+
+    // 1. Disallowed Origin → handshake must FAIL with a 403 response.
+    const evil = new WebSocket(url, { headers: { origin: 'http://evil.test' } });
+    const evilError = await new Promise<Error>((resolve) => {
+      evil.on('error', resolve);
+      evil.on('open', () => resolve(new Error('handshake unexpectedly succeeded')));
+    });
+    expect(evilError.message).toContain('403');
+
+    // 2. Allowlisted Origin → connects and echoes.
+    const good = new WebSocket(url, { headers: { origin: 'http://allowed.test' } });
+    const goodReply = await new Promise<string>((resolve, reject) => {
+      good.on('open', () => good.send('hi'));
+      good.on('message', (d) => resolve(d.toString()));
+      good.on('error', reject);
+    });
+    expect(goodReply).toBe('echo:hi');
+    good.close();
+
+    // 3. No Origin header (non-browser client) → connects fine.
+    const headless = new WebSocket(url);
+    const headlessReply = await new Promise<string>((resolve, reject) => {
+      headless.on('open', () => headless.send('yo'));
+      headless.on('message', (d) => resolve(d.toString()));
+      headless.on('error', reject);
+    });
+    expect(headlessReply).toBe('echo:yo');
+    headless.close();
+  });
+
+  it('routes without an origins config still accept any Origin (default open)', async () => {
+    srv = await startVuraServer({
+      port: 0,
+      apiRoutes: [
+        {
+          urlPattern: '/api/open',
+          methods: [],
+          kind: 'hot',
+          hasWebsocket: true,
+          filePath: 'src/api/open.ts',
+          config: {},
+          module: {
+            websocket: (peer: any) => {
+              peer.on('message', (data: string) => peer.send(`echo:${data}`));
+            },
+          },
+        } as any,
+      ],
+      pages: [],
+    });
+
+    const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/api/open`, {
+      headers: { origin: 'http://anything.test' },
+    });
+    const reply = await new Promise<string>((resolve, reject) => {
+      ws.on('open', () => ws.send('hi'));
+      ws.on('message', (d) => resolve(d.toString()));
+      ws.on('error', reject);
+    });
+    expect(reply).toBe('echo:hi');
+    ws.close();
   });
 });

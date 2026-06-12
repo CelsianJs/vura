@@ -202,6 +202,26 @@ find out at build time, not in production. See the
 [Fly.io guide](/self-host/fly/) for the full path, or
 [Node/VPS](/self-host/node-vps/) for the simplest one.
 
+## Restrict origins in production
+
+By default a hot route accepts WebSocket upgrades from **any** Origin. If your
+app authenticates with cookies, that means any website a logged-in user visits
+can open a socket to your route with their credentials attached
+(cross-site WebSocket hijacking). Lock it down with the `origins` route config:
+
+```ts
+export const route = {
+  kind: 'hot',
+  origins: ['https://yourapp.example'],
+};
+```
+
+Upgrade requests from any other browser Origin are rejected with `403` before
+the handshake. Requests with no `Origin` header (curl, wscat, server-to-server
+clients) still connect — browsers always send Origin, and non-browser clients
+can forge any value, so blocking them would add no security. Recommended for
+**any cookie-authenticated app**; harmless to set everywhere.
+
 ## Graceful drain on deploy
 
 When a new version is deployed, the old process receives SIGTERM. Vura's

@@ -28,6 +28,10 @@ describe('A1.4 success metric', () => {
     // A3 truthfulness fixes (2026-06-11): array tag parsing in manifest.ts
     //   (+13 lines) + schema.query→querystring mapping in api-app.ts (+3 lines)
     //   → actual 5935. Ceiling 5970 leaves ~35 headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(5970);
+    // v0.4.x backlog Task 3 (2026-06-11): ws Origin allowlist — new
+    //   runtime/ws-upgrade.ts (isOriginAllowed, mostly JSDoc rationale) +
+    //   403 rejection in server.ts upgrade handler → actual 6043.
+    //   Ceiling 6080 leaves ~37 headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(6080);
   });
 });

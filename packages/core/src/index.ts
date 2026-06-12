@@ -258,6 +258,8 @@ export type {
   HotWebsocketHandler,
 } from './runtime/hot.js';
 
+export { isOriginAllowed } from './runtime/ws-upgrade.js';
+
 // Re-export Node↔Web bridge helpers from @celsian/core so vite-plugin and cli
 // can import them without taking a direct @celsian/core dep.
 export { nodeToWebRequest, writeWebResponse } from '@celsian/core';
