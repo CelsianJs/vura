@@ -75,6 +75,19 @@ describe('extractApiExports', () => {
     const result = extractApiExports(source);
     expect(result.methods).toEqual([]);
   });
+
+  it('extracts origins array of string literals into config (WebSocket allowlist path)', () => {
+    // Pins the arrayPattern in extractApiExports: the Origin allowlist security
+    // feature depends on this extraction. If it regresses, routes silently fail
+    // OPEN (undefined allowlist = no restriction), so this must break loudly.
+    const source = `export const route = { kind: 'hot', origins: ['https://app.example.com', 'http://localhost:3000'] }`;
+    const result = extractApiExports(source);
+    expect(result.kind).toBe('hot');
+    expect(result.config.origins).toEqual([
+      'https://app.example.com',
+      'http://localhost:3000',
+    ]);
+  });
 });
 
 describe('extractPageConfig', () => {

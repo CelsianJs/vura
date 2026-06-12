@@ -68,7 +68,7 @@ Persistent process. The server holds a WebSocket open for each connection. In-me
 
 | Field | Type | Default | Effect |
 |---|---|---|---|
-| `origins` | `string[]` | unset | Origin allowlist for the WebSocket handshake. When set, upgrade requests whose `Origin` header is not on the list are rejected with `403` before the handshake. Entries are compared as URL origins, case-insensitively (trailing slashes/paths/default ports are normalized away). Requests with **no** `Origin` header always pass — browsers always send one, and non-browser clients can forge any value anyway. **Default is open**: without `origins`, any site can open a WebSocket to this route — set it for any cookie-authenticated app. |
+| `origins` | `string[]` | unset | Origin allowlist for the WebSocket handshake. When set, upgrade requests whose `Origin` header is not on the list are rejected with `403` before the handshake. Entries are compared as URL origins, case-insensitively (trailing slashes/paths/default ports are normalized away). Requests with **no** `Origin` header always pass — browsers always send one, and non-browser clients can forge any value anyway. **Default is open**: without `origins`, any site can open a WebSocket to this route — set it for any cookie-authenticated app. Entries must be inline string literals inside the `route` export — identifiers, spreads, and template literals are not extracted at build time and leave the route open. Note `origins: []` is also dropped at build time, so it leaves the route **open** rather than denying all browser origins (the runtime treats an empty allowlist as deny-all, but an empty array literal never survives extraction). |
 
 ```ts
 export const route = { kind: 'hot', origins: ['https://app.example.com'] };

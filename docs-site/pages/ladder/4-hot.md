@@ -220,7 +220,9 @@ Upgrade requests from any other browser Origin are rejected with `403` before
 the handshake. Requests with no `Origin` header (curl, wscat, server-to-server
 clients) still connect — browsers always send Origin, and non-browser clients
 can forge any value, so blocking them would add no security. Recommended for
-**any cookie-authenticated app**; harmless to set everywhere.
+**any cookie-authenticated app**; harmless to set everywhere. Entries must be
+inline string literals in the `route` export — identifiers, spreads, or
+template literals are not extracted at build time, leaving the route open.
 
 ## Graceful drain on deploy
 
