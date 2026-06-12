@@ -254,8 +254,11 @@ export function validateRequest<
   // body is shadowed via defineProperty by applyThenCompat; use cast for legacy compat path
   (req as any).body = result.data!.body;
   // Match the Node/celsian runtime: req.query keeps the raw strings, the
-  // validated+coerced result is surfaced on req.parsedQuery.
-  req.parsedQuery = result.data!.query;
+  // validated+coerced result is surfaced on req.parsedQuery — but only when
+  // the schema actually declares a query (mirrors the adapter templates).
+  if (schema.query) {
+    req.parsedQuery = result.data!.query;
+  }
   req.params = result.data!.params as Record<string, string>;
   return null;
 }

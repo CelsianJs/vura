@@ -10,6 +10,25 @@ const userRoute = {
   },
 };
 
+// Zod-like schema that coerces page → number (mirrors z.object({ page: z.coerce.number() }))
+const coercingQuerySchema = {
+  parse: (data: unknown) => {
+    const n = Number((data as Record<string, unknown>).page);
+    if (Number.isNaN(n)) throw new Error('Expected number');
+    return { page: n };
+  },
+  safeParse: (data: unknown) => {
+    const n = Number((data as Record<string, unknown>).page);
+    if (Number.isNaN(n)) {
+      return {
+        success: false as const,
+        error: { issues: [{ path: ['page'], message: 'Expected number', code: 'invalid_type' }] },
+      };
+    }
+    return { success: true as const, data: { page: n } };
+  },
+};
+
 describe('createApiApp', () => {
   it('registers manifest routes onto a CelsianApp and serves them', async () => {
     const app = createApiApp({ routes: [userRoute as any] });
@@ -108,24 +127,6 @@ describe('createApiApp', () => {
   });
 
   it('query coercion: handler sees coerced req.parsedQuery while req.query stays raw strings', async () => {
-    // Zod-like schema that coerces page → number (mirrors z.object({ page: z.coerce.number() }))
-    const coercingQuerySchema = {
-      parse: (data: unknown) => {
-        const n = Number((data as Record<string, unknown>).page);
-        if (Number.isNaN(n)) throw new Error('Expected number');
-        return { page: n };
-      },
-      safeParse: (data: unknown) => {
-        const n = Number((data as Record<string, unknown>).page);
-        if (Number.isNaN(n)) {
-          return {
-            success: false as const,
-            error: { issues: [{ path: ['page'], message: 'Expected number', code: 'invalid_type' }] },
-          };
-        }
-        return { success: true as const, data: { page: n } };
-      },
-    };
     let captured: { parsedQuery: unknown; rawPage: unknown } | undefined;
     const coerceRoute = {
       urlPattern: '/api/x', methods: ['GET'] as const, kind: 'serverless' as const,
@@ -149,23 +150,6 @@ describe('createApiApp', () => {
   });
 
   it('query coercion: invalid query → 400, handler never runs', async () => {
-    const coercingQuerySchema = {
-      parse: (data: unknown) => {
-        const n = Number((data as Record<string, unknown>).page);
-        if (Number.isNaN(n)) throw new Error('Expected number');
-        return { page: n };
-      },
-      safeParse: (data: unknown) => {
-        const n = Number((data as Record<string, unknown>).page);
-        if (Number.isNaN(n)) {
-          return {
-            success: false as const,
-            error: { issues: [{ path: ['page'], message: 'Expected number', code: 'invalid_type' }] },
-          };
-        }
-        return { success: true as const, data: { page: n } };
-      },
-    };
     let handlerRan = false;
     const coerceRoute = {
       urlPattern: '/api/x', methods: ['GET'] as const, kind: 'serverless' as const,

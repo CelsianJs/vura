@@ -374,6 +374,20 @@ describe('validateRequest', () => {
     expect((req as any).validated.query).toEqual({ page: 2 });
   });
 
+  it('does not set req.parsedQuery when the schema declares no query', () => {
+    const schema = defineSchema({
+      body: objectSchema<{ name: string }>({ name: { type: 'string' } }),
+    });
+    const req = createRequest({ parsedBody: { name: 'Bob' }, query: { page: '2' } });
+
+    const error = validateRequest(req, schema);
+    expect(error).toBeNull();
+    // no query schema → parsedQuery stays unset (matches celsian + adapters)
+    expect(req.parsedQuery).toBeUndefined();
+    // raw query untouched
+    expect(req.query).toEqual({ page: '2' });
+  });
+
   it('invalid query still returns a 400 error object', () => {
     const coercingQuery = createMockSchema<{ page: number }>(data => {
       const n = Number((data as Record<string, unknown>).page);
