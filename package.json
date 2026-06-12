@@ -22,13 +22,13 @@
     "test:selfhost-audit": "vitest run tests/self-host-audit"
   },
   "devDependencies": {
-    "@types/node": ">=20 <23",
+    "@types/node": ">=20 <26",
     "@types/ws": "^8.5.14",
     "esbuild": "^0.27.3",
     "happy-dom": "^20.10.2",
-    "typescript": "^5.7.0",
-    "vite": "^6.4.1",
-    "vitest": "^3.2.6",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.8",
     "wrangler": "^4.72.0",
     "ws": "^8.18.0"
   },
@@ -37,7 +37,7 @@
       "workerd"
     ],
     "overrides": {
-      "@types/node": "22.19.18"
+      "@types/node": "25.9.3"
     }
   },
   "dependencies": {
