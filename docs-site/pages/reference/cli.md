@@ -31,6 +31,8 @@ vura dev [--port <n>] [--host <addr>]
 
 File changes to `src/api/` and `src/pages/` are picked up without restart. Type changes to route config (e.g. changing `kind`) require a page reload.
 
+Hot routes that export a `websocket()` handler accept WebSocket upgrades in dev (requires the `ws` package; the scaffold includes it). Edits to a hot route file apply on the next connection, and per-route `origins` allowlists are enforced just like in production.
+
 ---
 
 ## `vura build`

@@ -28,6 +28,8 @@ import {
   reportError,
   getMimeType,
   createApiApp,
+  createWsUpgradeHandler,
+  createNoServerWebSocketServer,
   GLOBAL_HOOKS_FILENAMES,
   nodeToWebRequest,
   writeWebResponse,
@@ -168,6 +170,8 @@ export async function devCommand(args: string[]): Promise<void> {
     if (err.code === 'ERR_MODULE_NOT_FOUND' || err.message?.includes('Cannot find')) {
       console.log('  Vite not found, starting standalone dev server...\n');
       await startStandaloneServer(manifest, opts);
+      // Keep the dev process alive until the user interrupts it.
+      await new Promise(() => {});
     } else {
       throw err;
     }
@@ -194,11 +198,14 @@ function printRouteTable(manifest: Awaited<ReturnType<typeof buildManifest>>): v
 /**
  * Standalone dev server without Vite — for backend-only projects (CelsianJS).
  * Uses Node's built-in HTTP server with file watching.
+ *
+ * Exported for tests. Resolves once the server is listening and returns a
+ * handle; devCommand keeps the process alive itself.
  */
-async function startStandaloneServer(
+export async function startStandaloneServer(
   manifest: Awaited<ReturnType<typeof buildManifest>>,
   opts: DevOptions,
-): Promise<void> {
+): Promise<{ server: import('node:http').Server; port: number; close: () => Promise<void> }> {
   const { createServer } = await import('node:http');
   const { watch } = await import('node:fs');
   const { join } = await import('node:path');
@@ -581,10 +588,43 @@ async function startStandaloneServer(
     res.end(JSON.stringify({ error: 'Not Found', path: url.pathname }));
   });
 
+  // ─── WebSocket upgrades for hot routes ───
+  // Wired BEFORE listen — upgrade can fire with the first connection. Vura
+  // owns this whole server, so unmatched upgrade paths are 404-rejected.
+  let wsMod: unknown;
+  try {
+    wsMod = await import('ws');
+  } catch {
+    // 'ws' is optional — warn only when websocket hot routes would silently
+    // not work without it.
+    if (manifest.api.some((r) => r.kind === 'hot' && r.hasWebsocket)) {
+      console.warn(
+        '  [vura] Hot routes export websocket() but the "ws" package is not installed. ' +
+        'Install it with: npm install ws. WebSocket upgrades are disabled in dev.',
+      );
+    }
+  }
+  if (wsMod !== undefined) {
+    const wss = createNoServerWebSocketServer(wsMod);
+    server.on('upgrade', createWsUpgradeHandler({
+      wss,
+      // `manifest` is reassigned by the fs-watcher rescan below — recompiling
+      // per upgrade keeps new/renamed hot routes connectable without restart.
+      getWsRoutes: () =>
+        compileRoutes(manifest.api.filter((r) => r.kind === 'hot' && r.hasWebsocket)),
+      // Fresh esbuild + import per connection — edits apply on next connect.
+      loadModule: (route) => loadHandler(route.filePath),
+      // apiApp is rebuilt on rescan — always use the latest app's registry.
+      getWsRegistry: () => apiApp.wsRegistry,
+      onUnmatched: 'reject',
+    }));
+  }
+
   // Watch for file changes and re-scan manifest
   const apiDir = join(opts.projectRoot, 'src', 'api');
   const pagesDir = join(opts.projectRoot, 'src', 'pages');
   const watchDirs = [apiDir, pagesDir];
+  const watchers: import('node:fs').FSWatcher[] = [];
   for (const dir of watchDirs) {
     try {
       const watcher = watch(dir, { recursive: true }, async (event, filename) => {
@@ -597,23 +637,37 @@ async function startStandaloneServer(
         // Rebuild CelsianApp and route regexes with fresh modules after manifest rescan
         ({ app: apiApp, compiledApiRoutes } = await buildStandaloneApiApp());
       });
+      watchers.push(watcher);
       process.on('SIGINT', () => { watcher.close(); process.exit(0); });
     } catch {
       // Watch may fail if directory doesn't exist yet
     }
   }
 
-  server.listen(opts.port, opts.host, () => {
-    console.log(`  Server listening on http://${opts.host}:${opts.port}\n`);
-    // Warn once at startup when the user explicitly exposes the dev server beyond loopback.
-    if (isLanDevHost(opts.host)) {
-      console.warn(`  [vura] Dev server exposed on ${opts.host}. Only use --host for trusted LAN testing.`);
-    }
-    printRouteTable(manifest);
+  await new Promise<void>((resolve) => {
+    server.listen(opts.port, opts.host, () => {
+      console.log(`  Server listening on http://${opts.host}:${opts.port}\n`);
+      // Warn once at startup when the user explicitly exposes the dev server beyond loopback.
+      if (isLanDevHost(opts.host)) {
+        console.warn(`  [vura] Dev server exposed on ${opts.host}. Only use --host for trusted LAN testing.`);
+      }
+      printRouteTable(manifest);
+      resolve();
+    });
   });
 
-  // Keep process alive
-  await new Promise(() => {});
+  const address = server.address() as { port: number };
+  return {
+    server,
+    port: address.port,
+    close: () =>
+      new Promise<void>((resolve) => {
+        for (const w of watchers) w.close();
+        // Force-close lingering (incl. upgraded) connections so close() can't hang.
+        (server as any).closeAllConnections?.();
+        server.close(() => resolve());
+      }),
+  };
 }
 
 // All rendering, matching, parsing, and escaping utilities are now imported

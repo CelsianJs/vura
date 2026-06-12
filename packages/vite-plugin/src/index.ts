@@ -21,6 +21,8 @@ import {
   reportError,
   getLogger,
   createApiApp,
+  createWsUpgradeHandler,
+  createNoServerWebSocketServer,
   GLOBAL_HOOKS_FILENAMES,
   nodeToWebRequest,
   writeWebResponse,
@@ -181,6 +183,50 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
       server.watcher.on('change', rescanOnChange);
       server.watcher.on('add', rescanOnChange);
       server.watcher.on('unlink', rescanOnChange);
+
+      // ─── WebSocket upgrades for hot routes ───
+      // Vite's own HMR websocket shares this HTTP server: its listener only
+      // claims upgrades whose sec-websocket-protocol is vite-hmr/vite-ping at
+      // the HMR base path (vite@6 createWebSocketServer). Our handler returns
+      // WITHOUT touching the socket for those — and for any path that matches
+      // no hot route (onUnmatched: 'ignore') — so co-listeners stay functional.
+      const hasHotWsRoutes = () =>
+        manifest.api.some((r) => r.kind === 'hot' && r.hasWebsocket);
+      let wsMod: unknown;
+      try {
+        wsMod = await import('ws');
+      } catch {
+        // 'ws' is an optional peer dep — warn only when the project actually
+        // has websocket hot routes that would silently not work.
+        if (hasHotWsRoutes()) {
+          console.warn(
+            '  [then] Hot routes export websocket() but the "ws" package is not installed. ' +
+            'Install it with: pnpm add ws (or npm install ws). WebSocket upgrades are disabled in dev.',
+          );
+        }
+      }
+      if (wsMod !== undefined && server.httpServer) {
+        const wss = createNoServerWebSocketServer(wsMod);
+        const upgradeHandler = createWsUpgradeHandler({
+          wss,
+          // Re-read the manifest closure on every upgrade — rescanOnChange
+          // keeps it fresh, so hot routes added/renamed mid-session connect
+          // without rewiring.
+          getWsRoutes: () =>
+            compileRoutes(manifest.api.filter((r) => r.kind === 'hot' && r.hasWebsocket)),
+          // ssrLoadModule → edits to the route file apply on next connection.
+          loadModule: (route) => server.ssrLoadModule(`/${route.filePath}`),
+          // apiApp is rebuilt on rescan — always use the LATEST app's registry.
+          getWsRegistry: () => apiApp?.wsRegistry,
+          onUnmatched: 'ignore',
+        });
+        server.httpServer.on('upgrade', (req, socket, head) => {
+          // Vite HMR/ping traffic is Vite's — never touch it (cheap check first).
+          const protocol = req.headers['sec-websocket-protocol'];
+          if (typeof protocol === 'string' && /\bvite-(?:hmr|ping)\b/.test(protocol)) return;
+          upgradeHandler(req, socket, head);
+        });
+      }
 
       // ─── Task management middleware ───
       server.middlewares.use(async (req, res, next) => {

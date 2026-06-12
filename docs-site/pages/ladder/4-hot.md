@@ -133,11 +133,13 @@ dependency. For projects created before this version: `npm install ws`.
 
 ## Try it now
 
-WebSocket upgrades require a persistent process: they work in the production
-build but **not** in `vura dev` today (the dev server is a plain HTTP server
-with no upgrade handler; ws support in dev is planned).
+Hot routes work directly in `vura dev`: the dev server (both the Vite mode
+and the standalone fallback) accepts WebSocket upgrades for `kind: 'hot'`
+routes, with edits to a route file applying on the next connection. Start
+`vura dev` and connect with `npx wscat -c "ws://localhost:3000/api/live/room?name=alice"`.
 
-Build first, then run:
+For the production-parity check, build and run the real server entry —
+WebSocket upgrades require a persistent process in production too:
 
 ```sh
 # 1. Build
