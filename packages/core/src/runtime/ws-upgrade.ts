@@ -8,7 +8,7 @@
 
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
-import { createWSConnection } from '@celsian/core';
+import { createWSConnection, type WSConnection, type WSHandler } from '@celsian/core';
 import { createHotPeer } from './hot.js';
 import type { ApiRoute } from '../manifest.js';
 import type { CompiledRoute } from '../match.js';
@@ -105,14 +105,34 @@ function warnUnnormalizableAllowlistEntries(allowlist: string[]): void {
 
 // ─── Upgrade handler factory ───
 
+/** Minimal raw `ws` socket surface the upgrade handler touches. */
+interface RawWsSocket {
+  send(data: string | ArrayBuffer): void;
+  close(code?: number, reason?: string): void;
+  on(event: string, listener: (...args: any[]) => void): void;
+}
+
 /** The subset of ws.WebSocketServer the upgrade handler needs. */
 interface NoServerWss {
   handleUpgrade(
     req: IncomingMessage,
     socket: Duplex,
     head: Buffer,
-    cb: (ws: any) => void,
+    cb: (ws: RawWsSocket) => void,
   ): void;
+}
+
+/**
+ * The subset of @celsian/core's WSRegistry the upgrade handler uses —
+ * `broadcast` is consumed indirectly via createHotPeer's peer.broadcast().
+ */
+export interface WsRegistryLike {
+  hasPath(path: string): boolean;
+  register(path: string, handler: WSHandler): void;
+  addConnection(path: string, conn: WSConnection): void;
+  removeConnection(path: string, conn: WSConnection): void;
+  getConnectionCount(path?: string): number;
+  broadcast(path: string, data: string | ArrayBuffer, exclude?: string): void;
 }
 
 export interface WsUpgradeHandlerOptions {
@@ -129,7 +149,7 @@ export interface WsUpgradeHandlerOptions {
    */
   loadModule(route: ApiRoute): Promise<Record<string, unknown>>;
   /** Latest celsian wsRegistry — a getter because dev rescans rebuild the app. */
-  getWsRegistry(): any;
+  getWsRegistry(): WsRegistryLike;
   isShuttingDown?: () => boolean;
   /**
    * What to do when no hot route matches the upgrade pathname:
@@ -153,6 +173,9 @@ export type WsUpgradeHandler = (req: IncomingMessage, socket: Duplex, head: Buff
  */
 export function createNoServerWebSocketServer(wsMod: unknown): NoServerWss {
   const WSS = (wsMod as any).WebSocketServer ?? (wsMod as any).default?.WebSocketServer;
+  if (typeof WSS !== 'function') {
+    throw new Error("could not resolve WebSocketServer from 'ws' — reinstall the ws package");
+  }
   return new WSS({ noServer: true, maxPayload: 1 << 20 });
 }
 
@@ -232,7 +255,17 @@ export function createWsUpgradeHandler(opts: WsUpgradeHandlerOptions): WsUpgrade
       }
 
       // Load the module at connection time — in dev this picks up edits.
-      const module = await opts.loadModule(matchedRoute);
+      // A failed load (e.g. a syntax error mid-edit) must surface as a
+      // diagnosable 500 handshake failure, not a bare ECONNRESET. The socket
+      // is claimed at this point, so rejecting is safe in both modes.
+      let module: Record<string, unknown>;
+      try {
+        module = await opts.loadModule(matchedRoute);
+      } catch (err) {
+        console.error(`[vura] failed to load module for ws route ${matchedRoute.urlPattern}:`, err);
+        reject(socket, '500 Internal Server Error');
+        return;
+      }
       const handler = module.websocket;
       if (typeof handler !== 'function') {
         // Route matched but no websocket() export (e.g. removed mid-dev-session).
@@ -241,7 +274,7 @@ export function createWsUpgradeHandler(opts: WsUpgradeHandlerOptions): WsUpgrade
       }
 
       const wsRegistry = opts.getWsRegistry();
-      opts.wss.handleUpgrade(req, socket, head, (ws: any) => {
+      opts.wss.handleUpgrade(req, socket, head, (ws) => {
         const conn = createWSConnection({
           send: (data: string | ArrayBuffer) => {
             try { ws.send(data); } catch { /* no-op on closed socket */ }

@@ -39,6 +39,10 @@ describe('A1.4 success metric', () => {
     //   interface/JSDoc, the createNoServerWebSocketServer helper, and the
     //   one-time unparseable-allowlist-entry warning → actual 6172.
     //   Ceiling 6210 leaves ~38 headroom.
+    // Task 4 quality pass (2026-06-12): ws-upgrade.ts hardening — WsRegistryLike
+    //   /RawWsSocket types replacing `any`, loadModule-failure → 500 reject,
+    //   explicit error for unresolvable WebSocketServer → actual 6208.
+    //   Ceiling 6210 unchanged (still passes); next core addition must bump it.
     expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(6210);
   });
 });

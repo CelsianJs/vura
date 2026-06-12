@@ -135,7 +135,10 @@ dependency. For projects created before this version: `npm install ws`.
 
 Hot routes work directly in `vura dev`: the dev server (both the Vite mode
 and the standalone fallback) accepts WebSocket upgrades for `kind: 'hot'`
-routes, with edits to a route file applying on the next connection. Start
+routes, with edits to a route file applying on the next connection. After an
+edit, reconnect any open WebSocket clients — connections opened before the
+edit keep the pre-edit module and room registry, so broadcasts won't reach
+them until they reconnect. Start
 `vura dev` and connect with `npx wscat -c "ws://localhost:3000/api/live/room?name=alice"`.
 
 For the production-parity check, build and run the real server entry —

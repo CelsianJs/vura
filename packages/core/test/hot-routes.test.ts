@@ -15,7 +15,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { startVuraServer, type VuraServer } from '../src/runtime/server.js';
 import { extractApiExports } from '../src/manifest.js';
-import { isOriginAllowed } from '../src/runtime/ws-upgrade.js';
+import { isOriginAllowed, createNoServerWebSocketServer } from '../src/runtime/ws-upgrade.js';
 import WebSocket from 'ws';
 
 let srv: VuraServer | undefined;
@@ -77,6 +77,15 @@ describe('manifest websocket detection', () => {
 });
 
 // ─── Origin allowlist: isOriginAllowed unit tests ───
+
+describe('createNoServerWebSocketServer', () => {
+  it('throws an explicit error when the ws module exports neither shape', () => {
+    // A broken `ws` install must not surface as `new undefined(...)` TypeError.
+    expect(() => createNoServerWebSocketServer({})).toThrow(
+      /could not resolve WebSocketServer from 'ws'/,
+    );
+  });
+});
 
 describe('isOriginAllowed', () => {
   it('allows any origin when no allowlist is set (backward compatible)', () => {

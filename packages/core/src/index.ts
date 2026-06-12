@@ -267,6 +267,7 @@ export {
 export type {
   WsUpgradeHandler,
   WsUpgradeHandlerOptions,
+  WsRegistryLike,
 } from './runtime/ws-upgrade.js';
 
 // Re-export Node↔Web bridge helpers from @celsian/core so vite-plugin and cli

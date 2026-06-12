@@ -169,6 +169,8 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
       server.watcher.add(apiDir);
       server.watcher.add(pagesDir);
 
+      // Open ws connection count — used by the rescan notice below.
+      let openWsConnections = 0;
       const rescanOnChange = async (file: string) => {
         if (file.startsWith(apiDir) || file.startsWith(pagesDir)) {
           const rel = file.replace(projectRoot + '/', '');
@@ -177,6 +179,11 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
           // Rebuild the CelsianApp and route regexes with fresh modules
           apiApp = await buildApiApp(manifest, projectRoot, server);
           compiledApiRoutes = compileRoutes(manifest.api.filter(r => r.kind !== 'task'));
+          // The rebuilt app has a NEW wsRegistry; peers connected before this
+          // rescan stay in the old one, so broadcasts split until reconnect.
+          if (openWsConnections > 0) {
+            console.log('  [then] routes re-scanned — open WebSocket clients keep their old room registry; reconnect to rejoin');
+          }
         }
       };
 
@@ -217,13 +224,23 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
           // ssrLoadModule → edits to the route file apply on next connection.
           loadModule: (route) => server.ssrLoadModule(`/${route.filePath}`),
           // apiApp is rebuilt on rescan — always use the LATEST app's registry.
-          getWsRegistry: () => apiApp?.wsRegistry,
+          // Non-null: apiApp is built above before this handler is wired.
+          getWsRegistry: () => apiApp!.wsRegistry,
           onUnmatched: 'ignore',
+          onOpen: () => { openWsConnections++; },
+          onClose: () => { openWsConnections--; },
         });
         server.httpServer.on('upgrade', (req, socket, head) => {
-          // Vite HMR/ping traffic is Vite's — never touch it (cheap check first).
+          // Vite HMR/ping traffic is Vite's — never touch it (cheap check
+          // first). The header is a comma-separated subprotocol list: compare
+          // exact trimmed tokens so e.g. `x-vite-hmr` is NOT mistaken for it.
           const protocol = req.headers['sec-websocket-protocol'];
-          if (typeof protocol === 'string' && /\bvite-(?:hmr|ping)\b/.test(protocol)) return;
+          const isViteTraffic = typeof protocol === 'string' &&
+            protocol.split(',').some((p) => {
+              const token = p.trim();
+              return token === 'vite-hmr' || token === 'vite-ping';
+            });
+          if (isViteTraffic) return;
           upgradeHandler(req, socket, head);
         });
       }

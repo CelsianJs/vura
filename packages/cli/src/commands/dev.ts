@@ -215,6 +215,28 @@ export async function startStandaloneServer(
     return importRouteModule(opts.projectRoot, filePath);
   }
 
+  // One module instance per route file, shared by the HTTP app AND every ws
+  // connection. Module-level state (rooms Maps, Sets, counters — the hot-route
+  // wedge) must survive across connections/requests, matching prod (one
+  // bundled instance) and Vite dev (ssrLoadModule's cache). importRouteModule
+  // imports a unique URL per call, so without this cache every connection got
+  // a fresh instance. Cleared on fs-watcher rescan: edits still apply on the
+  // next connection/request — the documented dev contract.
+  const moduleCache = new Map<string, Promise<Record<string, unknown>>>();
+  function loadHandlerCached(filePath: string): Promise<Record<string, unknown>> {
+    let mod = moduleCache.get(filePath);
+    if (!mod) {
+      mod = loadHandler(filePath);
+      // Never cache failures (e.g. a syntax error mid-edit): the next
+      // connection retries the load instead of replaying the rejection.
+      mod.catch(() => {
+        if (moduleCache.get(filePath) === mod) moduleCache.delete(filePath);
+      });
+      moduleCache.set(filePath, mod);
+    }
+    return mod;
+  }
+
   const logger = getLogger();
 
   const { existsSync } = await import('node:fs');
@@ -237,8 +259,10 @@ export async function startStandaloneServer(
     const routes: RuntimeApiRoute[] = [];
     for (const route of manifest.api) {
       if (route.kind === 'task') continue;
-      const mod = await loadHandler(route.filePath);
-      routes.push({ ...route, module: mod as Record<string, unknown> });
+      // Cached: HTTP handlers and websocket() must observe the SAME module
+      // instance (module-level state is shared between them, as in prod).
+      const mod = await loadHandlerCached(route.filePath);
+      routes.push({ ...route, module: mod });
     }
 
     let globalHooks: GlobalHooks | undefined;
@@ -604,6 +628,8 @@ export async function startStandaloneServer(
       );
     }
   }
+  // Open ws connection count — used by the rescan notice below.
+  let openWsConnections = 0;
   if (wsMod !== undefined) {
     const wss = createNoServerWebSocketServer(wsMod);
     server.on('upgrade', createWsUpgradeHandler({
@@ -612,11 +638,14 @@ export async function startStandaloneServer(
       // per upgrade keeps new/renamed hot routes connectable without restart.
       getWsRoutes: () =>
         compileRoutes(manifest.api.filter((r) => r.kind === 'hot' && r.hasWebsocket)),
-      // Fresh esbuild + import per connection — edits apply on next connect.
-      loadModule: (route) => loadHandler(route.filePath),
+      // Cached per file (same instance the HTTP app uses) — the rescan clears
+      // the cache, so edits still apply on the next connection.
+      loadModule: (route) => loadHandlerCached(route.filePath),
       // apiApp is rebuilt on rescan — always use the latest app's registry.
       getWsRegistry: () => apiApp.wsRegistry,
       onUnmatched: 'reject',
+      onOpen: () => { openWsConnections++; },
+      onClose: () => { openWsConnections--; },
     }));
   }
 
@@ -630,19 +659,37 @@ export async function startStandaloneServer(
       const watcher = watch(dir, { recursive: true }, async (event, filename) => {
         const prefix = dir === apiDir ? 'src/api' : 'src/pages';
         console.log(`  [vura] ${event}: ${prefix}/${filename} — re-scanning routes`);
-        const { buildManifest: rescan, compilePageRoutes: recompilePages } = await import('@celsian/vura-core');
-        manifest = await rescan(opts.projectRoot);
-        compiledPages = recompilePages(manifest.pages);
-        browserBundleCache.clear();
-        // Rebuild CelsianApp and route regexes with fresh modules after manifest rescan
-        ({ app: apiApp, compiledApiRoutes } = await buildStandaloneApiApp());
+        try {
+          const { buildManifest: rescan, compilePageRoutes: recompilePages } = await import('@celsian/vura-core');
+          manifest = await rescan(opts.projectRoot);
+          compiledPages = recompilePages(manifest.pages);
+          browserBundleCache.clear();
+          // Drop cached module instances so the edit applies on the next
+          // connection/request (the rebuild below re-fills the cache).
+          moduleCache.clear();
+          // Rebuild CelsianApp and route regexes with fresh modules after manifest rescan
+          ({ app: apiApp, compiledApiRoutes } = await buildStandaloneApiApp());
+        } catch (err) {
+          // A broken edit (e.g. syntax error) must not crash the dev server —
+          // keep serving the previous app; the next successful rescan recovers.
+          console.error(`  [vura] route re-scan failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        if (openWsConnections > 0) {
+          console.log('  [vura] routes re-scanned — open WebSocket clients keep their old room registry; reconnect to rejoin');
+        }
       });
       watchers.push(watcher);
-      process.on('SIGINT', () => { watcher.close(); process.exit(0); });
     } catch {
       // Watch may fail if directory doesn't exist yet
     }
   }
+  // One SIGINT handler for all watchers — registered once, removed in close()
+  // so repeated startStandaloneServer() calls (tests) don't leak listeners.
+  const onSigint = (): void => {
+    for (const w of watchers) w.close();
+    process.exit(0);
+  };
+  process.on('SIGINT', onSigint);
 
   await new Promise<void>((resolve) => {
     server.listen(opts.port, opts.host, () => {
@@ -662,6 +709,7 @@ export async function startStandaloneServer(
     port: address.port,
     close: () =>
       new Promise<void>((resolve) => {
+        process.off('SIGINT', onSigint);
         for (const w of watchers) w.close();
         // Force-close lingering (incl. upgraded) connections so close() can't hang.
         (server as any).closeAllConnections?.();

@@ -43,9 +43,9 @@ let root: string;
 let server: ViteDevServer;
 let port: number;
 
-function wsRoundTrip(url: string, send: string, headers?: Record<string, string>): Promise<string> {
+function wsRoundTrip(url: string, send: string, headers?: Record<string, string>, protocols?: string[]): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    const ws = new WebSocket(url, { headers });
+    const ws = protocols ? new WebSocket(url, protocols, { headers }) : new WebSocket(url, { headers });
     const timer = setTimeout(() => { ws.terminate(); reject(new Error('ws round-trip timed out')); }, 5000);
     ws.on('open', () => ws.send(send));
     ws.on('message', (d) => {
@@ -99,6 +99,14 @@ describe('vite dev — hot route websocket upgrades', () => {
     expect(opened).toBe(true);
     expect(ws.protocol).toBe('vite-hmr');
     ws.close();
+  });
+
+  it('claims hot-route upgrades whose subprotocol merely CONTAINS a vite-hmr-like token', async () => {
+    // `x-vite-hmr` is NOT Vite traffic — the old word-boundary regex matched
+    // it and ignored the socket (which then hung). Exact token matching must
+    // let our handler claim it and echo normally.
+    const reply = await wsRoundTrip(`ws://127.0.0.1:${port}/api/echo`, 'hi', undefined, ['x-vite-hmr']);
+    expect(reply).toBe('echo:hi');
   });
 
   it('picks up edits to the hot route module on the next connection', async () => {
