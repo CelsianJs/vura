@@ -22,6 +22,8 @@ import type { CelsianRequest, CelsianReply } from '@celsian/core';
 /** @deprecated Use CelsianRequest from @celsian/core. Removed in vura v0.5. */
 export type ThenRequest = CelsianRequest & {
   body?: unknown;
+  /** Validated + coerced query (set by celsian when a `schema.query` is declared). */
+  parsedQuery?: unknown;
   validated?: { body: unknown; query: unknown; params: unknown };
 };
 

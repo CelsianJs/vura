@@ -107,6 +107,80 @@ describe('createApiApp', () => {
     expect(res.status).toBe(200);
   });
 
+  it('query coercion: handler sees coerced req.parsedQuery while req.query stays raw strings', async () => {
+    // Zod-like schema that coerces page → number (mirrors z.object({ page: z.coerce.number() }))
+    const coercingQuerySchema = {
+      parse: (data: unknown) => {
+        const n = Number((data as Record<string, unknown>).page);
+        if (Number.isNaN(n)) throw new Error('Expected number');
+        return { page: n };
+      },
+      safeParse: (data: unknown) => {
+        const n = Number((data as Record<string, unknown>).page);
+        if (Number.isNaN(n)) {
+          return {
+            success: false as const,
+            error: { issues: [{ path: ['page'], message: 'Expected number', code: 'invalid_type' }] },
+          };
+        }
+        return { success: true as const, data: { page: n } };
+      },
+    };
+    let captured: { parsedQuery: unknown; rawPage: unknown } | undefined;
+    const coerceRoute = {
+      urlPattern: '/api/x', methods: ['GET'] as const, kind: 'serverless' as const,
+      filePath: 'src/api/x.ts', config: {},
+      module: {
+        schema: { query: coercingQuerySchema },
+        GET: async (req: any, reply: any) => {
+          captured = { parsedQuery: req.parsedQuery, rawPage: req.query.page };
+          return reply.json({ ok: true });
+        },
+      },
+    };
+    const app = createApiApp({ routes: [coerceRoute as any] });
+    const res = await app.handle(new Request('http://localhost/api/x?page=2'));
+    expect(res.status).toBe(200);
+    // Coerced result is surfaced on req.parsedQuery — a real number, not a string
+    expect(captured?.parsedQuery).toEqual({ page: 2 });
+    expect(typeof (captured?.parsedQuery as any).page).toBe('number');
+    // Raw query is untouched — still the original string
+    expect(captured?.rawPage).toBe('2');
+  });
+
+  it('query coercion: invalid query → 400, handler never runs', async () => {
+    const coercingQuerySchema = {
+      parse: (data: unknown) => {
+        const n = Number((data as Record<string, unknown>).page);
+        if (Number.isNaN(n)) throw new Error('Expected number');
+        return { page: n };
+      },
+      safeParse: (data: unknown) => {
+        const n = Number((data as Record<string, unknown>).page);
+        if (Number.isNaN(n)) {
+          return {
+            success: false as const,
+            error: { issues: [{ path: ['page'], message: 'Expected number', code: 'invalid_type' }] },
+          };
+        }
+        return { success: true as const, data: { page: n } };
+      },
+    };
+    let handlerRan = false;
+    const coerceRoute = {
+      urlPattern: '/api/x', methods: ['GET'] as const, kind: 'serverless' as const,
+      filePath: 'src/api/x.ts', config: {},
+      module: {
+        schema: { query: coercingQuerySchema },
+        GET: async (_req: any, reply: any) => { handlerRan = true; return reply.json({ ok: true }); },
+      },
+    };
+    const app = createApiApp({ routes: [coerceRoute as any] });
+    const res = await app.handle(new Request('http://localhost/api/x?page=abc'));
+    expect(res.status).toBe(400);
+    expect(handlerRan).toBe(false);
+  });
+
   it('compat C1: GET request → handler sees req.body === undefined', async () => {
     let capturedBody: unknown = 'NOT_SET';
     const getBodyRoute = {
