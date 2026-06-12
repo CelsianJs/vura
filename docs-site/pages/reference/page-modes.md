@@ -117,13 +117,15 @@ dist/static/_then/pages/landing.js      ← hydration entry
 
 The generated client entry calls `hydrate()` instead of `mount()`, attaching to the existing DOM without discarding it.
 
-**Known limitation — hooks in SSR (v0.4):** `hybrid` pages are prerendered at build time and hydrated at runtime, but at v0.4 the SSR render for hybrid pages is not yet served at request time by the production server. If a hybrid page is present, `vura build` emits:
+In production, hybrid pages are served by the unified server's static layer: the prerendered HTML and the hydration bundle both live under `dist/static/`, and the server returns them like any other static file (this is verified end-to-end by the self-host audit, assertion A12). The HTML is re-generated on each build, not on each request — for per-request rendering, use `server` mode.
+
+**Known limitation — dynamic params:** a hybrid page whose route contains dynamic params (`:param` or `*rest`) has no per-request SSR — only the literal pattern path is prerendered, so param-bearing requests have nothing to serve. If such a page is present, `vura build` emits:
 
 ```
-[vura] hybrid pages are not yet served at runtime (v0.4): src/pages/landing.tsx
+[vura] hybrid pages with dynamic params are not SSR'd at runtime — only the literal prerendered path is served (use mode: 'server' for per-request rendering): src/pages/post.tsx
 ```
 
-The build still emits the prerendered HTML and the hydration bundle, so the page works correctly in the browser. The warning means: if you update the component, the HTML is re-generated on the next build, not on each request. For pages that need per-request rendering with hydration, use `server` mode today; full hybrid server-rendering is planned.
+Concrete-path hybrid pages (e.g. `/landing`) do not warn — they work end-to-end.
 
 **When to use:** pages that benefit from both prerendered HTML (SEO, initial paint) and client-side interactivity (animations, reactive state). Good for landing pages with interactive sections.
 
@@ -138,6 +140,28 @@ The build still emits the prerendered HTML and the hydration bundle, so the page
 | ISR (stale content is fine, purge on mutation) | `server` + `revalidate` + `tags` |
 | Fully interactive, authenticated | `client` |
 | Prerendered for SEO + client-side interactivity | `hybrid` |
+
+## Who serves what in production
+
+The unified server (`dist/server/entry.js`) dispatches every request through these layers, in order. First match wins:
+
+| Order | Layer | Serves | Cache-Control |
+|---|---|---|---|
+| 1 | `dist/public/` | user assets copied from `public/` | `public, max-age=31536000, immutable` |
+| 2 | API routes | `/api/*` and `/__vura/*` (Celsian app) | per-route |
+| 3 | `dist/static/` | prerendered pages + `_then/` bundles (with `index.html` fallback) | `public, max-age=0, must-revalidate` |
+| 4 | SSR pages handler | `server`-mode pages, rendered per request | `private, no-store`, or ISR headers with `revalidate` |
+
+Per mode, that means:
+
+| Mode | Served in production by | Rendered |
+|---|---|---|
+| `static` | static layer (3) — `dist/static/<path>/index.html` | at build time |
+| `client` | static layer (3) — shell HTML + `_then/pages/*.js` bundle | in the browser (`mount()`) |
+| `hybrid` | static layer (3) — prerendered HTML + `_then/pages/*.js` bundle | at build time, hydrated in the browser (`hydrate()`) |
+| `server` | SSR pages handler (4) | per request (cached by what-isr when `revalidate` is set) |
+
+This dispatch order is locked in by the self-host audit (`tests/self-host-audit/`, assertions A10–A12): one booted entry serves a static `/`, a client shell + bundle, and a prerendered hybrid page, alongside the API/ISR/WebSocket/task assertions A0–A9.
 
 ## Build output summary (v0.4)
 

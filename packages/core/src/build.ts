@@ -199,11 +199,20 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
   lines.push('  ],');
 
   // pages
-  // Emit a build-time warning for hybrid pages — they are not yet served at runtime.
-  const hybridPages = serverPages.filter(p => p.mode === 'hybrid');
-  if (hybridPages.length > 0) {
+  // Hybrid pages ARE served in production (self-host audit A12): the build
+  // prerenders them into dist/static and emits a hydration bundle, and the
+  // entry's static layer serves both. The remaining true limitation: the
+  // runtime pages handler registers only mode === 'server' pages
+  // (buildWhatRoutes filters them), so a hybrid page with dynamic params has
+  // no per-request SSR — only its literal prerendered pattern path exists on
+  // disk, and param-bearing requests fall through to the pagesHandler, which
+  // has no route for them. Warn for exactly that case.
+  const dynamicHybridPages = serverPages.filter(
+    p => p.mode === 'hybrid' && /[:*]/.test(p.urlPattern),
+  );
+  if (dynamicHybridPages.length > 0) {
     console.warn(
-      `[vura] hybrid pages are not yet served at runtime (v0.4): ${hybridPages.map(p => p.filePath).join(', ')}`,
+      `[vura] hybrid pages with dynamic params are not SSR'd at runtime — only the literal prerendered path is served (use mode: 'server' for per-request rendering): ${dynamicHybridPages.map(p => p.filePath).join(', ')}`,
     );
   }
 

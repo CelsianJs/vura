@@ -200,6 +200,67 @@ export async function POST(ctx: { attempt: number; input: unknown }) {
 }
 `;
 
+/**
+ * src/pages/index.tsx — A10 static page.
+ * Prerendered at build time to dist/static/index.html; served by the static
+ * layer with zero runtime rendering. Marker string proves the right file.
+ */
+const INDEX_PAGE = `export const page = { mode: 'static', title: 'Audit Home' };
+
+export default function Home() {
+  return (
+    <main>
+      <h1>vura-audit-static-home</h1>
+      <p>Prerendered at build time — no runtime render.</p>
+    </main>
+  );
+}
+`;
+
+/**
+ * src/pages/widget.tsx — A11 client page.
+ * Build emits a shell (dist/static/widget/index.html) plus a browser bundle
+ * (dist/static/_then/pages/widget.js) whose generated entry calls mount() —
+ * mounting replaces the "Loading..." shell DOM. Signal idiom: sig() / sig.set().
+ */
+const WIDGET_PAGE = `import { signal } from 'what-framework';
+
+export const page = { mode: 'client', title: 'Audit Widget' };
+
+const clicks = signal(0);
+
+export default function Widget() {
+  return (
+    <main>
+      <h1>vura-audit-client-widget</h1>
+      <button id="bump" onClick={() => clicks.set(clicks() + 1)}>bump</button>
+    </main>
+  );
+}
+`;
+
+/**
+ * src/pages/mixed.tsx — A12 hybrid page.
+ * Prerendered at build time (SSR-visible markup) AND given a hydration bundle
+ * (dist/static/_then/pages/mixed.js, generated entry calls hydrate()).
+ * Markup is kept renderToString-safe; interactivity lives in the event handler.
+ */
+const MIXED_PAGE = `import { signal } from 'what-framework';
+
+export const page = { mode: 'hybrid', title: 'Audit Mixed' };
+
+const count = signal(0);
+
+export default function Mixed() {
+  return (
+    <main>
+      <h1>vura-audit-hybrid-ssr</h1>
+      <button id="hydrate-bump" onClick={() => count.set(count() + 1)}>bump</button>
+    </main>
+  );
+}
+`;
+
 // ─── Core scaffoldAndBuild impl ────────────────────────────────────────────────
 
 async function _scaffoldAndBuild(): Promise<{
@@ -249,6 +310,9 @@ async function _scaffoldAndBuild(): Promise<{
   await mkdir(join(dir, 'src', 'api', 'tasks'), { recursive: true });
 
   await writeFile(join(dir, 'src', 'pages', 'posts.tsx'), POSTS_PAGE);
+  await writeFile(join(dir, 'src', 'pages', 'index.tsx'), INDEX_PAGE);
+  await writeFile(join(dir, 'src', 'pages', 'widget.tsx'), WIDGET_PAGE);
+  await writeFile(join(dir, 'src', 'pages', 'mixed.tsx'), MIXED_PAGE);
   await writeFile(join(dir, 'src', 'api', 'posts.ts'), POSTS_API);
   await writeFile(join(dir, 'src', 'api', 'counter.ts'), COUNTER_API);
   await writeFile(join(dir, 'src', 'api', 'live', 'room.ts'), ROOM_API);
