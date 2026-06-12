@@ -164,3 +164,70 @@ console.log(JSON.stringify({ invalid, blocked, ok }));
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+it('query coercion: handler sees coerced req.parsedQuery while req.query stays raw strings', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'vura-lambda-query-'));
+  try {
+    mkdirSync(join(root, 'src', 'api'), { recursive: true });
+    writeFileSync(join(root, 'src', 'api', 'echo.ts'), `
+export const schema = {
+  query: {
+    safeParse(input) {
+      const n = Number(input.page);
+      if (Number.isNaN(n)) {
+        return { success: false, error: { issues: [{ path: ['page'], message: 'Expected number', code: 'invalid_type' }] } };
+      }
+      return { success: true, data: { page: n } };
+    }
+  }
+};
+export async function GET(req) {
+  return {
+    rawPage: req.query.page,
+    rawType: typeof req.query.page,
+    parsedQuery: req.parsedQuery,
+    parsedType: typeof req.parsedQuery.page,
+    validatedQuery: req.validated.query,
+  };
+}
+`);
+
+    const outDir = join(root, 'dist');
+    await lambdaAdapter().buildEnd({
+      serverEntry: join(outDir, 'server', 'entry.js'),
+      clientDir: join(outDir, 'client'),
+      manifest: manifest([route({ methods: ['GET'] })]),
+      projectRoot: root,
+      outDir,
+    });
+
+    const entryPath = join(outDir, 'lambda', 'api_echo_get', 'index.js');
+    const result = runModuleJson(entryPath, `
+function event(page) { return {
+  version: '2.0', routeKey: 'GET /api/echo', rawPath: '/api/echo', rawQueryString: 'page=' + page,
+  headers: { host: 'example.com' },
+  queryStringParameters: { page },
+  isBase64Encoded: false,
+  requestContext: { domainName: 'example.com', http: { method: 'GET', path: '/api/echo' } },
+}; }
+const ok = await mod.handler(event('2'), {});
+const invalid = await mod.handler(event('abc'), {});
+console.log(JSON.stringify({ ok, invalid }));
+`);
+    expect(result.ok.statusCode).toBe(200);
+    const okBody = JSON.parse(result.ok.body);
+    // req.query is untouched — raw string from the event
+    expect(okBody.rawPage).toBe('2');
+    expect(okBody.rawType).toBe('string');
+    // coerced result lands on req.parsedQuery (matches the Node/celsian runtime)
+    expect(okBody.parsedQuery).toEqual({ page: 2 });
+    expect(okBody.parsedType).toBe('number');
+    // req.validated.query still carries the coerced data
+    expect(okBody.validatedQuery).toEqual({ page: 2 });
+    // invalid query → 400 unchanged
+    expect(result.invalid.statusCode).toBe(400);
+    expect(JSON.parse(result.invalid.body).code).toBe('VALIDATION_ERROR');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

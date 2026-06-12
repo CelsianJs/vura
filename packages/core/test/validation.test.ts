@@ -353,6 +353,42 @@ describe('validateRequest', () => {
     validateRequest(req, schema);
     expect((req as any).validated).toBeUndefined();
   });
+
+  it('puts coerced query on req.parsedQuery and leaves req.query raw', () => {
+    const coercingQuery = createMockSchema<{ page: number }>(data => {
+      const n = Number((data as Record<string, unknown>).page);
+      if (Number.isNaN(n)) return { success: false, error: 'Expected number' };
+      return { success: true, data: { page: n } };
+    });
+    const schema = defineSchema({ query: coercingQuery });
+    const req = createRequest({ query: { page: '2' } });
+
+    const error = validateRequest(req, schema);
+    expect(error).toBeNull();
+    // raw query untouched — still the original string
+    expect(req.query).toEqual({ page: '2' });
+    // coerced result on parsedQuery (matches Node/celsian runtime)
+    expect(req.parsedQuery).toEqual({ page: 2 });
+    expect(typeof (req.parsedQuery as { page: number }).page).toBe('number');
+    // validated.query carries the coerced data
+    expect((req as any).validated.query).toEqual({ page: 2 });
+  });
+
+  it('invalid query still returns a 400 error object', () => {
+    const coercingQuery = createMockSchema<{ page: number }>(data => {
+      const n = Number((data as Record<string, unknown>).page);
+      if (Number.isNaN(n)) return { success: false, error: 'Expected number' };
+      return { success: true, data: { page: n } };
+    });
+    const schema = defineSchema({ query: coercingQuery });
+    const req = createRequest({ query: { page: 'abc' } });
+
+    const error = validateRequest(req, schema);
+    expect(error).not.toBeNull();
+    expect(error!.statusCode).toBe(400);
+    expect(req.parsedQuery).toBeUndefined();
+    expect(req.query).toEqual({ page: 'abc' });
+  });
 });
 
 describe('validation error format', () => {
