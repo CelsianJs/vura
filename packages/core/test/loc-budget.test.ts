@@ -13,7 +13,7 @@ function locOf(dir: string): number {
 }
 
 describe('A1.4 success metric', () => {
-  it('vura-core src LOC is below the post-Task-3 ceiling of 6080', () => {
+  it('vura-core src LOC is below the post-Task-4 ceiling of 6210', () => {
     // v0.2.0 baseline (commit 19d9442) was 5001 LOC.
     // Task 9 (hot routes A2.5): +~335 → ~5336; quality pass → ~5478.
     // Task 11 (A2.6): deleted old tasks.ts (-402), added runtime/tasks.ts
@@ -32,6 +32,13 @@ describe('A1.4 success metric', () => {
     //   runtime/ws-upgrade.ts (isOriginAllowed, mostly JSDoc rationale) +
     //   403 rejection in server.ts upgrade handler → actual 6043.
     //   Ceiling 6080 leaves ~37 headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(6080);
+    // v0.4.x backlog Task 4 (2026-06-11): extracted the inline ws upgrade
+    //   handler from server.ts into a createWsUpgradeHandler factory in
+    //   runtime/ws-upgrade.ts so `vura dev` (vite + standalone) can share it.
+    //   The moved body is LOC-neutral; the +129 is the factory's options
+    //   interface/JSDoc, the createNoServerWebSocketServer helper, and the
+    //   one-time unparseable-allowlist-entry warning → actual 6172.
+    //   Ceiling 6210 leaves ~38 headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(6210);
   });
 });
