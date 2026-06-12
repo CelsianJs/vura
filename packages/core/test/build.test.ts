@@ -9,7 +9,7 @@
  * bundling outcome.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { generateServerEntry, generateFunctionEntry } from '../src/build.js';
 import type { RouteManifest, ApiRoute, PageRoute } from '../src/manifest.js';
 import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
@@ -176,6 +176,98 @@ describe('generateServerEntry — global hooks', () => {
     expect(entry).toContain('_globalHooksMod.onError');
     expect(entry).toContain('_globalHooksMod.onResponse');
     expect(entry).not.toContain('globalHooks: undefined');
+  });
+});
+
+describe('generateServerEntry — VuraCacheConfig wiring', () => {
+  const manifest: RouteManifest = {
+    api: [{ filePath: 'src/api/hello.ts', urlPattern: '/api/hello', methods: ['GET'], kind: 'serverless', config: {} }],
+    pages: [],
+    layouts: [],
+    timestamp: new Date().toISOString(),
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('emits store/dir/maxEntries literals from the cache config', () => {
+    const entry = generateServerEntry(manifest, '/project', null, {
+      store: 'filesystem',
+      dir: '.vura/cache',
+      maxEntries: 500,
+    });
+    expect(entry).toContain('store: "filesystem"');
+    expect(entry).toContain('dir: ".vura/cache"');
+    expect(entry).toContain('maxEntries: 500');
+  });
+
+  it('emits only the env-read revalidateSecret when no cache config is given', () => {
+    const entry = generateServerEntry(manifest, '/project');
+    expect(entry).toContain('cache: {');
+    expect(entry).toContain('revalidateSecret: process.env.VURA_REVALIDATE_SECRET');
+    expect(entry).not.toContain('store:');
+    expect(entry).not.toContain('maxEntries:');
+    expect(entry).not.toContain('cdn:');
+  });
+
+  it('never serializes secrets into the artifact — always emits env reads', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const entry = generateServerEntry(manifest, '/project', null, {
+      store: 'memory',
+      revalidateSecret: 'super-secret-literal',
+      cdn: { provider: 'cloudflare', zoneId: 'zone-123', apiToken: 'token-literal' },
+    });
+    expect(entry).not.toContain('super-secret-literal');
+    expect(entry).not.toContain('token-literal');
+    expect(entry).toContain('revalidateSecret: process.env.VURA_REVALIDATE_SECRET');
+    expect(entry).toContain('apiToken: process.env.VURA_CDN_API_TOKEN');
+    expect(entry).toContain('provider: "cloudflare"');
+    expect(entry).toContain('zoneId: "zone-123"');
+    warnSpy.mockRestore();
+  });
+
+  it('emits fastly serviceId literal for a fastly CDN config', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const entry = generateServerEntry(manifest, '/project', null, {
+      cdn: { provider: 'fastly', serviceId: 'svc-456', apiToken: 'tok' },
+    });
+    expect(entry).toContain('provider: "fastly"');
+    expect(entry).toContain('serviceId: "svc-456"');
+    expect(entry).not.toContain('"tok"');
+    warnSpy.mockRestore();
+  });
+
+  it('warns when secret literals are present in vura.config cache, and only then', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    generateServerEntry(manifest, '/project', null, { store: 'filesystem', dir: '.vura/cache' });
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    generateServerEntry(manifest, '/project', null, { revalidateSecret: 'literal-secret' });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0][0]).toContain('VURA_REVALIDATE_SECRET');
+    expect(warnSpy.mock.calls[0][0]).toContain('VURA_CDN_API_TOKEN');
+
+    generateServerEntry(manifest, '/project', null, {
+      cdn: { provider: 'cloudflare', zoneId: 'z', apiToken: 'cdn-secret' },
+    });
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('throws a hard build error for store: redis pointing to the programmatic path', () => {
+    expect(() => generateServerEntry(manifest, '/project', null, { store: 'redis' }))
+      .toThrow(/redis/);
+    try {
+      generateServerEntry(manifest, '/project', null, { store: 'redis' });
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      const msg = (err as Error).message;
+      expect(msg).toContain('createVuraCache');
+      expect(msg).toContain('startVuraServer');
+      expect(msg).toContain("'memory'");
+      expect(msg).toContain("'filesystem'");
+    }
   });
 });
 

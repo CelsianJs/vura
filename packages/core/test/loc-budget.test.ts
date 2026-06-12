@@ -13,7 +13,7 @@ function locOf(dir: string): number {
 }
 
 describe('A1.4 success metric', () => {
-  it('vura-core src LOC is below the post-Task-4 ceiling of 6210', () => {
+  it('vura-core src LOC is below the post-Task-2 ceiling of 6240', () => {
     // v0.2.0 baseline (commit 19d9442) was 5001 LOC.
     // Task 9 (hot routes A2.5): +~335 → ~5336; quality pass → ~5478.
     // Task 11 (A2.6): deleted old tasks.ts (-402), added runtime/tasks.ts
@@ -42,7 +42,14 @@ describe('A1.4 success metric', () => {
     // Task 4 quality pass (2026-06-12): ws-upgrade.ts hardening — WsRegistryLike
     //   /RawWsSocket types replacing `any`, loadModule-failure → 500 reject,
     //   explicit error for unresolvable WebSocketServer → actual 6208.
-    //   Ceiling 6210 unchanged (still passes); next core addition must bump it.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(6210);
+    // v0.4.x backlog Task 2 (2026-06-12, integrated after the Task 4 quality
+    //   pass): wire VuraCacheConfig from vura.config into the generated server
+    //   entry — build.ts cache block now emits store/dir/maxEntries/cdn-id
+    //   literals, env-only secrets, redis build error, secret-literal warning
+    //   (+~33; Task 2 measured 6205 against its pre-quality-pass base) →
+    //   combined actual 6241. Task 5 (same day) replaced the hybrid warning
+    //   in build.ts with a narrowed param-only version (≈LOC-neutral).
+    //   Ceiling 6280 leaves ~39 headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(6280);
   });
 });

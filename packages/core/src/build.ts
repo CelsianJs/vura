@@ -29,6 +29,7 @@ import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { RouteManifest, ApiRoute, PageRoute } from './manifest.js';
 import type { ThenConfig, AdapterBuildContext } from './config.js';
+import type { VuraCacheConfig } from './runtime/cache.js';
 
 
 const CORE_PACKAGE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -114,8 +115,13 @@ function findGlobalHooksFile(projectRoot: string): string | null {
  *
  * Task routes are passed in apiRoutes; startVuraServer wires them to cron
  * and the /__tasks admin layer (Task 11 complete).
+ *
+ * cacheConfig (vura.config `cache`) is wired into the entry as non-secret
+ * literals only (store/dir/maxEntries/cdn ids). Secrets are always read from
+ * env at runtime (VURA_REVALIDATE_SECRET / VURA_CDN_API_TOKEN); `redis` is a
+ * build error (live client not serializable — use createVuraCache instead).
  */
-export function generateServerEntry(manifest: RouteManifest, projectRoot: string, globalHooksFile?: string | null): string {
+export function generateServerEntry(manifest: RouteManifest, projectRoot: string, globalHooksFile?: string | null, cacheConfig?: VuraCacheConfig): string {
   // Reset used var names for each server entry generation
   _usedVarNames.clear();
 
@@ -213,10 +219,37 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
   }
   lines.push('  ],');
 
-  // cache
+  // cache — non-secret literals from vura.config; secrets ALWAYS come from env
+  // at runtime so they can never be serialized into the build artifact.
+  if (cacheConfig?.store === 'redis') {
+    throw new Error(
+      "[vura] cache.store 'redis' cannot be wired into the generated server entry: " +
+      'a redis store needs a live client instance, which is not serializable at build time. ' +
+      "Use the programmatic path instead — createVuraCache({ store: 'redis', redisClient }) " +
+      "with startVuraServer() in your own server entry. The generated entry supports 'memory' and 'filesystem'.",
+    );
+  }
+  if (cacheConfig?.revalidateSecret || cacheConfig?.cdn?.apiToken) {
+    console.warn(
+      '[vura] secret values in vura.config cache are ignored in the generated entry — ' +
+      'set VURA_REVALIDATE_SECRET / VURA_CDN_API_TOKEN at runtime.',
+    );
+  }
   lines.push('  cache: {');
+  if (cacheConfig?.store) lines.push(`    store: ${JSON.stringify(cacheConfig.store)},`);
+  // dir passes through verbatim — a relative dir resolves from the server
+  // process cwd (Docker WORKDIR /app → /app/.vura/cache with dist/Dockerfile).
+  if (cacheConfig?.dir !== undefined) lines.push(`    dir: ${JSON.stringify(cacheConfig.dir)},`);
+  if (cacheConfig?.maxEntries !== undefined) lines.push(`    maxEntries: ${JSON.stringify(cacheConfig.maxEntries)},`);
   lines.push('    revalidateSecret: process.env.VURA_REVALIDATE_SECRET,');
-  lines.push('    // TODO: wire full VuraCacheConfig from vura.config when Task X lands');
+  if (cacheConfig?.cdn) {
+    lines.push('    cdn: {');
+    lines.push(`      provider: ${JSON.stringify(cacheConfig.cdn.provider)},`);
+    if ('zoneId' in cacheConfig.cdn) lines.push(`      zoneId: ${JSON.stringify(cacheConfig.cdn.zoneId)},`);
+    if ('serviceId' in cacheConfig.cdn) lines.push(`      serviceId: ${JSON.stringify(cacheConfig.cdn.serviceId)},`);
+    lines.push('      apiToken: process.env.VURA_CDN_API_TOKEN,');
+    lines.push('    },');
+  }
   lines.push('  },');
 
   // globalHooks
@@ -433,7 +466,7 @@ export async function build(
   if (globalHooksFile) {
     console.log(`  [then] Global hooks file found: ${globalHooksFile}`);
   }
-  const serverEntryCode = generateServerEntry(manifest, projectRoot, globalHooksFile);
+  const serverEntryCode = generateServerEntry(manifest, projectRoot, globalHooksFile, config.cache);
   // Write thin source for inspection, then esbuild-bundle it into entry.js
   const thinSourcePath = join(serverDir, 'entry.source.mjs');
   await writeFile(thinSourcePath, serverEntryCode);
