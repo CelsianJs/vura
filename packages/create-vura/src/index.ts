@@ -452,7 +452,7 @@ ${bold('Options:')}
   console.log(bold('  Next steps:\n'));
   console.log(`    cd ${projectName}`);
   console.log(`    ${pm === 'npm' ? 'npm run' : pm} dev\n`);
-  console.log(dim('  Docs: https://github.com/CelsianJs/vura#readme'));
+  console.log(dim('  Docs: https://vura.io'));
   console.log();
 }
 

@@ -109,6 +109,11 @@ curl -s -X POST http://localhost:3000/__tasks/cleanup \
   -d '{"dryRun":true}'
 ```
 
+The HTTP trigger enqueues the run and responds immediately with
+`202 {"id": "...", "status": "running"}` — it does not wait for the task to
+finish. To run a task synchronously and see its result, use the CLI:
+`vura tasks run <name>`.
+
 In development with no `THEN_TASK_SECRET` set, localhost requests are allowed
 without a token.
 

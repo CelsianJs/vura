@@ -43,9 +43,13 @@ WebSocket origin allowlists, WebSockets in `vura dev`, cache config wiring,
 - The module instance is shared between WebSocket and HTTP handling per route,
   so module-level state (rooms, counters) is consistent across both.
 - Route edits apply on the next connection; already-open sockets keep their
-  existing handler. A broken edit fails the handshake with a 500 and the dev
-  server survives. On route rescan, a notice reminds you that open clients
+  existing handler. On route rescan, a notice reminds you that open clients
   keep the old room registry — reconnect to rejoin.
+- Rescans are atomic in the standalone dev server: adding or deleting a route
+  file takes effect on the first rescan, and a broken edit (syntax error)
+  fails the rescan loudly while the last good routes keep serving — the dev
+  server never crashes or wedges. On the Vite path, a route module that fails
+  to load at connection time rejects the WebSocket handshake with a 500.
 
 ### Cache config wired into the generated server entry
 
