@@ -58,6 +58,39 @@ interface VuraProjectLink {
   teamSlug: string;
 }
 
+/**
+ * Options for {@link deployToVura} — the reusable, network-only deploy flow
+ * shared by this adapter's `buildEnd` hook and the `vura deploy` CLI command.
+ */
+export interface DeployToVuraOptions {
+  /** Directory containing the built artifacts (the `dist/` output). */
+  distDir: string;
+  /** Vura API base URL (e.g. https://api.vura.io). */
+  apiUrl: string;
+  /** Bearer token for the Vura API. */
+  token: string;
+  /** Target project id. */
+  projectId: string;
+  /** Deploy to production rather than a preview (default: false). */
+  production?: boolean;
+  /** Build manifest to attach to the upload. */
+  manifest?: unknown;
+  /** Git metadata to attach to the upload. */
+  gitInfo?: { ref?: string; sha?: string; message?: string };
+  /** Poll interval between status/log fetches, in ms (default: 1000). */
+  pollIntervalMs?: number;
+  /** Maximum number of polls before giving up (default: 300). */
+  maxPolls?: number;
+  /** Receives human-readable progress + log lines (default: stdout). */
+  logger?: (line: string) => void;
+}
+
+export interface DeployToVuraResult {
+  deploymentId: string;
+  url: string;
+  status: string;
+}
+
 // ─── Adapter Factory ───
 
 /**
@@ -87,50 +120,23 @@ export function vuraAdapter(options: VuraAdapterOptions = {}): ThenAdapter {
       // 3. Get git info
       const gitInfo = await getGitInfo(ctx.projectRoot);
 
-      // 4. Create tarball of dist/
-      console.log('\x1b[36m[vura]\x1b[0m Packaging build artifacts...');
-      const tarballPath = join(ctx.outDir, 'vura-deploy.tar.gz');
-      await createTarball(ctx.outDir, tarballPath);
-
-      const tarballStat = await stat(tarballPath);
-      const sizeMB = (tarballStat.size / 1024 / 1024).toFixed(2);
-      console.log(`\x1b[36m[vura]\x1b[0m Artifact size: ${sizeMB} MB`);
-
-      // 5. Upload to Vura API
-      console.log('\x1b[36m[vura]\x1b[0m Uploading to Vura...');
-
-      const formData = new FormData();
-      const tarballBuffer = await readFile(tarballPath);
-      const blob = new Blob([tarballBuffer], { type: 'application/gzip' });
-      formData.append('artifact', blob, 'dist.tar.gz');
-      formData.append('manifest', JSON.stringify(ctx.manifest));
-
-      if (gitInfo.ref) formData.append('gitRef', gitInfo.ref);
-      if (gitInfo.sha) formData.append('gitSha', gitInfo.sha);
-      if (gitInfo.message) formData.append('commitMessage', gitInfo.message);
-      if (options.production) formData.append('production', 'true');
-
-      const createRes = await fetch(`${apiUrl}/v1/projects/${projectId}/deployments`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-
-      if (!createRes.ok) {
-        const err = await createRes.json().catch(() => ({ error: { message: 'Upload failed' } }));
-        console.error(`\x1b[31m[vura] Deployment failed: ${(err as any).error?.message}\x1b[0m`);
+      // 4-6. Package, upload, and stream logs via the shared deploy flow.
+      let result: DeployToVuraResult;
+      try {
+        result = await deployToVura({
+          distDir: ctx.outDir,
+          apiUrl,
+          token,
+          projectId,
+          production: options.production,
+          manifest: ctx.manifest,
+          gitInfo,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`\x1b[31m[vura] Deployment failed: ${message}\x1b[0m`);
         process.exit(1);
       }
-
-      const deployment = await createRes.json() as { data: { id: string; url: string; status: string } };
-      const deploymentId = deployment.data.id;
-      const deploymentUrl = deployment.data.url;
-
-      console.log(`\x1b[36m[vura]\x1b[0m Deployment created: ${deploymentId.slice(0, 8)}`);
-
-      // 6. Stream deployment logs
-      console.log('\x1b[36m[vura]\x1b[0m Streaming build logs...\n');
-      await streamLogs(apiUrl, deploymentId, token);
 
       // 7. Print result
       console.log('');
@@ -139,7 +145,7 @@ export function vuraAdapter(options: VuraAdapterOptions = {}): ThenAdapter {
       } else {
         console.log(`\x1b[32m[vura] Preview deployment ready!\x1b[0m`);
       }
-      console.log(`\x1b[36m[vura]\x1b[0m URL: https://${deploymentUrl}`);
+      console.log(`\x1b[36m[vura]\x1b[0m URL: https://${result.url}`);
     },
   };
 }
@@ -217,11 +223,101 @@ export async function createTarball(sourceDir: string, outputPath: string): Prom
   }
 }
 
-async function streamLogs(apiUrl: string, deploymentId: string, token: string): Promise<void> {
-  // Poll for logs (WebSocket not available in all environments)
+/**
+ * Package the build output, upload it to the Vura API, stream build logs, and
+ * resolve once the deployment is ready.
+ *
+ * This is the reusable core of the deploy flow — it performs no `process.exit`
+ * and writes nothing to disk outside a temp tarball, so it can be driven from
+ * both this adapter's `buildEnd` hook and the `vura deploy` CLI command.
+ *
+ * @throws if the create request fails, the deployment ends in `failed`
+ *   (rejects with `meta.build_error` when present) or `cancelled`, or polling
+ *   times out before reaching a terminal state.
+ */
+export async function deployToVura(options: DeployToVuraOptions): Promise<DeployToVuraResult> {
+  const {
+    distDir,
+    apiUrl,
+    token,
+    projectId,
+    production = false,
+    manifest,
+    gitInfo = {},
+    pollIntervalMs = 1000,
+    maxPolls = 300,
+    logger = (line: string) => process.stdout.write(line),
+  } = options;
+
+  // 1. Create tarball of the build output.
+  logger('\x1b[36m[vura]\x1b[0m Packaging build artifacts...\n');
+  const tempDir = await mkdtemp(join(tmpdir(), 'vura-deploy-artifact-'));
+  const tarballPath = join(tempDir, 'vura-deploy.tar.gz');
+  try {
+    await createTarball(distDir, tarballPath);
+
+    const tarballStat = await stat(tarballPath);
+    const sizeMB = (tarballStat.size / 1024 / 1024).toFixed(2);
+    logger(`\x1b[36m[vura]\x1b[0m Artifact size: ${sizeMB} MB\n`);
+
+    // 2. Upload to the Vura API.
+    logger('\x1b[36m[vura]\x1b[0m Uploading to Vura...\n');
+    const formData = new FormData();
+    const tarballBuffer = await readFile(tarballPath);
+    const blob = new Blob([tarballBuffer], { type: 'application/gzip' });
+    formData.append('artifact', blob, 'dist.tar.gz');
+    if (manifest !== undefined) formData.append('manifest', JSON.stringify(manifest));
+    if (gitInfo.ref) formData.append('gitRef', gitInfo.ref);
+    if (gitInfo.sha) formData.append('gitSha', gitInfo.sha);
+    if (gitInfo.message) formData.append('commitMessage', gitInfo.message);
+    if (production) formData.append('production', 'true');
+
+    const createRes = await fetch(`${apiUrl}/v1/projects/${projectId}/deployments`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+
+    if (!createRes.ok) {
+      const err = await createRes.json().catch(() => ({ error: { message: 'Upload failed' } }));
+      throw new Error((err as any).error?.message || 'Upload failed');
+    }
+
+    const created = (await createRes.json()) as { data: { id: string; url: string; status: string } };
+    const deploymentId = created.data.id;
+    const deploymentUrl = created.data.url;
+
+    logger(`\x1b[36m[vura]\x1b[0m Deployment created: ${deploymentId.slice(0, 8)}\n`);
+
+    // 3. Poll for status + stream logs.
+    logger('\x1b[36m[vura]\x1b[0m Streaming build logs...\n\n');
+    const status = await pollDeployment(apiUrl, deploymentId, token, { pollIntervalMs, maxPolls, logger });
+
+    return { deploymentId, url: deploymentUrl, status };
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+interface DeploymentRecord {
+  status: string;
+  meta?: { build_error?: string };
+}
+
+/**
+ * Poll deployment status + logs until a terminal state, printing log lines as
+ * they arrive. Resolves with `'ready'`; throws on `failed`/`cancelled`/timeout.
+ */
+async function pollDeployment(
+  apiUrl: string,
+  deploymentId: string,
+  token: string,
+  opts: { pollIntervalMs: number; maxPolls: number; logger: (line: string) => void },
+): Promise<string> {
+  const { pollIntervalMs, maxPolls, logger } = opts;
   let lastSequence = 0;
   let status = 'building';
-  const maxPolls = 300; // 5 minutes at 1s intervals
+  let record: DeploymentRecord = { status };
 
   for (let i = 0; i < maxPolls; i++) {
     // Check deployment status
@@ -230,8 +326,9 @@ async function streamLogs(apiUrl: string, deploymentId: string, token: string): 
     });
 
     if (statusRes.ok) {
-      const data = await statusRes.json() as { data: { status: string } };
-      status = data.data.status;
+      const data = (await statusRes.json()) as { data: DeploymentRecord };
+      record = data.data;
+      status = record.status;
     }
 
     // Fetch new logs
@@ -240,31 +337,32 @@ async function streamLogs(apiUrl: string, deploymentId: string, token: string): 
     });
 
     if (logsRes.ok) {
-      const logsData = await logsRes.json() as { data: Array<{ sequence: number; stream: string; content: string }> };
-      const newLogs = logsData.data.filter(l => l.sequence > lastSequence);
+      const logsData = (await logsRes.json()) as {
+        data: Array<{ sequence: number; stream: string; content?: string; message?: string }>;
+      };
+      const newLogs = logsData.data.filter((l) => l.sequence > lastSequence);
 
       for (const log of newLogs) {
+        const text = log.content ?? log.message ?? '';
         const prefix = log.stream === 'stderr' ? '\x1b[31m' : '\x1b[90m';
-        process.stdout.write(`${prefix}${log.content}\x1b[0m`);
-        if (!log.content.endsWith('\n')) process.stdout.write('\n');
+        logger(`${prefix}${text}\x1b[0m`);
+        if (!text.endsWith('\n')) logger('\n');
         lastSequence = log.sequence;
       }
     }
 
     // Check if deployment is done
-    if (['ready', 'failed', 'cancelled'].includes(status)) {
-      if (status === 'failed') {
-        console.error('\x1b[31m[vura] Deployment failed.\x1b[0m');
-        process.exit(1);
-      }
-      if (status === 'cancelled') {
-        console.warn('\x1b[33m[vura] Deployment was cancelled.\x1b[0m');
-        process.exit(1);
-      }
-      break;
+    if (status === 'ready') return status;
+    if (status === 'failed') {
+      throw new Error(record.meta?.build_error || 'Deployment failed.');
+    }
+    if (status === 'cancelled') {
+      throw new Error('Deployment was cancelled.');
     }
 
-    // Wait 1 second before next poll
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Wait before next poll
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
+
+  throw new Error(`Deployment did not reach a terminal state after ${maxPolls} polls.`);
 }

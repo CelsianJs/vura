@@ -46,7 +46,8 @@ function printHelp(): void {
   Commands:
     dev         Start local development server
     build       Build the project for deployment
-    deploy      Explain managed deployment availability (not in OSS CLI yet)
+    deploy      Deploy the built project to the Vura platform
+                  vura deploy [--prod] [--token <t>] [--api-url <u>]
     admin       Launch the admin dashboard
     manifest    Print the route manifest (debug)
     tasks       Manage and run task routes

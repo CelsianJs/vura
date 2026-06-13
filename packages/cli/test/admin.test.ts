@@ -99,23 +99,37 @@ describe('CLI admin API browser boundary', () => {
 });
 
 describe('CLI deploy command', () => {
-  it('fails closed instead of pretending managed deploy is available in OSS', async () => {
+  it('fails closed (exit 1) when no credentials are present, without leaking marketing copy', async () => {
     const error = console.error;
+    const log = console.log;
     const messages: string[] = [];
     console.error = (message?: unknown) => { messages.push(String(message)); };
+    console.log = () => {};
     const previousExitCode = process.exitCode;
     process.exitCode = undefined;
+
+    // Ensure no ambient credentials/env so the auth gate trips deterministically.
+    const savedToken = process.env.VURA_TOKEN;
+    const savedHome = process.env.HOME;
+    const savedUserProfile = process.env.USERPROFILE;
+    delete process.env.VURA_TOKEN;
+    // Point HOME at a dir with no ~/.vura/credentials so the file read misses.
+    process.env.HOME = process.env.USERPROFILE = '/nonexistent-vura-home';
 
     try {
       await deployCommand([]);
       expect(process.exitCode).toBe(1);
-      expect(messages.join('\n')).toContain('not available in the open-source CLI yet');
+      expect(messages.join('\n')).toMatch(/authenticat/i);
       expect(messages.join('\n')).not.toContain('thenjs.dev');
       expect(messages.join('\n')).not.toContain('celsian.dev');
       expect(messages.join('\n')).not.toContain('Cloudflare');
     } finally {
       console.error = error;
+      console.log = log;
       process.exitCode = previousExitCode;
+      if (savedToken === undefined) delete process.env.VURA_TOKEN; else process.env.VURA_TOKEN = savedToken;
+      if (savedHome === undefined) delete process.env.HOME; else process.env.HOME = savedHome;
+      if (savedUserProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = savedUserProfile;
     }
   });
 });

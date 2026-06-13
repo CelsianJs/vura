@@ -99,6 +99,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@celsian/vura-adapter-vura':
+        specifier: workspace:0.5.0
+        version: link:../adapter-vura
       '@celsian/vura-core':
         specifier: workspace:0.5.0
         version: link:../core
