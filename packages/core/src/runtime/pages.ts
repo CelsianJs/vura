@@ -200,6 +200,22 @@ export interface PagesHandlerOptions {
   revalidateWebhook?: unknown;
 }
 
+type CacheResult = { headers?: Record<string, string> } & Record<string, unknown>;
+type CacheWithHandle = { handle: (routeMatch: { config?: { tags?: string[] } }, ...args: unknown[]) => Promise<CacheResult> | CacheResult };
+
+function addVuraCacheTagHeaders(cache: unknown): unknown {
+  if (typeof cache !== 'object' || cache === null || typeof (cache as CacheWithHandle).handle !== 'function') return cache;
+  const wrapped = cache as CacheWithHandle;
+  return { ...wrapped, async handle(routeMatch: { config?: { tags?: string[] } }, ...args: unknown[]) {
+    const result = await wrapped.handle(routeMatch, ...args);
+    const tags = routeMatch.config?.tags;
+    if (!Array.isArray(tags) || tags.length === 0) return result;
+    const headers = { ...(result.headers ?? {}) };
+    const cacheTag = headers['Cache-Tag'] ?? headers['cache-tag'] ?? tags.join(',');
+    return { ...result, headers: { ...headers, 'Cache-Tag': cacheTag, 'x-vura-cache-tag': headers['x-vura-cache-tag'] ?? cacheTag } };
+  } };
+}
+
 /**
  * Create a WinterCG Request → Response handler for vura pages.
  *
@@ -212,7 +228,7 @@ export function createPagesHandler(
 ): (req: Request) => Promise<Response> {
   return createRequestHandler({
     routes: opts.routes,
-    cache: opts.cache,
+    cache: addVuraCacheTagHeaders(opts.cache),
     render: createVuraRenderRoute(),
     revalidateWebhook: opts.revalidateWebhook,
     csrf: false,
