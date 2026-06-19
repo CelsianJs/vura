@@ -29,7 +29,7 @@ importers:
         version: 0.28.1
       happy-dom:
         specifier: ^20.10.2
-        version: 20.10.2
+        version: 20.10.6
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
@@ -38,7 +38,7 @@ importers:
         version: 6.4.3(@types/node@22.19.18)
       vitest:
         specifier: ^3.2.6
-        version: 3.2.6(@types/node@22.19.18)(happy-dom@20.10.2)
+        version: 3.2.6(@types/node@22.19.18)(happy-dom@20.10.6)
       wrangler:
         specifier: ^4.102.0
         version: 4.102.0
@@ -66,8 +66,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/core
       what-framework:
-        specifier: ^0.8.1
-        version: 0.8.4(@babel/core@7.29.7)
+        specifier: ^0.11.1
+        version: 0.11.1(@babel/core@7.29.7)
 
   examples/hot-server: {}
 
@@ -987,8 +987,8 @@ packages:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
     engines: {node: '>=12'}
 
-  baseline-browser-mapping@2.10.35:
-    resolution: {integrity: sha512-honAfLBde0HAFLdNyBEfuuENkF6zR+ozxqxa/2zJKHBe1qzLqyTSeRKpdPEHAP03rlDGyQOPnCSxnVpVqQo9Mg==}
+  baseline-browser-mapping@2.10.38:
+    resolution: {integrity: sha512-31/02mVB4yuQU6adKk5SlY6m+mxDwUq5KZkyYgnLrrKl7TEm1+3PyDtDBz2kOv/wxZz41GHsvV1A/u6RmiyBvw==}
     engines: {node: '>=6.0.0'}
     hasBin: true
 
@@ -1008,8 +1008,8 @@ packages:
     resolution: {integrity: sha512-b6Ilus+c3RrdDk+JhLKUAQfzzgLEPy6wcXqS7f/xe1EETvsDP6GORG7SFuOs6cID5YkqchW/LXZbX5bc8j7ZcQ==}
     engines: {node: '>=8'}
 
-  caniuse-lite@1.0.30001797:
-    resolution: {integrity: sha512-l8xKG+gwAIExZGl9FrF7KUwuOmk6wbEPC9Xoy/RtnWv1XG0Q4LFlagaLpUv3Kiza3W/wm27zy0yWJEieYKAP6w==}
+  caniuse-lite@1.0.30001799:
+    resolution: {integrity: sha512-hG1bReV+OUU+MOqK4t/ZWI0tZOyz3rqS9XuhOUz1cIcbwBKjOyJEJuw9ER5JuNyqxNk8u/JUVbGibBOL1yrjFw==}
 
   chai@5.3.3:
     resolution: {integrity: sha512-4zNhdJD/iOjSH0A05ea+Ke6MU5mmpQcbQsSOkgdaUMJ9zTlDTD/GYlwohmIE2u0gaxHYiVHEn1Fw9mZ/ktJWgw==}
@@ -1043,8 +1043,8 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
-  electron-to-chromium@1.5.371:
-    resolution: {integrity: sha512-e9htk9mAYL6AzmkEhSvVVw7IWGSBJ/Bqdn2eRyRLrj1g6sncN4WbFt5qnILYoCktktr45pyjIrOiRvBThQ808w==}
+  electron-to-chromium@1.5.376:
+    resolution: {integrity: sha512-cUVA7/RvbFTEuw/i3obUwDTRIXojaxkResf+ibByPFxjc6XK3VNtcQXV0NSbAlJ0FMjcJGgftVVB4Qo184EXvA==}
 
   entities@7.0.1:
     resolution: {integrity: sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA==}
@@ -1095,8 +1095,8 @@ packages:
     resolution: {integrity: sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg==}
     engines: {node: '>=6.9.0'}
 
-  happy-dom@20.10.2:
-    resolution: {integrity: sha512-5p9Sxis3eowDJKqx90QCsgbNA02XXqJ59NOHvD4V6cxp+rP4d/xOyVx7uY3hS8hiUbY1VeiFH8lbJ81AyuDVLQ==}
+  happy-dom@20.10.6:
+    resolution: {integrity: sha512-6QD0ilzDDt93tX44y8tbmZdAcdTRYDhUP+Asgi6pC8Pp5IA3cvaZGyoVN/EGtlq9ziT65iPuBBn3ASLr6hCgVw==}
     engines: {node: '>=20.0.0'}
 
   jose@5.10.0:
@@ -1144,8 +1144,8 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  node-releases@2.0.47:
-    resolution: {integrity: sha512-Uzmd6LXpouKo8EUK68IjH4+E01w/hXyV3R3g/geCJo+rXLNfh1xucB+LOzYEOQPSiUK3h/xZf0cQGcSsmyL2Og==}
+  node-releases@2.0.48:
+    resolution: {integrity: sha512-1uz8041X6LoI6ZSdZacM9lVY28vuzDlSKitnpbSNK0RfKoIJkX29NBPVEFXhnuSuEOA9Ww0xnPJ+ILWbGAv8DA==}
     engines: {node: '>=18'}
 
   path-to-regexp@6.3.0:
@@ -1332,23 +1332,11 @@ packages:
       '@babel/core': ^7.0.0
       what-core: ^0.11.1
 
-  what-compiler@0.8.4:
-    resolution: {integrity: sha512-ampYn9aSJsg2tp63QUGGJoC18U1ksFzTMUCaJP4aJXJhKUfXLD4ZonDVC0KuomCPXPM/YAplmGC423Nn32WXNQ==}
-    peerDependencies:
-      '@babel/core': ^7.0.0
-      what-core: ^0.8.4
-
   what-core@0.11.1:
     resolution: {integrity: sha512-IVSuinV94220XYCcXaOivJCG6Dx1kZTxyRqoTQSyqoVIB/DCX9HWmFapuF5iwdayWgwLwkpWGPkxyZU5jU5Wgg==}
 
-  what-core@0.8.4:
-    resolution: {integrity: sha512-cq+W9CqL6bpqIUx7gK2Kj31m3HTlzQS0hAYw9ZQgvccBc5+0V+k9vVYtT0TtZTGoZYAtLxOLJzlddqdyOWCbMQ==}
-
   what-framework@0.11.1:
     resolution: {integrity: sha512-G+UDWW+o8x/EB073gztMD2oalC21+RyMkE/mToFar8KZSuNs+mJHi1EQWEO86KDs8lJPUA30rr3wFftlZIOGMg==}
-
-  what-framework@0.8.4:
-    resolution: {integrity: sha512-4TGwEu8UCyC+j9g98UC7FIhaQ38aq0HxaFfW89NcGm2iBPywiljfg7oggai/nStX3Q3PS9lgHnVHBvEHL+9JlQ==}
 
   what-isr@0.11.1:
     resolution: {integrity: sha512-MPvn6oRL9lnlZBCiPmP3mxGw96j3R83uRq1RteLfsHbkTBXtpXFHZK/rSb3TeW3Q6fAWUW7Rj7a9HqcvHIdHhg==}
@@ -1363,11 +1351,6 @@ packages:
     peerDependencies:
       what-core: ^0.11.1
 
-  what-router@0.8.4:
-    resolution: {integrity: sha512-ZnLQ/IlJHdDGjVwmBWQGF4K9XrrC5SJkDHEErFEbyMzxf1psBGllbdvSoM8RXv5bF1l9ZaRmtP6iqR+hWKm88Q==}
-    peerDependencies:
-      what-core: ^0.8.4
-
   what-server@0.11.1:
     resolution: {integrity: sha512-8N/j1NthJnLRB2nvR2m26rY3Bl13NhSBj9oOBAsULPhvH9z/3drXOtBRpc0YqzU2tK22qy8bWk8v15vDU92NeA==}
     peerDependencies:
@@ -1376,11 +1359,6 @@ packages:
     peerDependenciesMeta:
       what-router:
         optional: true
-
-  what-server@0.8.4:
-    resolution: {integrity: sha512-o/YVJ8x/8+eaYailHJ7SWYcigBmGJwB1KwnFF76++G2BBoEvr87IcfjTLH+ONI/9r2zRa1svqFeHlKSo/gT8Yw==}
-    peerDependencies:
-      what-core: ^0.8.4
 
   whatwg-mimetype@3.0.0:
     resolution: {integrity: sha512-nt+N2dzIutVRxARx1nghPKGv1xHikU7HKdfafKkLNLindmPU/ch3U31NOCGGA/dmPcmb1VlofO0vnKAcsm0o/Q==}
@@ -2012,16 +1990,16 @@ snapshots:
 
   assertion-error@2.0.1: {}
 
-  baseline-browser-mapping@2.10.35: {}
+  baseline-browser-mapping@2.10.38: {}
 
   blake3-wasm@2.1.5: {}
 
   browserslist@4.28.2:
     dependencies:
-      baseline-browser-mapping: 2.10.35
-      caniuse-lite: 1.0.30001797
-      electron-to-chromium: 1.5.371
-      node-releases: 2.0.47
+      baseline-browser-mapping: 2.10.38
+      caniuse-lite: 1.0.30001799
+      electron-to-chromium: 1.5.376
+      node-releases: 2.0.48
       update-browserslist-db: 1.2.3(browserslist@4.28.2)
 
   buffer-image-size@0.6.4:
@@ -2030,7 +2008,7 @@ snapshots:
 
   cac@6.7.14: {}
 
-  caniuse-lite@1.0.30001797: {}
+  caniuse-lite@1.0.30001799: {}
 
   chai@5.3.3:
     dependencies:
@@ -2054,7 +2032,7 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
-  electron-to-chromium@1.5.371: {}
+  electron-to-chromium@1.5.376: {}
 
   entities@7.0.1: {}
 
@@ -2137,7 +2115,7 @@ snapshots:
 
   gensync@1.0.0-beta.2: {}
 
-  happy-dom@20.10.2:
+  happy-dom@20.10.6:
     dependencies:
       '@types/node': 22.19.18
       '@types/whatwg-mimetype': 3.0.2
@@ -2188,7 +2166,7 @@ snapshots:
 
   nanoid@3.3.12: {}
 
-  node-releases@2.0.47: {}
+  node-releases@2.0.48: {}
 
   path-to-regexp@6.3.0: {}
 
@@ -2353,7 +2331,7 @@ snapshots:
       '@types/node': 22.19.18
       fsevents: 2.3.3
 
-  vitest@3.2.6(@types/node@22.19.18)(happy-dom@20.10.2):
+  vitest@3.2.6(@types/node@22.19.18)(happy-dom@20.10.6):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.6
@@ -2380,7 +2358,7 @@ snapshots:
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 22.19.18
-      happy-dom: 20.10.2
+      happy-dom: 20.10.6
     transitivePeerDependencies:
       - jiti
       - less
@@ -2400,14 +2378,7 @@ snapshots:
       '@babel/core': 7.29.7
       what-core: 0.11.1
 
-  what-compiler@0.8.4(@babel/core@7.29.7)(what-core@0.8.4):
-    dependencies:
-      '@babel/core': 7.29.7
-      what-core: 0.8.4
-
   what-core@0.11.1: {}
-
-  what-core@0.8.4: {}
 
   what-framework@0.11.1(@babel/core@7.29.7):
     dependencies:
@@ -2415,15 +2386,6 @@ snapshots:
       what-core: 0.11.1
       what-router: 0.11.1(what-core@0.11.1)
       what-server: 0.11.1(what-core@0.11.1)(what-router@0.11.1(what-core@0.11.1))
-    transitivePeerDependencies:
-      - '@babel/core'
-
-  what-framework@0.8.4(@babel/core@7.29.7):
-    dependencies:
-      what-compiler: 0.8.4(@babel/core@7.29.7)(what-core@0.8.4)
-      what-core: 0.8.4
-      what-router: 0.8.4(what-core@0.8.4)
-      what-server: 0.8.4(what-core@0.8.4)
     transitivePeerDependencies:
       - '@babel/core'
 
@@ -2435,19 +2397,11 @@ snapshots:
     dependencies:
       what-core: 0.11.1
 
-  what-router@0.8.4(what-core@0.8.4):
-    dependencies:
-      what-core: 0.8.4
-
   what-server@0.11.1(what-core@0.11.1)(what-router@0.11.1(what-core@0.11.1)):
     dependencies:
       what-core: 0.11.1
     optionalDependencies:
       what-router: 0.11.1(what-core@0.11.1)
-
-  what-server@0.8.4(what-core@0.8.4):
-    dependencies:
-      what-core: 0.8.4
 
   whatwg-mimetype@3.0.0: {}
 
