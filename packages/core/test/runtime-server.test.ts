@@ -102,7 +102,7 @@ describe('startVuraServer', () => {
           mode: 'server',
           filePath: 'src/pages/cached.tsx',
           hasGetServerData: false,
-          config: { revalidate: 300 },
+          config: { revalidate: 300, tags: ['posts', 'nav'] },
           module: {
             default: () => {
               renders++;
@@ -118,10 +118,14 @@ describe('startVuraServer', () => {
     const res1 = await fetch(`${base()}/cached`);
     // X-What-Cache header from what-isr/buildCacheHeaders: MISS on first serve
     expect(res1.headers.get('x-what-cache')).toBe('MISS');
+    expect(res1.headers.get('cache-tag')).toBe('posts,nav');
+    expect(res1.headers.get('x-vura-cache-tag')).toBe('posts,nav');
 
     // Second fetch — cache HIT (ISR stored the first response)
     const res2 = await fetch(`${base()}/cached`);
     expect(res2.headers.get('x-what-cache')).toBe('HIT');
+    expect(res2.headers.get('cache-tag')).toBe('posts,nav');
+    expect(res2.headers.get('x-vura-cache-tag')).toBe('posts,nav');
 
     // Render count: ISR served the 2nd request from cache, so component ran once
     expect(renders).toBe(1);

@@ -24,6 +24,12 @@ const compilerNative = JSON.parse(readFileSync('packages/compiler-native/package
 const adapterVura = JSON.parse(readFileSync('packages/adapter-vura/package.json', 'utf8'));
 const failures = [];
 const publishPackageSet = new Set(publishPackages);
+const privatePackageNames = new Set();
+
+for (const packageJsonPath of findExamplePackageJsons('packages')) {
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+  if (packageJson.private === true && packageJson.name) privatePackageNames.add(packageJson.name);
+}
 
 if (compilerNative.private !== true) {
   failures.push('@celsian/vura-compiler-native must remain private until native artifacts and publish policy are ready');
@@ -60,6 +66,14 @@ for (const packageDir of publishPackages) {
   }
   if (packageJson.private === true) {
     failures.push(`${packageDir}/package.json (${packageJson.name || '<unnamed>'}) is listed for publish but private`);
+  }
+
+  for (const section of ['dependencies', 'optionalDependencies']) {
+    for (const depName of Object.keys(packageJson[section] || {})) {
+      if (privatePackageNames.has(depName)) {
+        failures.push(`${packageDir}/package.json (${packageJson.name || '<unnamed>'}) must not ship an install-time ${section} entry for private package ${depName}`);
+      }
+    }
   }
 }
 
