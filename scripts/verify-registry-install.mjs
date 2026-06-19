@@ -11,6 +11,10 @@ const root = process.cwd();
 const versionOverride = process.env.VURA_REGISTRY_VERSION;
 const tag = process.env.VURA_REGISTRY_TAG || 'latest';
 const artifactPath = process.env.VURA_REGISTRY_SMOKE_ARTIFACT || 'artifacts/registry-smoke.json';
+const installAttempts = Math.max(1, Number.parseInt(process.env.VURA_REGISTRY_INSTALL_ATTEMPTS || '12', 10));
+const installRetryDelayMs = Math.max(0, Number.parseInt(process.env.VURA_REGISTRY_INSTALL_RETRY_DELAY_MS || '10000', 10));
+const completedChecks = [];
+const installAttemptLog = [];
 
 function run(cmd, args, opts = {}) {
   const res = spawnSync(cmd, args, { cwd: opts.cwd ?? root, encoding: 'utf8', stdio: opts.stdio ?? 'pipe' });
@@ -19,6 +23,41 @@ function run(cmd, args, opts = {}) {
     throw new Error(`${cmd} ${args.join(' ')} failed with ${res.status}\n${details}`);
   }
   return res;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function retryableRegistryInstallFailure(err) {
+  const message = err instanceof Error ? err.message : String(err);
+  return /E404|ETARGET|No matching version found|notarget|not found|404 Not Found/i.test(message);
+}
+
+async function runRegistryInstallWithRetry(cwd, specs) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= installAttempts; attempt++) {
+    try {
+      run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...specs], { cwd });
+      installAttemptLog.push({ attempt, status: 'passed' });
+      return;
+    } catch (err) {
+      lastError = err;
+      const retryable = retryableRegistryInstallFailure(err);
+      installAttemptLog.push({
+        attempt,
+        status: 'failed',
+        retryable,
+        message: err instanceof Error ? err.message.split('\n').slice(0, 3).join('\n') : String(err),
+      });
+      if (!retryable || attempt === installAttempts) break;
+      console.warn(`Registry install attempt ${attempt}/${installAttempts} failed during npm propagation; retrying in ${installRetryDelayMs}ms`);
+      await sleep(installRetryDelayMs);
+    }
+  }
+
+  throw lastError;
 }
 
 const cliBins = ['vura'];
@@ -120,16 +159,34 @@ async function packageSpec(pkgDir) {
   return `${packageJson.name}@${selector || tag}`;
 }
 
+async function writeArtifact(status, specs, extra = {}) {
+  const artifact = {
+    status,
+    generatedAt: new Date().toISOString(),
+    packageCount: specs.length,
+    packages: specs,
+    installAttempts: installAttemptLog,
+    checks: completedChecks,
+    ...extra,
+  };
+  await mkdir(dirname(artifactPath), { recursive: true });
+  await writeFile(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`);
+}
+
 const tmp = await mkdtemp(join(tmpdir(), 'vura-registry-smoke-'));
+let specs = [];
 try {
-  const specs = (await Promise.all(publishPackages.map(packageSpec))).filter(Boolean);
+  specs = (await Promise.all(publishPackages.map(packageSpec))).filter(Boolean);
   if (specs.length === 0) throw new Error('No public packages found for registry smoke');
 
   run('npm', ['init', '-y'], { cwd: tmp });
-  run('npm', ['install', '--ignore-scripts', ...specs], { cwd: tmp });
+  await runRegistryInstallWithRetry(tmp, specs);
+  completedChecks.push('npm install --ignore-scripts --no-audit --no-fund');
 
   assertInstalledBins(tmp);
+  completedChecks.push('installed CLI bins');
   assertHelpCommands(tmp);
+  completedChecks.push('direct installed CLI bin help');
 
   const importCheck = `
     await import('@celsian/vura-core');
@@ -143,27 +200,28 @@ try {
   if (!imported.stdout.includes('VURA_REGISTRY_IMPORT_OK')) {
     throw new Error('Registry smoke import did not complete');
   }
+  completedChecks.push('esm imports');
 
   const createThenBin = realpathSync(join(tmp, 'node_modules/create-vura/dist/index.js'));
   const scaffold = run(process.execPath, [createThenBin, 'registry-smoke-app', '--dry-run'], { cwd: tmp });
   if (!scaffold.stdout.includes('package.json')) {
     throw new Error(`create-vura registry scaffold smoke did not list package.json; stdout=${JSON.stringify(scaffold.stdout)} stderr=${JSON.stringify(scaffold.stderr)}`);
   }
+  completedChecks.push('create-vura --dry-run');
 
   run(process.execPath, [createThenBin, 'registry-smoke-app', '--no-install'], { cwd: tmp });
+  completedChecks.push('create-vura --no-install');
   await assertScaffoldBuildAndBoot(join(tmp, 'registry-smoke-app'));
+  completedChecks.push('generated app npm install/build/boot');
 
-  const artifact = {
-    status: 'passed',
-    generatedAt: new Date().toISOString(),
-    packageCount: specs.length,
-    packages: specs,
-    checks: ['npm install --ignore-scripts', 'installed CLI bins', 'direct installed CLI bin help', 'esm imports', 'create-vura --dry-run', 'create-vura --no-install', 'generated app npm install/build/boot'],
-  };
-  await mkdir(dirname(artifactPath), { recursive: true });
-  await writeFile(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`);
+  await writeArtifact('passed', specs);
 
   console.log(`OK: registry smoke installed, verified CLI bins/direct help, real scaffold build/boot, and imported ${specs.length} package(s): ${specs.join(', ')}`);
+} catch (err) {
+  await writeArtifact('failed', specs, {
+    error: err instanceof Error ? err.message : String(err),
+  });
+  throw err;
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }
