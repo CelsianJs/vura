@@ -125,7 +125,16 @@ export async function deployCommand(args: string[]): Promise<void> {
   }
 
   // 4. Deploy via the shared adapter flow.
-  const { deployToVura } = await import('@celsian/vura-adapter-vura');
+  let deployToVura: typeof import('@celsian/vura-adapter-vura').deployToVura;
+  try {
+    ({ deployToVura } = await import('@celsian/vura-adapter-vura'));
+  } catch {
+    console.error('  Managed Vura deploy support is not installed in this CLI package.');
+    console.error('  The Vura Platform adapter is closed-alpha; use the Vura Platform CLI bundle or self-host adapters until access is granted.');
+    process.exitCode = 1;
+    return;
+  }
+
   try {
     const result = await deployToVura({
       distDir,

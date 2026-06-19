@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.1 - 2026-06-19
+
+Public install and release hardening.
+
+- `@celsian/vura-cli` no longer installs the private closed-alpha
+  `@celsian/vura-adapter-vura` package as a transitive dependency. Self-hosted
+  installs and the self-host audit can now resolve from public npm packages
+  without pulling the managed-platform adapter.
+- `vura deploy` now reports a clear closed-alpha adapter message when the
+  managed-platform adapter is not installed, instead of failing during package
+  resolution.
+- Release private-package assertions now reject publishable packages that ship
+  install-time dependencies on private workspace packages.
+- Bumped production `esbuild` ranges to `^0.28.1` to clear the current
+  production audit advisory.
+
 ## 0.5.0 - 2026-06-12
 
 WebSocket origin allowlists, WebSockets in `vura dev`, cache config wiring,

@@ -1,6 +1,6 @@
 {
   "name": "@celsian/vura-compiler",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Pure JS compiler fallback for Vura — route scanning and JSX transforms",
   "type": "module",
   "main": "dist/index.js",
