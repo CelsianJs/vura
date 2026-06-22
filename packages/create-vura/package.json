@@ -21,8 +21,8 @@
   ],
   "license": "MIT",
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "typescript": "^5.7.0"
+    "@types/node": "^26.0.0",
+    "typescript": "^6.0.3"
   },
   "repository": {
     "type": "git",
