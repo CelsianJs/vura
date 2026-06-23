@@ -6,7 +6,7 @@ CLI for [Vura](https://vura.io) — develop, build, and run tasks for Vura appli
 
 ## What it does
 
-`@celsian/vura-cli` provides the `vura` command for developing and building Vura projects. It scans routes, starts the Vite dev server with API middleware, bundles for production, and lets you run task routes by name from the terminal. `vura deploy` is reserved for the managed Vura Platform and intentionally fails closed in the OSS CLI — use an adapter (`adapter-lambda`, `adapter-cloudflare`) to self-host. The package was historically named `then`/`thenjs`; the only installed bin is `vura`.
+`@celsian/vura-cli` provides the `vura` command for developing and building Vura projects. It scans routes, starts the Vite dev server with API middleware, bundles for production, lets you inspect runtime placement, and lets you run task routes by name from the terminal. `vura deploy` is reserved for the managed Vura Platform and intentionally fails closed in the OSS CLI — use an adapter (`adapter-lambda`, `adapter-cloudflare`) to self-host. The package was historically named `then`/`thenjs`; the only installed bin is `vura`.
 
 ## Install
 
@@ -35,6 +35,13 @@ Run a task route by name without a live server:
 vura tasks run cleanup
 # with input JSON:
 vura tasks run cleanup --input '{"dryRun":true}'
+```
+
+Inspect runtime placement without deploying:
+
+```sh
+vura routes inspect --json
+vura runtime advise --json
 ```
 
 (`then` is a shell reserved word — use `vura` in all scripts.)
