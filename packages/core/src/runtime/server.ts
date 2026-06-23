@@ -189,6 +189,8 @@ export async function serveStaticIfFound(
 
 export interface VuraServerOptions {
   port?: number;
+  /** Host/interface to bind; production defaults to 0.0.0.0. */
+  host?: string;
   apiRoutes: RuntimeApiRoute[];
   pages: RuntimePage[];
   cache?: VuraCacheConfig;
@@ -211,6 +213,10 @@ export interface VuraServerOptions {
    * multiple startVuraServer() calls in a single vitest process.
    */
   installSignalHandlers?: boolean;
+}
+
+function resolveListenHost(host?: string): string | undefined {
+  return host || process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : undefined);
 }
 
 export interface VuraServer {
@@ -558,9 +564,12 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
   }
 
   // ── Listen ──
-  await new Promise<void>((resolve) => server.listen(opts.port ?? 3000, resolve));
-  const address = server.address() as { port: number };
-  const port = address.port;
+  const listenHost = resolveListenHost(opts.host);
+  await new Promise<void>((resolve) => {
+    if (listenHost) server.listen(opts.port ?? 3000, listenHost, resolve);
+    else server.listen(opts.port ?? 3000, resolve);
+  });
+  const port = (server.address() as { port: number }).port;
 
   // Signal readiness so child-process harnesses can detect startup.
   // Uses process.stdout.write to avoid NODE_ENV='test' log suppression.

@@ -67,7 +67,7 @@ function createTestProject(): string {
 
 export async function GET(req: any, reply: any) {
   const marker = new HttpError(418, 'INTERNAL_ERROR', 'teapot');
-  return reply.json({ message: 'hello', marker: marker.name });
+  return reply.json({ message: 'hello', marker: marker.name, scope: process.env.VURA_ENV_SCOPE || 'unset' });
 }
 `,
   );
@@ -217,7 +217,7 @@ const response = await mod.default.fetch(new Request('https://example.com/api/he
 console.log(JSON.stringify({ status: response.status, body: await response.json() }));
 `);
     expect(result.status).toBe(200);
-    expect(result.body).toEqual({ message: 'hello', marker: 'HttpError' });
+    expect(result.body).toEqual({ message: 'hello', marker: 'HttpError', scope: 'unset' });
   });
 
   it('writes task entries for task routes', () => {
@@ -429,7 +429,15 @@ describe('smoke-build: live server integration', () => {
           config: {},
         },
       ],
-      pages: [],
+      pages: [
+        {
+          filePath: 'src/pages/index.tsx',
+          urlPattern: '/',
+          mode: 'server',
+          hasGetServerData: false,
+          config: { title: 'Smoke Test', mode: 'server' },
+        } as PageRoute,
+      ],
       layouts: [],
       timestamp: new Date().toISOString(),
     };
@@ -506,6 +514,13 @@ describe('smoke-build: live server integration', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.message).toBe('hello');
+  });
+
+  it('GET / renders a JSX server page without requiring React globals', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('Smoke Test');
   });
 
   it('GET /unknown returns 404', async () => {

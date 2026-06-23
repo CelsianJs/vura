@@ -573,9 +573,12 @@ async function bundleRouteModule(
     target: 'es2022',
     platform,
     outfile,
+    jsx: 'automatic',
+    jsxImportSource: '@celsian/vura-core',
     nodePaths: [join(projectRoot, 'node_modules'), join(process.cwd(), 'node_modules')],
     plugins: [vuraCoreSelfResolvePlugin()],
     external: externalList,
+    ...(platform === 'neutral' ? { banner: { js: 'const process = globalThis.process || { env: {} };' } } : {}),
   });
 }
 

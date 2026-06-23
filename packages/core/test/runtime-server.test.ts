@@ -19,6 +19,58 @@ afterEach(async () => {
 const base = () => `http://127.0.0.1:${srv!.port}`;
 
 describe('startVuraServer', () => {
+  it('binds to 0.0.0.0 by default in production so container proxies can reach it', async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousHost = process.env.HOST;
+    process.env.NODE_ENV = 'production';
+    delete process.env.HOST;
+    try {
+      srv = await startVuraServer({
+        port: 0,
+        apiRoutes: [],
+        pages: [],
+        cache: {},
+        installSignalHandlers: false,
+      });
+      const address = srv.server.address();
+      expect(typeof address).toBe('object');
+      expect((address as any).address).toBe('0.0.0.0');
+      const health = await (await fetch(`${base()}/__health`)).json();
+      expect(health.ok).toBe(true);
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousHost === undefined) delete process.env.HOST;
+      else process.env.HOST = previousHost;
+    }
+  }, 10000);
+
+  it('honors HOST when binding the production server', async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousHost = process.env.HOST;
+    process.env.NODE_ENV = 'production';
+    process.env.HOST = '127.0.0.1';
+    try {
+      srv = await startVuraServer({
+        port: 0,
+        apiRoutes: [],
+        pages: [],
+        cache: {},
+        installSignalHandlers: false,
+      });
+      const address = srv.server.address();
+      expect(typeof address).toBe('object');
+      expect((address as any).address).toBe('127.0.0.1');
+      const health = await (await fetch(`${base()}/__health`)).json();
+      expect(health.ok).toBe(true);
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousHost === undefined) delete process.env.HOST;
+      else process.env.HOST = previousHost;
+    }
+  }, 10000);
+
   it('composes api + pages + health on one port', async () => {
     srv = await startVuraServer({
       port: 0,
