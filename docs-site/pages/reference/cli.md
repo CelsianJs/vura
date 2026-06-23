@@ -133,6 +133,51 @@ Exits with code `1` on failure (unknown task, handler throws, exhausted retries)
 
 ---
 
+## `vura routes inspect`
+
+Inspect source routes as user-facing runtime profiles without deploying or
+mutating infrastructure.
+
+```sh
+vura routes inspect [--json]
+```
+
+Profiles map current route/page declarations into Vura Platform vocabulary:
+`static`, `cold`, `hot`, `task-cold`, and `cron-cold`. Planned profiles such as
+`task-hot` remain advice only until platform proof exists.
+
+Use `--json` for agent-readable output with:
+
+- route/task pattern,
+- source intent (`kind:*` or `mode:*`),
+- effective profile,
+- backing target,
+- schedule/websocket metadata,
+- warnings,
+- exact next command where one exists.
+
+---
+
+## `vura runtime advise`
+
+Explain deterministic runtime-placement recommendations from the local manifest.
+This command is read-only and never promotes, demotes, deploys, or creates
+provider resources.
+
+```sh
+vura runtime advise [--json]
+```
+
+The first advisor pass is manifest-only:
+
+- WebSocket routes confirm or recommend `hot`.
+- Server/hybrid pages confirm `hot` server entry placement.
+- Task routes confirm `task-cold`.
+- Scheduled task routes confirm `cron-cold` dispatch.
+- Long task timeouts warn about planned `task-hot` placement.
+
+---
+
 ## `vura deploy`
 
 ```sh

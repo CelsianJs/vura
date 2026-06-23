@@ -11,6 +11,8 @@ import { deployCommand } from './commands/deploy.js';
 import { devCommand } from './commands/dev.js';
 import { adminCommand } from './commands/admin.js';
 import { tasksCommand } from './commands/tasks.js';
+import { routesCommand } from './commands/routes.js';
+import { runtimeCommand } from './commands/runtime.js';
 
 const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   build: buildCommand,
@@ -19,6 +21,8 @@ const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   dev: devCommand,
   admin: adminCommand,
   tasks: tasksCommand,
+  routes: routesCommand,
+  runtime: runtimeCommand,
 };
 
 export async function run(args: string[]): Promise<void> {
@@ -50,6 +54,10 @@ function printHelp(): void {
                   vura deploy [--prod] [--token <t>] [--api-url <u>]
     admin       Launch the admin dashboard
     manifest    Print the route manifest (debug)
+    routes      Inspect runtime placement without mutating infrastructure
+                  vura routes inspect [--json]
+    runtime     Explain runtime placement recommendations
+                  vura runtime advise [--json]
     tasks       Manage and run task routes
                   vura tasks list
                   vura tasks run <name> [--input '<json>']
