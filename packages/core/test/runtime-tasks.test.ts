@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
-import { startVuraServer, type VuraServer } from '../src/runtime/server.js';
+import { shouldStartInProcessTaskCron, startVuraServer, type VuraServer } from '../src/runtime/server.js';
 import { runTaskOnce, isTaskAdminAuthorized, createTaskResultStore } from '../src/runtime/tasks.js';
 
 let srv: VuraServer | undefined;
@@ -169,6 +169,15 @@ describe('task admin lifecycle', () => {
 // ─── Cron wiring tests ───────────────────────────────────────────────────────
 
 describe('cron wiring', () => {
+  it('can disable in-process cron when the platform scheduler owns dispatch', () => {
+    const tasks = [{ schedule: '0 3 * * *' }];
+    expect([
+      shouldStartInProcessTaskCron(tasks, {}),
+      shouldStartInProcessTaskCron(tasks, { VURA_DISABLE_IN_PROCESS_CRON: '1' }),
+      shouldStartInProcessTaskCron(tasks, { VURA_DISABLE_IN_PROCESS_CRON: 'true' }),
+    ]).toEqual([true, false, false]);
+  });
+
   it('registered task schedule export appears in getCronJobs()', async () => {
     // We can't easily access the internal `app` from VuraServer, but we can
     // verify indirectly: GET /__tasks lists the task with its schedule.

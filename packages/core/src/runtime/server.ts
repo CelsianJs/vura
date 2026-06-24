@@ -35,8 +35,6 @@ import {
   type TaskAdminJob,
 } from './tasks.js';
 
-// ─── MIME types (ported from STATIC_FILE_CODE in build.ts) ───
-
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',
   '.css': 'text/css',
@@ -69,6 +67,10 @@ const MIME_TYPES: Record<string, string> = {
 
 function getMimeType(filePath: string): string {
   return MIME_TYPES[extname(filePath).toLowerCase()] ?? 'application/octet-stream';
+}
+
+export function shouldStartInProcessTaskCron(registeredTasks: Array<{ schedule?: string }>, env: { VURA_DISABLE_IN_PROCESS_CRON?: string } = process.env): boolean {
+  return !/^(1|true|yes)$/i.test((env.VURA_DISABLE_IN_PROCESS_CRON ?? '').trim()) && registeredTasks.some((task) => task.schedule);
 }
 
 /**
@@ -185,8 +187,6 @@ export async function serveStaticIfFound(
   return false;
 }
 
-// ─── Public API ───
-
 export interface VuraServerOptions {
   port?: number;
   /** Host/interface to bind; production defaults to 0.0.0.0. */
@@ -287,8 +287,7 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
     ? registerTaskCrons(app, taskRoutes, taskStore, taskNameFromPattern)
     : [];
 
-  // Start scheduler only when cron tasks were registered
-  if (registeredTasks.some((t) => t.schedule)) {
+  if (shouldStartInProcessTaskCron(registeredTasks)) {
     app.startCron();
   }
 
