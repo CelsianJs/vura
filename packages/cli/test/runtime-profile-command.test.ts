@@ -82,6 +82,12 @@ export function POST() { return Response.json({ ok: true }); }
 export function POST() { return Response.json({ ok: true }); }
 `,
   );
+  writeFileSync(
+    join(fixtureRoot, 'src', 'api', 'tasks', 'export.ts'),
+    `export const route = { kind: 'task', runtime: 'hot', schedule: '*/15 * * * *', retries: 1, timeout: 120000 };
+export function POST() { return Response.json({ ok: true }); }
+`,
+  );
 
   previousExitCode = process.exitCode as number | undefined;
   process.exitCode = undefined;
@@ -100,20 +106,36 @@ describe('vura routes inspect', () => {
     expect(parsed.totals).toMatchObject({
       static: 2,
       cold: 1,
-      hot: 2,
+      hot: 1,
+      'streaming-hot': 1,
       'task-cold': 2,
+      'task-hot': 1,
       'cron-cold': 1,
+      'cron-hot': 1,
     });
 
     expect(parsed.routes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ pattern: '/api/hello', effectiveProfile: 'cold', sourceIntent: 'kind:serverless' }),
-        expect.objectContaining({ pattern: '/api/ws', effectiveProfile: 'hot', hasWebsocket: true }),
+        expect.objectContaining({ pattern: '/api/ws', effectiveProfile: 'streaming-hot', hasWebsocket: true }),
         expect.objectContaining({ pattern: '/api/tasks/send', effectiveProfile: 'task-cold' }),
         expect.objectContaining({
           pattern: '/api/tasks/send',
           effectiveProfile: 'task-cold',
           nextCommand: 'vura tasks run tasks.send',
+        }),
+        expect.objectContaining({
+          pattern: '/api/tasks/export',
+          effectiveProfile: 'task-hot',
+          backingTarget: 'hot task runtime',
+          nextCommand: 'vura tasks run tasks.export',
+        }),
+        expect.objectContaining({
+          pattern: '/api/tasks/export',
+          effectiveProfile: 'cron-hot',
+          backingTarget: 'control-plane scheduler to hot task runtime',
+          schedule: '*/15 * * * *',
+          nextCommand: 'vura tasks list',
         }),
         expect.objectContaining({
           pattern: '/api/tasks/nightly',
@@ -142,7 +164,7 @@ describe('vura runtime advise', () => {
     expect(parsed.advice).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ pattern: '/admin', recommendation: 'hot', severity: 'info' }),
-        expect.objectContaining({ pattern: '/api/ws', recommendation: 'hot', severity: 'info' }),
+        expect.objectContaining({ pattern: '/api/ws', recommendation: 'streaming-hot', severity: 'info' }),
         expect.objectContaining({
           pattern: '/api/tasks/send',
           recommendation: 'task-cold',
@@ -152,6 +174,18 @@ describe('vura runtime advise', () => {
         expect.objectContaining({
           pattern: '/api/tasks/nightly',
           recommendation: 'cron-cold',
+          severity: 'info',
+          nextCommand: 'vura tasks list',
+        }),
+        expect.objectContaining({
+          pattern: '/api/tasks/export',
+          recommendation: 'task-hot',
+          severity: 'info',
+          nextCommand: 'vura tasks run tasks.export',
+        }),
+        expect.objectContaining({
+          pattern: '/api/tasks/export',
+          recommendation: 'cron-hot',
           severity: 'info',
           nextCommand: 'vura tasks list',
         }),
