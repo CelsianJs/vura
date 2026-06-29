@@ -95,7 +95,7 @@ jobs:
     needs: scaffold
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: scaffold-app
           path: app
@@ -149,7 +149,7 @@ jobs:
       - uses: actions/checkout@v4
         # checkout needed for the guide markdown source
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: scaffold-app
           path: app
@@ -184,7 +184,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: scaffold-app
           path: app
@@ -236,7 +236,7 @@ jobs:
       - uses: actions/checkout@v4
         # checkout needed for scripts/use-adapter.mjs
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: scaffold-app
           path: app
@@ -281,7 +281,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: scaffold-app
           path: app
