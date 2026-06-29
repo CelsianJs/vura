@@ -76,7 +76,7 @@ jobs:
           test -f /tmp/app/dist/fly.toml
 
       - name: Upload scaffold artifact (without node_modules)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: scaffold-app
           # Exclude node_modules — each consumer job installs what it needs.
