@@ -1,6 +1,6 @@
 import type { ApiRoute, PageRoute, RouteManifest } from '@celsian/vura-core';
 
-export type RuntimeProfile = 'static' | 'cold' | 'hot' | 'task-cold' | 'cron-cold' | 'task-hot' | 'cron-hot';
+export type RuntimeProfile = 'static' | 'cold' | 'hot' | 'streaming-hot' | 'task-cold' | 'cron-cold' | 'task-hot' | 'cron-hot';
 
 export interface RuntimeRouteInspection {
   type: 'api' | 'page';
@@ -47,18 +47,25 @@ function configNumber(config: Record<string, unknown>, key: string): number | un
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+function prefersHotTask(config: Record<string, unknown>): boolean {
+  return ['runtime', 'placement', 'target'].some((key) => configString(config, key) === 'hot')
+    || config.hot === true;
+}
+
 export function taskNameFromPattern(urlPattern: string): string {
   return urlPattern.replace(/^\/api\//, '').replace(/\//g, '.');
 }
 
 export function profileForApiRoute(route: ApiRoute): RuntimeProfile {
-  if (route.kind === 'hot') return 'hot';
-  if (route.kind === 'task') return 'task-cold';
+  if (route.kind === 'hot') return route.hasWebsocket ? 'streaming-hot' : 'hot';
+  if (route.kind === 'task') return prefersHotTask(route.config) ? 'task-hot' : 'task-cold';
   return 'cold';
 }
 
 export function cronProfileForApiRoute(route: ApiRoute): RuntimeProfile | null {
-  if (route.kind === 'task' && configString(route.config, 'schedule')) return 'cron-cold';
+  if (route.kind === 'task' && configString(route.config, 'schedule')) {
+    return profileForApiRoute(route) === 'task-hot' ? 'cron-hot' : 'cron-cold';
+  }
   return null;
 }
 
@@ -68,8 +75,10 @@ export function profileForPageRoute(page: PageRoute): RuntimeProfile {
 }
 
 function backingTargetForApiRoute(route: ApiRoute): string {
-  if (route.kind === 'hot') return 'hot server';
-  if (route.kind === 'task') return 'serverless task function';
+  const profile = profileForApiRoute(route);
+  if (profile === 'hot' || profile === 'streaming-hot') return 'hot server';
+  if (profile === 'task-hot') return 'hot task runtime';
+  if (profile === 'task-cold') return 'serverless task function';
   return 'serverless function';
 }
 
@@ -114,7 +123,9 @@ function inspectApiRoute(route: ApiRoute): RuntimeRouteInspection[] {
       filePath: route.filePath,
       sourceIntent: `schedule:${schedule}`,
       effectiveProfile: cronProfile,
-      backingTarget: 'control-plane scheduler to task function',
+      backingTarget: cronProfile === 'cron-hot'
+        ? 'control-plane scheduler to hot task runtime'
+        : 'control-plane scheduler to task function',
       methods: route.methods,
       schedule,
       hasWebsocket: false,
@@ -146,6 +157,7 @@ export function inspectRuntime(manifest: RouteManifest): RuntimeInspection {
     static: 0,
     cold: 0,
     hot: 0,
+    'streaming-hot': 0,
     'task-cold': 0,
     'cron-cold': 0,
     'task-hot': 0,
@@ -186,40 +198,46 @@ export function adviseRuntime(manifest: RouteManifest): RuntimeAdviceResult {
         pattern: route.urlPattern,
         type: 'api',
         currentProfile,
-        recommendation: 'hot',
+        recommendation: 'streaming-hot',
         severity: route.kind === 'hot' ? 'info' : 'warn',
         reason: route.kind === 'hot'
-          ? 'WebSocket route is correctly placed on hot runtime.'
-          : 'WebSocket exports require hot runtime to handle upgrades.',
+          ? 'WebSocket route is correctly placed on streaming-hot runtime.'
+          : 'WebSocket exports require streaming-hot runtime to handle upgrades.',
       });
     }
 
     if (route.kind === 'task') {
+      const taskProfile = profileForApiRoute(route);
       advice.push({
         pattern: route.urlPattern,
         type: 'api',
         currentProfile,
-        recommendation: 'task-cold',
+        recommendation: taskProfile,
         severity: 'info',
-        reason: schedule
-          ? 'Scheduled task is a task-cold worker with cron-cold dispatch.'
-          : 'Task route is a task-cold worker for manual or API-triggered jobs.',
+        reason: taskProfile === 'task-hot'
+          ? 'Task route is pinned to hot task runtime for long-running or stateful work.'
+          : schedule
+            ? 'Scheduled task is a task-cold worker with cron-cold dispatch.'
+            : 'Task route is a task-cold worker for manual or API-triggered jobs.',
         nextCommand: `vura tasks run ${taskNameFromPattern(route.urlPattern)}`,
       });
 
       if (schedule) {
+        const cronProfile = cronProfileForApiRoute(route) ?? 'cron-cold';
         advice.push({
           pattern: route.urlPattern,
           type: 'api',
-          currentProfile: 'cron-cold',
-          recommendation: 'cron-cold',
+          currentProfile: cronProfile,
+          recommendation: cronProfile,
           severity: 'info',
-          reason: `Cron schedule ${schedule} dispatches to the task-cold target.`,
+          reason: cronProfile === 'cron-hot'
+            ? `Cron schedule ${schedule} dispatches to the hot task target.`
+            : `Cron schedule ${schedule} dispatches to the task-cold target.`,
           nextCommand: 'vura tasks list',
         });
       }
 
-      if (typeof timeout === 'number' && timeout > 60_000) {
+      if (typeof timeout === 'number' && timeout > 60_000 && taskProfile !== 'task-hot') {
         advice.push({
           pattern: route.urlPattern,
           type: 'api',
