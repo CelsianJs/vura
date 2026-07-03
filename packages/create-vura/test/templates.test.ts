@@ -51,6 +51,27 @@ describe('create-vura templates', () => {
     expect(chatTs).toContain('peer.broadcast(');
   });
 
+  it('ships the health check as a serverless route so it deploys on every adapter', () => {
+    // Regression: health was scaffolded as kind: 'hot', which excludes it from
+    // serverless adapter bundles (Cloudflare/Lambda) — a plain GET health check
+    // would silently vanish on deploy. A request/response endpoint must be serverless.
+    const files = getFiles('demo-app');
+
+    expect(files).toHaveProperty('src/api/health.ts');
+    const healthTs = files['src/api/health.ts'];
+    expect(healthTs).toContain("export const route = { kind: 'serverless' };");
+    expect(healthTs).not.toContain("export const route = { kind: 'hot' };");
+  });
+
+  it('demonstrates the full-stack loop: the client dashboard fetches an API route', () => {
+    const files = getFiles('demo-app');
+
+    expect(files).toHaveProperty('src/pages/dashboard.tsx');
+    const dashboard = files['src/pages/dashboard.tsx'];
+    expect(dashboard).toContain('onMount');
+    expect(dashboard).toContain("fetch('/api/hello')");
+  });
+
   it('includes the scheduled cleanup task example', () => {
     const files = getFiles('demo-app');
 
