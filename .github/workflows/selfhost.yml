@@ -28,7 +28,7 @@ jobs:
   scaffold:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v4
         with:
@@ -146,7 +146,7 @@ jobs:
     needs: scaffold
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         # checkout needed for the guide markdown source
 
       - uses: actions/download-artifact@v4
@@ -182,7 +182,7 @@ jobs:
     needs: scaffold
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/download-artifact@v4
         with:
@@ -233,7 +233,7 @@ jobs:
     needs: scaffold
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         # checkout needed for scripts/use-adapter.mjs
 
       - uses: actions/download-artifact@v4
@@ -279,7 +279,7 @@ jobs:
     needs: scaffold
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/download-artifact@v4
         with:
