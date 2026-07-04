@@ -61,6 +61,7 @@ const REFERENCE = [
   ['/reference/config', 'vura.config'],
   ['/reference/route-kinds', 'Route kinds'],
   ['/reference/page-modes', 'Page modes'],
+  ['/reference/data-fetching', 'Data fetching'],
   ['/reference/cli', 'CLI'],
   ['/reference/adapters', 'Adapters'],
 ];
