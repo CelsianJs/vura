@@ -1,6 +1,6 @@
 {
   "name": "@celsian/vura-adapter-vura",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -20,7 +20,7 @@
     "prepack": "pnpm run build"
   },
   "dependencies": {
-    "@celsian/vura-core": "workspace:0.5.2"
+    "@celsian/vura-core": "workspace:0.5.3"
   },
   "license": "MIT",
   "description": "Vura Platform deployment adapter for Vura applications",

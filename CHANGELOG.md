@@ -2,20 +2,74 @@
 
 ## Unreleased
 
-Changes on `main` since `v0.5.2`, not yet published to npm.
+_No unreleased changes yet._
 
-- Added `VURA_DISABLE_IN_PROCESS_CRON` so a hosting control plane can own cron
-  dispatch for platform-placed workloads. When set to `1`/`true`/`yes`, the
-  standalone runtime skips starting its in-process scheduler even when
-  scheduled tasks are registered. Unset (the default) preserves the existing
-  self-hosted behavior where the runtime runs its own cron. Prevents duplicate
-  cron execution when an external scheduler is already dispatching.
+## 0.5.3 - 2026-07-04
+
+Scaffold and developer-experience release — makes a freshly created app
+deploy, render styled, and demonstrate the full-stack data loop out of the box;
+adds a readable client-crash error panel; migrates the toolchain to TypeScript
+6 / Vite 8 / Vitest 4; and finishes the hot-placement CLI truth alignment.
+
+### create-vura scaffold
+
+- **Health route ships as `kind: 'serverless'`, not `hot`.** The starter's
+  `src/api/health.ts` was a hot route, and hot routes are excluded from the
+  serverless adapter bundles — so `vura build` for Cloudflare/Lambda silently
+  dropped the health endpoint. It now ships as a serverless route so it deploys
+  on every adapter, with a comment explaining when `hot` is the right choice.
+- **The starter now demonstrates the full-stack data loop.** The dashboard page
+  fetches an API route on mount and renders the response, so the framework's
+  core client↔API loop is shown in the default app instead of being invisible.
+- **Styled baseline stylesheet.** A small, dependency-free base stylesheet
+  (`src/styles.ts`) is imported by every page — system font stack, sensible
+  spacing/typography, and styled buttons, inputs, links, and code, with light
+  and dark themes via `prefers-color-scheme`. A freshly scaffolded app renders
+  styled instead of unstyled black-on-white.
+- **Dashboard uses the idiomatic `useFetch` hook.** The scaffold dashboard was
+  upgraded from hand-rolled `onMount` + `fetch` + signal to What-FW's `useFetch`,
+  now handling loading and error states, not just the happy path (kept
+  `mode: 'client'` to avoid the `useSWR`/`useQuery` server-mode heuristic).
+
+### Data-fetching docs
+
+- Added a **Data fetching** reference page documenting What-FW's
+  `useFetch`/`createResource`/`useSWR`/`useQuery`/`useInfiniteQuery` hooks —
+  real signatures, when to reach for each, the client-vs-server boundary (these
+  hooks fetch in the browser; request-time server data uses server mode +
+  `getServerData`), and the `useSWR`/`useQuery` server-mode auto-detection
+  gotcha.
+
+### core
+
+- **Readable error panel instead of a blank page on client render crash.** When
+  a client- or hybrid-mode page throws during its initial render,
+  `mount()`/`hydrate()` used to leave the `#app` shell empty — a blank white page
+  with the error only in the browser console. The generated client entry now
+  wraps the boot in try/catch and renders a `role="alert"` panel: message + stack
+  in dev, a generic message in prod (stack traces are not leaked to end users).
+
+### Toolchain
+
+- Migrated to **TypeScript 6** (`^5.7` → `^6.0.0`), **Vite 8** (`^6.4` →
+  `^8.0.0`), and **Vitest 4**. The `@celsian/vura-vite-plugin` vite peer range
+  widened to `^6.0.0 || ^7.0.0 || ^8.0.0` to support the new major. No runtime
+  source changes were required; `@types/node` was bumped for TS6 compatibility.
+
+### CLI — hot-placement truth alignment
+
 - `vura routes inspect` and `vura runtime advise` now report richer runtime
   profiles: WebSocket hot routes surface as `streaming-hot`, tasks pinned to a
   hot runtime (`runtime`/`placement`/`target: 'hot'` or `hot: true`) surface as
   `task-hot`, and their scheduled dispatch surfaces as `cron-hot` instead of
   being flattened to `cron-cold`. CLI truth-alignment only — this does not claim
   live `task-hot`/`cron-hot` execution is deployed.
+- Added `VURA_DISABLE_IN_PROCESS_CRON` so a hosting control plane can own cron
+  dispatch for platform-placed workloads. When set to `1`/`true`/`yes`, the
+  standalone runtime skips starting its in-process scheduler even when
+  scheduled tasks are registered. Unset (the default) preserves the existing
+  self-hosted behavior where the runtime runs its own cron. Prevents duplicate
+  cron execution when an external scheduler is already dispatching.
 
 ## 0.5.2 - 2026-06-23
 
