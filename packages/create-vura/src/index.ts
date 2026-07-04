@@ -443,29 +443,35 @@ export default function AboutPage() {
 }
 `,
 
-    'src/pages/dashboard.tsx': `import { useSignal, onMount } from 'what-framework';
+    'src/pages/dashboard.tsx': `import { useSignal, useFetch } from 'what-framework';
 import { baseStyles } from '../styles.js';
 
 export const page = { mode: 'client', title: 'Dashboard — ${projectName}', styles: [baseStyles] };
 
 export default function DashboardPage() {
   const count = useSignal(0);
-  const message = useSignal('Loading…');
 
-  // The full-stack loop: this client page calls the /api/hello route on mount
-  // and renders the response. onMount runs on the client after hydration.
-  onMount(async () => {
-    const res = await fetch('/api/hello');
-    const data = await res.json();
-    message.set(data.message);
-  });
+  // The full-stack loop: this client page calls the /api/hello route and
+  // renders the response. useFetch handles the request lifecycle for you —
+  // loading, error, and data are reactive getters, so there's no manual
+  // lifecycle + fetch + signal wiring to maintain. See the data-fetching docs
+  // for useQuery / useSWR / createResource and when to reach for each.
+  const hello = useFetch('/api/hello');
 
   return (
     <div class="dashboard">
       <h1>Dashboard</h1>
       <p>This page runs in client mode — fully interactive.</p>
       <p>
-        From <code>/api/hello</code>: <strong>{() => message()}</strong>
+        From <code>/api/hello</code>:{' '}
+        <strong>
+          {() =>
+            hello.isLoading()
+              ? 'Loading…'
+              : hello.error()
+                ? 'Failed to load'
+                : hello.data()?.message}
+        </strong>
       </p>
       <div class="counter">
         <button onClick={() => count.set(count() - 1)}>-</button>

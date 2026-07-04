@@ -85,13 +85,22 @@ describe('create-vura templates', () => {
     }
   });
 
-  it('demonstrates the full-stack loop: the client dashboard fetches an API route', () => {
+  it('demonstrates the full-stack loop with the idiomatic useFetch hook', () => {
     const files = getFiles('demo-app');
 
     expect(files).toHaveProperty('src/pages/dashboard.tsx');
     const dashboard = files['src/pages/dashboard.tsx'];
-    expect(dashboard).toContain('onMount');
-    expect(dashboard).toContain("fetch('/api/hello')");
+    // The dashboard uses What-FW's useFetch (declarative loading/error/data)
+    // rather than hand-rolled onMount + fetch + signal wiring.
+    expect(dashboard).toContain("useFetch('/api/hello')");
+    expect(dashboard).toContain('import { useSignal, useFetch }');
+    expect(dashboard).not.toContain('onMount');
+    // useFetch is a client-side hook: keep the page in client mode so it does
+    // not trip the useSWR/useQuery server-mode auto-detection heuristic.
+    expect(dashboard).toContain("mode: 'client'");
+    // Loading and error states are both handled — not just the happy path.
+    expect(dashboard).toContain('isLoading()');
+    expect(dashboard).toContain('error()');
   });
 
   it('includes the scheduled cleanup task example', () => {
