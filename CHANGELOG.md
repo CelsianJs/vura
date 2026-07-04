@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased
+
+Changes on `main` since `v0.5.2`, not yet published to npm.
+
+- Added `VURA_DISABLE_IN_PROCESS_CRON` so a hosting control plane can own cron
+  dispatch for platform-placed workloads. When set to `1`/`true`/`yes`, the
+  standalone runtime skips starting its in-process scheduler even when
+  scheduled tasks are registered. Unset (the default) preserves the existing
+  self-hosted behavior where the runtime runs its own cron. Prevents duplicate
+  cron execution when an external scheduler is already dispatching.
+- `vura routes inspect` and `vura runtime advise` now report richer runtime
+  profiles: WebSocket hot routes surface as `streaming-hot`, tasks pinned to a
+  hot runtime (`runtime`/`placement`/`target: 'hot'` or `hot: true`) surface as
+  `task-hot`, and their scheduled dispatch surfaces as `cron-hot` instead of
+  being flattened to `cron-cold`. CLI truth-alignment only — this does not claim
+  live `task-hot`/`cron-hot` execution is deployed.
+
+## 0.5.2 - 2026-06-23
+
+Runtime placement release — makes Vura route bundles deployable on hosted
+hot/cold targets and aligns the framework with the current What runtime
+contract.
+
+- Runtime route bundles are now built with Vura's automatic JSX runtime and
+  ship a Workers-safe `process.env` fallback for neutral (edge) bundles, so the
+  same route module runs across the Node runtime, the Cloudflare adapter, and
+  hosted platform hot/cold targets without a broken `process` reference.
+- Production hot servers now bind to a reachable host (`0.0.0.0`) by default so
+  platform-deployed hot routes are actually reachable, matching the Node
+  runtime's production host behavior.
+- Aligned Vura with the current What Framework runtime contract
+  (`what-core`/`what-framework` `0.11.x`), replacing the older `0.8.x` pin.
+- Added `vura routes inspect` and `vura runtime advise` — read-only commands
+  that surface each route's effective runtime placement (static / cold / hot /
+  task / cron) before any deploy or control-plane mutation.
+- Excluded generated source maps from the published CLI tarball to keep it
+  inside its tracked package-size budget.
+
 ## 0.5.1 - 2026-06-19
 
 Public install and release hardening.
