@@ -280,7 +280,130 @@ export async function POST(ctx: { attempt: number; input: unknown }) {
 }
 `,
 
-    'src/pages/index.tsx': `export const page = { mode: 'static', title: 'Home — ${projectName}' };
+    // Baseline stylesheet shared by every page. Imported once and passed to
+    // each page's `page.styles`, so the default look-and-feel — typography,
+    // buttons, inputs, links, code — lives in ONE place instead of being
+    // duplicated per page. Dependency-free, system fonts, light + dark via
+    // prefers-color-scheme. Edit this file to restyle the whole app.
+    'src/styles.ts': `export const baseStyles = \`
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --surface: #f6f7f9;
+  --fg: #18181b;
+  --muted: #6b7280;
+  --border: #e4e4e7;
+  --accent: #0e7490;
+  --accent-fg: #ffffff;
+  --accent-hover: #155e75;
+  --code-bg: #f4f4f5;
+  --radius: 8px;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0c0e;
+    --surface: #15171a;
+    --fg: #e6e7e9;
+    --muted: #9ca3af;
+    --border: #26282d;
+    --accent: #22d3ee;
+    --accent-fg: #06121a;
+    --accent-hover: #67e8f9;
+    --code-bg: #1a1d21;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 4rem;
+}
+
+h1 { font-size: 2rem; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 0.5rem; }
+h2 { font-size: 1.35rem; font-weight: 650; margin: 2rem 0 0.75rem; }
+p { margin: 0 0 1rem; }
+
+a { color: var(--accent); text-decoration: none; font-weight: 500; }
+a:hover { text-decoration: underline; }
+
+nav {
+  margin-top: 2rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--code-bg);
+  padding: 0.15em 0.4em;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+}
+
+button {
+  font: inherit;
+  font-weight: 550;
+  color: var(--accent-fg);
+  background: var(--accent);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  transition: background 120ms ease, transform 60ms ease;
+}
+button:hover { background: var(--accent-hover); }
+button:active { transform: translateY(1px); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+input, textarea, select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+}
+input:focus, textarea:focus, select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+.counter {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+.counter span {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.5rem;
+  font-weight: 600;
+  min-width: 2ch;
+  text-align: center;
+}
+\`;
+`,
+
+    'src/pages/index.tsx': `import { baseStyles } from '../styles.js';
+
+export const page = { mode: 'static', title: 'Home — ${projectName}', styles: [baseStyles] };
 
 export default function HomePage() {
   return (
@@ -297,7 +420,9 @@ export default function HomePage() {
 }
 `,
 
-    'src/pages/about.tsx': `export const page = { mode: 'static', title: 'About — ${projectName}' };
+    'src/pages/about.tsx': `import { baseStyles } from '../styles.js';
+
+export const page = { mode: 'static', title: 'About — ${projectName}', styles: [baseStyles] };
 
 export default function AboutPage() {
   return (
@@ -319,8 +444,9 @@ export default function AboutPage() {
 `,
 
     'src/pages/dashboard.tsx': `import { useSignal, onMount } from 'what-framework';
+import { baseStyles } from '../styles.js';
 
-export const page = { mode: 'client', title: 'Dashboard — ${projectName}' };
+export const page = { mode: 'client', title: 'Dashboard — ${projectName}', styles: [baseStyles] };
 
 export default function DashboardPage() {
   const count = useSignal(0);
