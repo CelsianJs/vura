@@ -85,6 +85,21 @@ describe('generateClientPageEntry (string-level)', () => {
     const src = generateClientPageEntry('./dashboard.tsx', 'client');
     expect(src).toContain("'app'");
   });
+
+  it('guards the boot so a render throw does not leave a blank page', () => {
+    const src = generateClientPageEntry('./dashboard.tsx', 'client');
+    expect(src).toMatch(/try\s*\{/);
+    expect(src).toContain('_renderVuraBootError');
+    expect(src).toContain("role");
+  });
+
+  it('dev mode surfaces the stack; prod mode does not leak it', () => {
+    const devSrc = generateClientPageEntry('./dashboard.tsx', 'client', { dev: true });
+    const prodSrc = generateClientPageEntry('./dashboard.tsx', 'client');
+    expect(devSrc).toContain('_renderVuraBootError(_root, _err, true)');
+    // Default (build) is prod: pass false so err.stack is never rendered.
+    expect(prodSrc).toContain('_renderVuraBootError(_root, _err, false)');
+  });
 });
 
 describe('bundled client entry mounts at runtime (happy-dom)', () => {
@@ -118,5 +133,27 @@ describe('bundled client entry mounts at runtime (happy-dom)', () => {
     const bundled = await bundleEntry(entry, fixtureDir);
     // Hybrid bundles must carry the hydrate runtime, not the mount-and-clear path.
     expect(bundled).toMatch(/\bhydrate/);
+  });
+
+  it('renders a readable error panel (not a blank page) when the page throws', async () => {
+    const throwingPage = `export const page = { mode: 'client', title: 'Boom' };
+export default function BoomPage() {
+  throw new Error('Boom: intentional client render crash');
+}
+`;
+    await writeFile(join(fixtureDir, 'boom.tsx'), throwingPage);
+    const entry = generateClientPageEntry('./boom.tsx', 'client', { dev: true });
+    const bundled = await bundleEntry(entry, fixtureDir);
+
+    document.body.innerHTML = CLIENT_SHELL_BODY;
+    await import(/* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`);
+
+    const app = document.querySelector('#app')!;
+    // The loading shell is gone AND we did not leave the page blank.
+    expect(document.querySelector('#loading')).toBeNull();
+    const alert = app.querySelector('[role="alert"]');
+    expect(alert).not.toBeNull();
+    // Dev panel surfaces the actual error message.
+    expect(alert!.textContent).toContain('Boom: intentional client render crash');
   });
 });

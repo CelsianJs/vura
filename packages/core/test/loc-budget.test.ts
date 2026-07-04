@@ -13,7 +13,7 @@ function locOf(dir: string): number {
 }
 
 describe('A1.4 success metric', () => {
-  it('vura-core src LOC is below the post-Task-2 ceiling of 6280', () => {
+  it('vura-core src LOC is below the post-Task-2 ceiling of 6320', () => {
     // v0.2.0 baseline (commit 19d9442) was 5001 LOC.
     // Task 9 (hot routes A2.5): +~335 → ~5336; quality pass → ~5478.
     // Task 11 (A2.6): deleted old tasks.ts (-402), added runtime/tasks.ts
@@ -50,6 +50,11 @@ describe('A1.4 success metric', () => {
     //   Task 5 (same day) replaced the hybrid warning in build.ts with a
     //   narrowed param-only version (+9) → combined actual 6250.
     //   Ceiling 6280 leaves ~30 headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(6280);
+    // Client boot error overlay (2026-07-03): generateClientPageEntry in
+    //   static-render.ts now wraps mount/hydrate in a try/catch that renders a
+    //   readable error panel instead of leaving #app blank on a render throw
+    //   (dev shows message+stack, prod stays generic). +~38 → actual ~6315.
+    //   Ceiling 6320 leaves ~5 headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(6320);
   });
 });
