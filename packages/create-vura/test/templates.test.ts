@@ -63,6 +63,28 @@ describe('create-vura templates', () => {
     expect(healthTs).not.toContain("export const route = { kind: 'hot' };");
   });
 
+  it('ships a shared baseline stylesheet wired into every page', () => {
+    const files = getFiles('demo-app');
+
+    // The stylesheet lives in ONE place (base level, not per-instance).
+    expect(files).toHaveProperty('src/styles.ts');
+    const styles = files['src/styles.ts'];
+    expect(styles).toContain('export const baseStyles');
+    // Styled defaults: buttons, inputs, links, code, plus light + dark theming.
+    expect(styles).toContain('button {');
+    expect(styles).toContain('input, textarea, select {');
+    expect(styles).toContain('prefers-color-scheme: dark');
+    expect(styles).toContain('color-scheme: light dark');
+
+    // Every rendered page imports the shared styles and passes them to page.styles
+    // so the scaffold renders styled out of the box in every render mode.
+    for (const pagePath of ['src/pages/index.tsx', 'src/pages/about.tsx', 'src/pages/dashboard.tsx']) {
+      const page = files[pagePath];
+      expect(page, `${pagePath} should import baseStyles`).toContain("import { baseStyles } from '../styles.js'");
+      expect(page, `${pagePath} should pass styles: [baseStyles]`).toContain('styles: [baseStyles]');
+    }
+  });
+
   it('demonstrates the full-stack loop: the client dashboard fetches an API route', () => {
     const files = getFiles('demo-app');
 
