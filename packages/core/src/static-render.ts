@@ -123,14 +123,49 @@ export async function renderStaticPages(
 export function generateClientPageEntry(
   pageImportSpecifier: string,
   mode: 'client' | 'hybrid',
+  options: { dev?: boolean } = {},
 ): string {
   const boot = mode === 'hybrid' ? 'hydrate' : 'mount';
+  // When a client/hybrid page throws during its initial render, mount()/hydrate()
+  // leaves the #app shell empty — the user gets a blank white page and the only
+  // signal is a console error. Guard the boot so a readable panel renders
+  // instead. In dev the panel shows the message + stack; in prod it stays
+  // generic so stack traces are not leaked to end users.
+  const dev = options.dev === true ? 'true' : 'false';
   return `import Component, * as _pageMod from ${JSON.stringify(pageImportSpecifier)};
 import { h, ${boot} } from 'what-framework';
 
 const _props = (_pageMod.page && _pageMod.page.props) || {};
 const _root = document.getElementById('app') || document.body;
-${boot}(h(Component, _props), _root);
+try {
+  ${boot}(h(Component, _props), _root);
+} catch (_err) {
+  _renderVuraBootError(_root, _err, ${dev});
+}
+
+function _renderVuraBootError(root, err, dev) {
+  console.error('[vura] page failed to ${boot}:', err);
+  const message = err && err.message ? String(err.message) : String(err);
+  const stack = dev && err && err.stack ? String(err.stack) : '';
+  try { root.innerHTML = ''; } catch (_) {}
+  const box = document.createElement('div');
+  box.setAttribute('role', 'alert');
+  box.style.cssText = 'margin:2rem auto;max-width:42rem;padding:1.25rem 1.5rem;border:1px solid #f3b0b0;border-radius:8px;background:#fff5f5;color:#7f1d1d;font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace';
+  const title = document.createElement('strong');
+  title.style.cssText = 'display:block;font-size:15px;margin-bottom:.5rem';
+  title.textContent = dev ? 'This page failed to render' : 'Something went wrong';
+  box.appendChild(title);
+  const detail = document.createElement('div');
+  detail.textContent = dev ? message : 'An unexpected error occurred while loading this page.';
+  box.appendChild(detail);
+  if (stack) {
+    const pre = document.createElement('pre');
+    pre.style.cssText = 'margin:.75rem 0 0;padding:.75rem;overflow:auto;background:#1a1a1a;color:#f4f4f4;border-radius:6px;font-size:12px;white-space:pre-wrap';
+    pre.textContent = stack;
+    box.appendChild(pre);
+  }
+  root.appendChild(box);
+}
 `;
 }
 

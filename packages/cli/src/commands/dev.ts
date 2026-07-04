@@ -337,7 +337,7 @@ export async function startStandaloneServer(
 
     const result = await esbuild({
       stdin: {
-        contents: generateClientPageEntry(`./${basename(absPath)}`, page.mode as 'client' | 'hybrid'),
+        contents: generateClientPageEntry(`./${basename(absPath)}`, page.mode as 'client' | 'hybrid', { dev: true }),
         resolveDir: dirname(absPath),
         sourcefile: '__vura-client-entry__.js',
         loader: 'js',
