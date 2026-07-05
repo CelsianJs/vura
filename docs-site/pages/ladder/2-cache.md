@@ -83,6 +83,47 @@ generated entry; use `createVuraCache({ store: 'redis', redisClient })` with
 Cache-Control headers for CDN integration are emitted automatically when a CDN
 adapter is configured. Without an adapter, caching is server-side only.
 
+## Cache-tag response headers
+
+Every tagged ISR response carries its tags on two headers:
+
+- **`x-vura-cache-tag`** — a comma-separated list of the page's tags. This is
+  the header Vura Platform reads.
+- **`Cache-Tag`** — the same value, for a self-hosted Cloudflare/Fastly zone
+  that purges by tag directly (no Vura edge in front).
+
+```sh
+curl -sI http://localhost:3000/posts | grep -i 'cache-tag'
+# cache-tag: posts
+# x-vura-cache-tag: posts
+```
+
+Tags are sanitised before they hit the wire: trimmed, de-duplicated, stripped
+of control characters, each capped at **128 characters**, and at most **64
+tags** per response (commas inside a tag are treated as separators). Declare a
+sensible handful of stable tags — not one per row.
+
+Only **ISR** responses (a page with `revalidate` **and** `tags`) emit these
+headers. `mode: 'server'` without `revalidate` is never cached, `mode: 'static'`
+pages are prebuilt at deploy time, and `mode: 'client'` pages ship no
+server-rendered HTML — none of them carry a cache tag.
+
+## Purge by tag on Vura Platform
+
+When you deploy to Vura Platform, the edge router reads `x-vura-cache-tag` off
+each response and:
+
+1. **Namespaces** every tag under your project as `project:{id}:{tag}` before
+   stamping Cloudflare's `Cache-Tag`, so one tenant's `posts` can never purge or
+   collide with another's on the shared zone.
+2. **Records** each tagged response as a cache event, lighting up per-tag
+   cache-hit analytics in the dashboard.
+
+Purge-by-tag from the dashboard (or `revalidateTag` from your code) then evicts
+exactly the responses carrying that tag — project-scoped, never zone-wide. No
+configuration is required: the headers flow automatically for any app built with
+a Vura version that emits them.
+
 ## Verify it locally
 
 Build and run, then observe the `x-what-cache` response header:
