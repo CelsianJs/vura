@@ -5,6 +5,7 @@
   "description": "vura.io — built with What Framework (SSG via renderToString)",
   "scripts": {
     "build": "node build.mjs",
+    "build:vura": "node build.mjs --vura",
     "preview": "node build.mjs && npx --yes serve dist -l 4179"
   },
   "dependencies": {
