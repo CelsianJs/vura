@@ -30,6 +30,7 @@
 // @ts-ignore — createRequestHandler is exported at runtime, not yet in .d.ts
 import { renderToString, createRequestHandler as _createRequestHandler } from 'what-framework/server';
 import { wrapDocument } from '../static-render.js';
+import { buildVuraCacheTagHeader } from './cache-tags.js';
 
 const createRequestHandler = _createRequestHandler as (
   options: Record<string, unknown>,
@@ -201,18 +202,47 @@ export interface PagesHandlerOptions {
 }
 
 type CacheResult = { headers?: Record<string, string> } & Record<string, unknown>;
-type CacheWithHandle = { handle: (routeMatch: { config?: { tags?: string[] } }, ...args: unknown[]) => Promise<CacheResult> | CacheResult };
+type CacheWithHandle = { handle: (routeMatch: { config?: { tags?: unknown } }, ...args: unknown[]) => Promise<CacheResult> | CacheResult };
 
+/**
+ * Wrap an ISR cache engine so tagged responses carry the Vura cache-tag
+ * headers.
+ *
+ * A page's declared `tags` are normalised through {@link buildVuraCacheTagHeader}
+ * (sanitised, capped, deduped) and emitted as:
+ *   - `x-vura-cache-tag` — the Vura Platform edge reads this to build a
+ *     project-scoped `Cache-Tag` and to record per-tag cache analytics.
+ *   - `Cache-Tag` — consumed by a self-hosted Cloudflare/Fastly zone (no Vura
+ *     edge); on the platform it is overwritten by the namespacing edge.
+ *
+ * This wrapper is the tag-sanitisation authority: it writes the *sanitised*
+ * value onto both headers, replacing the raw, uncapped `cache-tag` that the
+ * underlying ISR engine (what-isr) derives straight from the declared tags.
+ * That is deliberate — the raw value has no length/count cap and no control-
+ * character stripping, so emitting it unmodified would be exactly the injection
+ * and bloat surface this layer exists to close. The header is omitted entirely
+ * when a page declares no valid tags. (what-isr's Fastly `surrogate-key` is a
+ * separate, engine-owned header and is left as-is.)
+ */
 function addVuraCacheTagHeaders(cache: unknown): unknown {
   if (typeof cache !== 'object' || cache === null || typeof (cache as CacheWithHandle).handle !== 'function') return cache;
   const wrapped = cache as CacheWithHandle;
-  return { ...wrapped, async handle(routeMatch: { config?: { tags?: string[] } }, ...args: unknown[]) {
+  return { ...wrapped, async handle(routeMatch: { config?: { tags?: unknown } }, ...args: unknown[]) {
     const result = await wrapped.handle(routeMatch, ...args);
-    const tags = routeMatch.config?.tags;
-    if (!Array.isArray(tags) || tags.length === 0) return result;
+    const cacheTag = buildVuraCacheTagHeader(routeMatch.config?.tags);
+    if (cacheTag === null) return result;
     const headers = { ...(result.headers ?? {}) };
-    const cacheTag = headers['Cache-Tag'] ?? headers['cache-tag'] ?? tags.join(',');
-    return { ...result, headers: { ...headers, 'Cache-Tag': cacheTag, 'x-vura-cache-tag': headers['x-vura-cache-tag'] ?? cacheTag } };
+    // what-isr emits the raw tags on lowercase `cache-tag`; drop it so the
+    // sanitised canonical `Cache-Tag` below is the only one on the response.
+    delete headers['cache-tag'];
+    return {
+      ...result,
+      headers: {
+        ...headers,
+        'Cache-Tag': cacheTag,
+        'x-vura-cache-tag': cacheTag,
+      },
+    };
   } };
 }
 

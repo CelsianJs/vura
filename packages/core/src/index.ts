@@ -202,6 +202,12 @@ export type {
 } from './runtime/pages.js';
 
 export {
+  buildVuraCacheTagHeader,
+  MAX_VURA_CACHE_TAGS,
+  MAX_VURA_CACHE_TAG_LENGTH,
+} from './runtime/cache-tags.js';
+
+export {
   createVuraCache,
   revalidatePath,
   revalidateTag,

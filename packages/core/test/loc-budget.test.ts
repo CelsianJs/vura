@@ -13,7 +13,7 @@ function locOf(dir: string): number {
 }
 
 describe('A1.4 success metric', () => {
-  it('vura-core src LOC is below the post-Task-2 ceiling of 6320', () => {
+  it('vura-core src LOC is below the post-Task-2 ceiling of 6450', () => {
     // v0.2.0 baseline (commit 19d9442) was 5001 LOC.
     // Task 9 (hot routes A2.5): +~335 → ~5336; quality pass → ~5478.
     // Task 11 (A2.6): deleted old tasks.ts (-402), added runtime/tasks.ts
@@ -55,6 +55,10 @@ describe('A1.4 success metric', () => {
     //   readable error panel instead of leaving #app blank on a render throw
     //   (dev shows message+stack, prod stays generic). +~38 → actual ~6315.
     //   Ceiling 6320 leaves ~5 headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(6320);
+    // Cache-tag emission hardening (2026-07-04): new runtime/cache-tags.ts
+    //   (buildVuraCacheTagHeader — sanitise/cap/dedupe, mostly JSDoc rationale)
+    //   + the pages.ts wrapper now sanitises authoritatively instead of passing
+    //   raw tags through → actual 6415. Ceiling 6450 leaves ~35 headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(6450);
   });
 });

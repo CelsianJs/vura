@@ -199,6 +199,31 @@ describe('startVuraServer', () => {
     expect(renders).toBe(2);
   }, 15000);
 
+  it('ISR: sanitises declared tags in the emitted cache-tag headers end-to-end', async () => {
+    srv = await startVuraServer({
+      port: 0,
+      apiRoutes: [],
+      pages: [
+        {
+          urlPattern: '/messy',
+          mode: 'server',
+          filePath: 'src/pages/messy.tsx',
+          hasGetServerData: false,
+          // Duplicates, surrounding whitespace, and an embedded comma — all
+          // normalised (trim · dedupe · split-on-comma) before the header is
+          // set, so the sanitised value — not what-isr's raw tags — is emitted.
+          config: { revalidate: 300, tags: ['  posts ', 'posts', 'nav,footer'] },
+          module: { default: () => h('p', null, 'ok') },
+        } as any,
+      ],
+      cache: {},
+    });
+
+    const res = await fetch(`${base()}/messy`);
+    expect(res.headers.get('x-vura-cache-tag')).toBe('posts,nav,footer');
+    expect(res.headers.get('cache-tag')).toBe('posts,nav,footer');
+  }, 15000);
+
   // Fix 1 (try/catch crash path): no clean injection point exists for a
   // deterministic server-level throw that bypasses pages.ts's own catch —
   // renderRoute wraps render errors, and cache-store failures (which escape

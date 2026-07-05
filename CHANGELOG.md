@@ -2,7 +2,23 @@
 
 ## Unreleased
 
-_No unreleased changes yet._
+### Cache tags
+
+- **ISR cache tags are sanitised and capped before they hit the wire.** A
+  tagged ISR response's `x-vura-cache-tag` and `Cache-Tag` headers are now built
+  from a single hardened path (`buildVuraCacheTagHeader`): tags are trimmed,
+  de-duplicated, stripped of control characters (no header-injection surface),
+  each capped at 128 characters, with at most 64 tags per response, and any
+  comma inside a tag is treated as a separator. Previously the raw declared tags
+  were passed straight onto the response, uncapped and unsanitised. The
+  sanitised value now authoritatively replaces the underlying ISR engine's raw
+  `cache-tag`. `buildVuraCacheTagHeader`, `MAX_VURA_CACHE_TAGS`, and
+  `MAX_VURA_CACHE_TAG_LENGTH` are exported from `@celsian/vura-core`.
+- **The full-stack example's `/stats` ISR page now declares `tags: ['stats']`,**
+  demonstrating end-to-end cache-tag emission and `revalidateTag` invalidation.
+- **Docs:** the caching guide now documents the `x-vura-cache-tag` / `Cache-Tag`
+  response headers, the sanitisation caps, and how project-scoped purge-by-tag
+  works on Vura Platform.
 
 ## 0.5.3 - 2026-07-04
 

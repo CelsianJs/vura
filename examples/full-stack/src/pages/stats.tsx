@@ -8,7 +8,10 @@
 export const page = {
   mode: 'server' as const,
   title: 'Server Stats — ThenJS Example',
-  revalidate: 60, // ISR: cache for 60 seconds
+  revalidate: 60,       // ISR: cache for 60 seconds
+  tags: ['stats'],      // cache tags — emitted as `x-vura-cache-tag: stats`;
+                        // call revalidateTag('stats') to purge, and on Vura
+                        // Platform this powers per-tag cache analytics + purge.
 };
 
 export async function getServerData(ctx: { params: Record<string, string>; url: string; query: Record<string, string> }) {
