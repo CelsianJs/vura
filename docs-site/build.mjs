@@ -2,7 +2,13 @@
 // renderToString). Chrome (head/nav/sidebar/footer) is authored as What;
 // page content comes from Markdown in pages/**/*.md → marked.parse.
 // Landing page (pages/index.html) is raw HTML wrapped in nav+footer chrome.
-// Output: dist/<clean-route>/index.html  (no .html in URLs).
+//
+// Two output shapes:
+//   default        → dist/<clean-route>/index.html  (flat; served by Vercel — vura.io)
+//   --vura flag    → dist/static/<clean-route>/index.html + dist/manifest.json
+//                    (the Vura Platform artifact shape ingested by `vura deploy`;
+//                     the platform serves R2 static files from dist/static/** and
+//                     reads routes from manifest.json — see adapter-vura deployToVura)
 import {
   readFileSync,
   writeFileSync,
@@ -20,6 +26,16 @@ import { marked } from 'marked';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const DIST = join(ROOT, 'dist');
+
+// When building the Vura Platform artifact (`node build.mjs --vura`), static
+// files live under dist/static/ and we emit a dist/manifest.json describing
+// every route. The default (Vercel/vura.io) build stays flat in dist/.
+const VURA = process.argv.includes('--vura') || process.env.VURA_BUILD === '1';
+const STATIC_DIR = VURA ? join(DIST, 'static') : DIST;
+
+// Collected route entries for the Vura manifest. Each `write()` pushes a page
+// entry; assets are appended before the manifest is emitted.
+const manifestPages = [];
 
 // ---------------------------------------------------------------------------
 // Version — read from monorepo source of truth at build time so the nav
@@ -218,12 +234,22 @@ ${headHtml(title || null, { description, canonical })}
 }
 
 // ---------------------------------------------------------------------------
-// Write helper: dist/<route>/index.html
+// Write helper: <static-root>/<route>/index.html
+// Also records a static page entry for the Vura manifest. The platform's
+// getStaticKey derives `<route>/index.html` (root → index.html) from the
+// urlPattern — matching this directory-index layout exactly.
 // ---------------------------------------------------------------------------
-function write(routePath, html) {
-  const dir = join(DIST, routePath.replace(/^\//, ''));
+function write(routePath, html, filePath) {
+  const dir = join(STATIC_DIR, routePath.replace(/^\//, ''));
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'index.html'), html);
+  manifestPages.push({
+    filePath: filePath || `pages${routePath === '/' ? '/index.html' : routePath + '.md'}`,
+    urlPattern: routePath,
+    mode: 'static',
+    hasGetServerData: false,
+    config: {},
+  });
 }
 
 function copyAsset(rel) {
@@ -232,9 +258,18 @@ function copyAsset(rel) {
     console.warn(`  ! asset not found, skipping: ${rel}`);
     return;
   }
-  const dest = join(DIST, rel);
+  const dest = join(STATIC_DIR, rel);
   mkdirSync(dirname(dest), { recursive: true });
   copyFileSync(src, dest);
+  // Assets are not directory-index pages: the platform 404s any path without an
+  // explicit route, so register each asset with an exact staticKey.
+  manifestPages.push({
+    filePath: rel,
+    urlPattern: `/${rel}`,
+    mode: 'static',
+    hasGetServerData: false,
+    config: { staticKey: rel },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -315,4 +350,17 @@ if (existsSync(landingPath)) {
 // Markdown pages
 total += walkPagesSync(PAGES_DIR, '');
 
-console.log(`\nbuilt ${total} page(s) → dist/`);
+// Vura Platform artifact: emit the route manifest the deploy pipeline reads.
+// Pure-static site → no api/hot/serverless routes, no layouts.
+if (VURA) {
+  const manifest = {
+    api: [],
+    pages: manifestPages,
+    layouts: [],
+    timestamp: new Date().toISOString(),
+  };
+  writeFileSync(join(DIST, 'manifest.json'), JSON.stringify(manifest, null, 2));
+  console.log(`  ✓ manifest.json (${manifestPages.length} static routes)`);
+}
+
+console.log(`\nbuilt ${total} page(s) → ${VURA ? 'dist/ (static/ + manifest.json)' : 'dist/'}`);
