@@ -15,10 +15,8 @@
 
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
-
-const DEFAULT_API_URL = 'https://api.vura.io';
+import { resolveApiUrl, resolveProjectId, resolveToken } from '../vura-client.js';
 
 interface DeployFlags {
   production: boolean;
@@ -53,35 +51,6 @@ function parseFlags(args: string[]): DeployFlags {
   return flags;
 }
 
-/** Home directory, honoring HOME/USERPROFILE overrides (e.g. in tests). */
-function resolveHome(): string {
-  return process.env.HOME || process.env.USERPROFILE || homedir();
-}
-
-async function resolveToken(flag?: string): Promise<string | null> {
-  if (flag) return flag;
-  if (process.env.VURA_TOKEN) return process.env.VURA_TOKEN;
-  try {
-    const raw = await readFile(join(resolveHome(), '.vura', 'credentials'), 'utf-8');
-    const creds = JSON.parse(raw) as { token?: string };
-    return creds.token ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function resolveProjectId(flag: string | undefined, projectRoot: string): Promise<string | null> {
-  if (flag) return flag;
-  if (process.env.VURA_PROJECT_ID) return process.env.VURA_PROJECT_ID;
-  try {
-    const raw = await readFile(join(projectRoot, '.vura', 'project.json'), 'utf-8');
-    const link = JSON.parse(raw) as { projectId?: string };
-    return link.projectId ?? null;
-  } catch {
-    return null;
-  }
-}
-
 export async function deployCommand(args: string[]): Promise<void> {
   const projectRoot = process.cwd();
   const flags = parseFlags(args);
@@ -91,7 +60,7 @@ export async function deployCommand(args: string[]): Promise<void> {
   // 1. Resolve authentication.
   const token = await resolveToken(flags.token);
   if (!token) {
-    console.error('  Not authenticated. Set VURA_TOKEN, pass --token <token>, or sign in so ~/.vura/credentials exists.');
+    console.error('  Not authenticated. Run `vura login`, set VURA_TOKEN, or pass --token <token>.');
     process.exitCode = 1;
     return;
   }
@@ -100,6 +69,7 @@ export async function deployCommand(args: string[]): Promise<void> {
   const projectId = await resolveProjectId(flags.projectId, projectRoot);
   if (!projectId) {
     console.error('  Project not linked. Set VURA_PROJECT_ID, pass --project-id <id>, or create .vura/project.json.');
+    console.error('  Run `vura teams list` to find a team, then `vura projects create <name> --team <id-or-slug>`.');
     process.exitCode = 1;
     return;
   }
@@ -113,7 +83,7 @@ export async function deployCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const apiUrl = flags.apiUrl || process.env.VURA_API_URL || DEFAULT_API_URL;
+  const apiUrl = resolveApiUrl(flags.apiUrl);
 
   // Attach the built manifest so the platform can classify routes without
   // re-scanning the artifact.

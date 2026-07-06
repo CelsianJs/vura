@@ -13,6 +13,9 @@ import { adminCommand } from './commands/admin.js';
 import { tasksCommand } from './commands/tasks.js';
 import { routesCommand } from './commands/routes.js';
 import { runtimeCommand } from './commands/runtime.js';
+import { loginCommand } from './commands/login.js';
+import { teamsCommand } from './commands/teams.js';
+import { projectsCommand } from './commands/projects.js';
 
 const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   build: buildCommand,
@@ -23,6 +26,9 @@ const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   tasks: tasksCommand,
   routes: routesCommand,
   runtime: runtimeCommand,
+  login: loginCommand,
+  teams: teamsCommand,
+  projects: projectsCommand,
 };
 
 export async function run(args: string[]): Promise<void> {
@@ -50,7 +56,15 @@ function printHelp(): void {
   Commands:
     dev         Start local development server
     build       Build the project for deployment
-    deploy      Deploy the built project to the Vura platform
+    login       Authenticate against the Vura Platform
+                  vura login [--token <t>]
+    teams       Manage Vura Platform teams
+                  vura teams list
+                  vura teams create <name> [--slug <slug>]
+    projects    Manage Vura Platform projects
+                  vura projects list [--team <id-or-slug>]
+                  vura projects create <name> [--team <id-or-slug>]
+    deploy      Deploy the built project to the Vura platform (closed-alpha)
                   vura deploy [--prod] [--token <t>] [--api-url <u>]
     admin       Launch the admin dashboard
     manifest    Print the route manifest (debug)
