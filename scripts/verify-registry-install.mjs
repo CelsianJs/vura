@@ -6,13 +6,19 @@ import { dirname, join } from 'node:path';
 import { createServer } from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
 import { publishPackages } from './package-list.mjs';
+import { retryNpmInstall } from './lib/retry-npm-install.mjs';
 
 const root = process.cwd();
 const versionOverride = process.env.VURA_REGISTRY_VERSION;
 const tag = process.env.VURA_REGISTRY_TAG || 'latest';
 const artifactPath = process.env.VURA_REGISTRY_SMOKE_ARTIFACT || 'artifacts/registry-smoke.json';
-const installAttempts = Math.max(1, Number.parseInt(process.env.VURA_REGISTRY_INSTALL_ATTEMPTS || '12', 10));
-const installRetryDelayMs = Math.max(0, Number.parseInt(process.env.VURA_REGISTRY_INSTALL_RETRY_DELAY_MS || '10000', 10));
+// Defaults give ~4m45s of total retry budget (19 delays x 15s). The old
+// 12 attempts x 10s (~110s) budget was NOT enough — the v0.5.3 release (run
+// 28714991521, 2026-07-04) saw @celsian/vura-adapter-lambda still 404 after
+// 2m07s of retrying against a confirmed-successful publish. See
+// scripts/lib/retry-npm-install.mjs for the full rationale.
+const installAttempts = Math.max(1, Number.parseInt(process.env.VURA_REGISTRY_INSTALL_ATTEMPTS || '20', 10));
+const installRetryDelayMs = Math.max(0, Number.parseInt(process.env.VURA_REGISTRY_INSTALL_RETRY_DELAY_MS || '15000', 10));
 const completedChecks = [];
 const installAttemptLog = [];
 
@@ -25,39 +31,34 @@ function run(cmd, args, opts = {}) {
   return res;
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function retryableRegistryInstallFailure(err) {
-  const message = err instanceof Error ? err.message : String(err);
-  return /E404|ETARGET|No matching version found|notarget|not found|404 Not Found/i.test(message);
-}
-
-async function runRegistryInstallWithRetry(cwd, specs) {
-  let lastError;
-
-  for (let attempt = 1; attempt <= installAttempts; attempt++) {
-    try {
-      run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...specs], { cwd });
-      installAttemptLog.push({ attempt, status: 'passed' });
-      return;
-    } catch (err) {
-      lastError = err;
-      const retryable = retryableRegistryInstallFailure(err);
-      installAttemptLog.push({
-        attempt,
-        status: 'failed',
-        retryable,
-        message: err instanceof Error ? err.message.split('\n').slice(0, 3).join('\n') : String(err),
-      });
-      if (!retryable || attempt === installAttempts) break;
-      console.warn(`Registry install attempt ${attempt}/${installAttempts} failed during npm propagation; retrying in ${installRetryDelayMs}ms`);
-      await sleep(installRetryDelayMs);
-    }
-  }
-
-  throw lastError;
+// Wraps a registry-hitting `npm install` in retry-with-backoff. Used for both
+// the top-level packages install AND the generated scaffold app's install —
+// both hit the live registry right after publish and are equally exposed to
+// propagation lag (the scaffold install previously had no retry at all).
+async function runNpmInstallWithRetry(cwd, extraArgs, label) {
+  return retryNpmInstall(
+    () => run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...extraArgs], { cwd }),
+    {
+      attempts: installAttempts,
+      delayMs: installRetryDelayMs,
+      onAttemptResult: ({ attempt, attempts, status, retryable, error }) => {
+        if (status === 'passed') {
+          installAttemptLog.push({ attempt, label, status });
+          return;
+        }
+        installAttemptLog.push({
+          attempt,
+          label,
+          status,
+          retryable,
+          message: error instanceof Error ? error.message.split('\n').slice(0, 3).join('\n') : String(error),
+        });
+        if (retryable && attempt < attempts) {
+          console.warn(`Registry install (${label}) attempt ${attempt}/${attempts} failed during npm propagation; retrying in ${installRetryDelayMs}ms`);
+        }
+      },
+    },
+  );
 }
 
 const cliBins = ['vura'];
@@ -128,7 +129,7 @@ async function waitForText(url, text, timeoutMs = 15000) {
 }
 
 async function assertScaffoldBuildAndBoot(scaffoldDir) {
-  run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: scaffoldDir, stdio: 'pipe' });
+  await runNpmInstallWithRetry(scaffoldDir, [], 'generated app');
   run('npm', ['run', 'build'], { cwd: scaffoldDir, stdio: 'pipe' });
 
   const port = await findFreePort();
@@ -180,7 +181,7 @@ try {
   if (specs.length === 0) throw new Error('No public packages found for registry smoke');
 
   run('npm', ['init', '-y'], { cwd: tmp });
-  await runRegistryInstallWithRetry(tmp, specs);
+  await runNpmInstallWithRetry(tmp, specs, 'registry packages');
   completedChecks.push('npm install --ignore-scripts --no-audit --no-fund');
 
   assertInstalledBins(tmp);
