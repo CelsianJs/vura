@@ -178,28 +178,62 @@ The first advisor pass is manifest-only:
 
 ---
 
+## `vura login`
+
+Authenticate the CLI against the Vura Platform (closed-alpha — see `vura deploy` below). Credentials are written to `~/.vura/credentials` at mode `0600`, the same file every other platform-aware command reads.
+
+```sh
+vura login
+vura login --token <token>
+```
+
+| Flag | Effect |
+|---|---|
+| `--token <t>` | Store this token directly ("paste-token" mode) instead of prompting for email/password. The token is verified against the API before it's saved. |
+| `--api-url <url>` | API base URL (else `VURA_API_URL`, else `https://api.vura.io`). |
+
+With no flags, `vura login` prompts interactively for an email and password (masked) and exchanges them for a token. Interactive mode requires a real terminal — in CI or other non-interactive environments, use `--token` with a token obtained separately.
+
+---
+
+## `vura teams` / `vura projects`
+
+Thin wrappers over the Vura Platform's team and project APIs. Every subcommand resolves the auth token the same way `vura deploy` does (`--token` > `VURA_TOKEN` > `~/.vura/credentials`) and prints `run vura login` on a `401`.
+
+```sh
+vura teams list
+vura teams create <name> [--slug <slug>]
+
+vura projects list [--team <id-or-slug>]
+vura projects create <name> [--team <id-or-slug>]
+```
+
+- `--team` accepts either a team id or a team slug. If omitted, the CLI uses your only team — every account gets one automatically at signup. With multiple teams, `--team` is required and the error lists your team slugs to choose from.
+- `vura projects create` derives a slug from `<name>` automatically (mirroring how the API itself derives slugs) — an explicit slug flag isn't needed.
+- If the current directory looks like a Vura project (a `vura.config.*` is present) and isn't already linked, `vura projects create` writes `.vura/project.json` for you, so `vura deploy` picks up the new project immediately. It never overwrites an existing link.
+
+---
+
 ## `vura deploy`
 
 ```sh
-vura deploy
+vura deploy [--prod] [--token <t>] [--api-url <u>] [--project-id <id>]
 ```
 
-Reserved for the managed Vura Platform. The current open-source CLI exits immediately with:
+Deploys the `dist/` build output to the Vura Platform. This is **closed-alpha**: the command itself ships in the open-source CLI and runs through these checks —
 
-```
-  vura deploy is not available in the open-source CLI yet.
+1. Resolve an auth token (`--token` > `VURA_TOKEN` > `~/.vura/credentials`, i.e. whatever `vura login` wrote). Missing → `Not authenticated. Run vura login, set VURA_TOKEN, or pass --token <token>.`
+2. Resolve a linked project (`--project-id` > `VURA_PROJECT_ID` > `.vura/project.json`, i.e. whatever `vura projects create` wrote). Missing → points you at `vura teams list` and `vura projects create`.
+3. Require a build at `dist/manifest.json` → run `vura build` first if missing.
+4. Upload via `@celsian/vura-adapter-vura`'s `deployToVura`. That adapter package is **not published** — it ships only as a peer dependency for platform-alpha users, so on a normal open-source install this step fails with:
 
-  What works today:
-    vura build      Build production artifacts locally
-    vura manifest   Inspect route/deployment classification
-    vura dev        Run the local development server
+   ```
+     Managed Vura deploy support is not installed in this CLI package.
+     The Vura Platform adapter is closed-alpha; use the Vura Platform CLI bundle or
+     self-host adapters until access is granted.
+   ```
 
-  Managed deployments are handled by Vura Platform and are not part of this
-  OSS package release. See https://github.com/CelsianJs/vura#readme for the
-  current self-hosted build and adapter guidance.
-```
-
-Exits with code `1`. This is not a gate on capability — `vura build` produces deployable artifacts for all self-host targets today. See the [self-host guides](/self-host/).
+Exits with code `1` when any step fails. This is not a gate on capability — `vura build` produces deployable artifacts for all self-host targets today regardless of platform access. See the [self-host guides](/self-host/).
 
 ---
 
