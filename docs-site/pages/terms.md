@@ -1,12 +1,10 @@
 # Terms of Service
 
-**Version 0.1.0 — DRAFT** · Effective date: [KIRBY: confirm effective date before publishing — placeholder 2026-07-06]
+**Version 1.0.0** · Effective date: July 6, 2026
 
 > **Beta notice.** Vura is a beta product. Features, limits, and these Terms may change while the service is in beta. Do not run production workloads that you cannot afford to lose without your own backups and monitoring in place.
 
-> **DRAFT — not yet in force.** This document is a working draft pending review and legal sign-off. Every item marked **[KIRBY: …]** is a decision or fact that must be confirmed before this page is published.
-
-These Terms of Service ("**Terms**") are a legal agreement between you ("**you**", "**your**", or "**Customer**") and [KIRBY: confirm the exact legal entity name and form — e.g. "Vura, Inc." / "ZVN Dev Ltd." / a sole proprietorship] ("**Vura**", "**we**", "**us**", or "**our**") governing your access to and use of the Vura platform, including the dashboard at `app.vura.io`, the API at `api.vura.io`, application hosting on `*.vura.app`, our command-line tools, and related services (together, the "**Service**").
+These Terms of Service ("**Terms**") are a legal agreement between you ("**you**", "**your**", or "**Customer**") and ZVN DEV, of Lincoln, Rhode Island, USA ("**Vura**", "**we**", "**us**", or "**our**") governing your access to and use of the Vura platform, including the dashboard at `app.vura.io`, the API at `api.vura.io`, application hosting on `*.vura.app`, our command-line tools, and related services (together, the "**Service**").
 
 By creating an account, clicking "I agree", or otherwise accessing or using the Service, you agree to be bound by these Terms and by our [Privacy Policy](/privacy). If you do not agree, do not use the Service.
 
@@ -27,13 +25,13 @@ The Service is provided as a **beta**. This means:
 - We may impose, change, or remove usage limits and quotas at any time.
 - Data loss, downtime, and breaking changes are more likely than in a generally-available product. You are responsible for maintaining your own backups of any source code, data, or configuration you value.
 
-[KIRBY: confirm whether you want a formal beta SLA disclaimer of "no uptime guarantee during beta", or whether any uptime commitment applies. Current draft: no SLA during beta.]
+No service-level agreement (SLA) or uptime commitment applies while the Service is in beta.
 
 ## 3. Accounts and teams
 
 **Accounts.** To use the Service you must create an account, either with an email address and password or by signing in with GitHub. You must provide accurate information and keep it up to date. You are responsible for all activity under your account and for keeping your credentials and access tokens secure. Notify us promptly of any unauthorized use.
 
-**Eligibility.** You must be at least [KIRBY: confirm minimum age — 13, 16, or 18 depending on target jurisdiction and GDPR posture] years old and legally able to enter into these Terms to use the Service.
+**Eligibility.** You must be at least 13 years old and legally able to enter into these Terms to use the Service.
 
 **Teams.** The Service lets you create teams and invite members. The team owner is responsible for the team's use of the Service, including its plan, billing, and the conduct of its members. Deleting your personal account is blocked while you still own a team that has projects, other members, or an active paid subscription — you must transfer or wind those down first (see Section 8).
 
@@ -41,7 +39,7 @@ The Service is provided as a **beta**. This means:
 
 **Plans.** The Service offers a **Free** plan and paid **Starter** and **Pro** plans. Each plan sets included allowances and limits — for example daily request caps, monthly build-minute and bandwidth allowances, serverless compute limits, and whether always-on "hot" routes are available. Current plan details and limits are shown in the dashboard and may change during beta.
 
-[KIRBY: confirm the public prices for Starter and Pro, and the billing period (monthly/annual). Prices are not stated in this draft — the platform reads them from Stripe price configuration, not from source.]
+Current prices and billing periods for paid plans are shown in the dashboard at the point of purchase; plans bill monthly unless stated otherwise at purchase.
 
 **Metered usage.** Paid plans include usage-based billing. We meter your usage of the Service, which may include:
 
@@ -51,13 +49,13 @@ The Service is provided as a **beta**. This means:
 - hot-server running time, and
 - background task invocations.
 
-Metered usage above your plan's included allowance is billed at our then-current rates. [KIRBY: confirm which dimensions are actually billed to the customer vs. tracked-only. In the current platform only **requests, bandwidth, and build minutes** are reported to the billing processor as metered charges; hot-server time and task invocations are measured but confirm their billing treatment before publishing.]
+Metered usage above your plan's included allowance is billed at our then-current rates. Today, **requests, bandwidth, and build minutes** are billed as metered charges; hot-server running time and background task invocations are measured and shown in the dashboard but are not currently billed as separate metered charges. We will update this section and notify you before changing which dimensions are billed.
 
-**Payment.** Paid plans are processed by Stripe. By subscribing to a paid plan you authorize us and Stripe to charge your payment method for subscription fees and metered usage. You are responsible for all taxes except taxes on our net income. Fees are [KIRBY: confirm — non-refundable except where required by law?].
+**Payment.** Paid plans are processed by Stripe. By subscribing to a paid plan you authorize us and Stripe to charge your payment method for subscription fees and metered usage. You are responsible for all taxes except taxes on our net income. Fees are non-refundable except where required by law.
 
 **Non-payment.** If a charge fails or an account becomes past due, we may downgrade, suspend, or restrict your access until the balance is paid. See also Section 6 on suspension.
 
-**Changes to pricing.** We may change plans, prices, and metered rates. For paid subscribers we will [KIRBY: confirm notice period for price changes — e.g. 30 days' notice by email] before a change takes effect.
+**Changes to pricing.** We may change plans, prices, and metered rates. For paid subscribers we will give at least 30 days' notice by email before a change takes effect.
 
 ## 5. Acceptable use
 
@@ -68,7 +66,7 @@ You are responsible for everything you build, deploy, and run on the Service, an
 - perform cryptocurrency mining or other operations whose primary purpose is to consume compute resources rather than serve an application;
 - abuse platform resources — for example by attempting to evade metering or quotas, running workloads designed to overload shared infrastructure, or consuming resources in a way that degrades the Service for others;
 - send spam or unsolicited bulk communications, or host phishing, fraud, or other deceptive content;
-- host [KIRBY: confirm your stance on adult content, gambling, and other lawful-but-restricted categories];
+- host pornographic or sexually explicit content, or operate gambling or betting services;
 - violate any applicable law or regulation, or the terms of any third-party service you connect (including GitHub and Stripe).
 
 We may investigate suspected violations and may remove or disable content or workloads that we believe violate these Terms or create risk or liability for us or others.
@@ -107,13 +105,13 @@ THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE", AND IS A BETA PRODUCT. TO TH
 
 TO THE MAXIMUM EXTENT PERMITTED BY LAW, VURA AND ITS OWNERS, EMPLOYEES, AND SUPPLIERS WILL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR EXEMPLARY DAMAGES, OR FOR ANY LOSS OF PROFITS, REVENUE, DATA, GOODWILL, OR BUSINESS, ARISING OUT OF OR RELATED TO THE SERVICE OR THESE TERMS, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
 
-OUR TOTAL AGGREGATE LIABILITY ARISING OUT OF OR RELATED TO THE SERVICE OR THESE TERMS WILL NOT EXCEED THE GREATER OF (A) THE AMOUNTS YOU PAID US FOR THE SERVICE IN THE [KIRBY: confirm — 3, 6, or 12] MONTHS BEFORE THE EVENT GIVING RISE TO THE LIABILITY, OR (B) [KIRBY: confirm floor amount — e.g. USD $50, or $0 for free-tier users].
+OUR TOTAL AGGREGATE LIABILITY ARISING OUT OF OR RELATED TO THE SERVICE OR THESE TERMS WILL NOT EXCEED THE GREATER OF (A) THE AMOUNTS YOU PAID US FOR THE SERVICE IN THE 12 MONTHS BEFORE THE EVENT GIVING RISE TO THE LIABILITY, OR (B) USD $50.
 
 Some jurisdictions do not allow certain limitations, so some of the above may not apply to you.
 
 ## 12. Indemnification
 
-You will indemnify and hold harmless Vura and its owners, employees, and suppliers from and against any claims, damages, liabilities, and expenses (including reasonable legal fees) arising out of or related to Your Content, your use of the Service, or your violation of these Terms or applicable law. [KIRBY: confirm whether you want a mutual indemnity or customer-only indemnity for a beta product.]
+You will indemnify and hold harmless Vura and its owners, employees, and suppliers from and against any claims, damages, liabilities, and expenses (including reasonable legal fees) arising out of or related to Your Content, your use of the Service, or your violation of these Terms or applicable law.
 
 ## 13. Changes to these Terms
 
@@ -121,7 +119,7 @@ We may update these Terms from time to time. If we make material changes we will
 
 ## 14. Governing law and disputes
 
-These Terms are governed by the laws of **[STATE/COUNTRY — KIRBY TO CONFIRM]**, without regard to its conflict-of-laws rules. You and Vura agree to the exclusive jurisdiction of the courts located in **[VENUE — KIRBY TO CONFIRM]** for any dispute not subject to [KIRBY: decide whether to include a binding arbitration / class-action-waiver clause — common for US SaaS, but optional and jurisdiction-sensitive].
+These Terms are governed by the laws of the **State of Rhode Island, USA**, without regard to its conflict-of-laws rules. You and Vura agree to the exclusive jurisdiction of the state and federal courts located in **Providence County, Rhode Island** for any dispute arising out of or relating to these Terms or the Service.
 
 ## 15. General
 
@@ -129,4 +127,4 @@ These Terms, together with the [Privacy Policy](/privacy) and any plan or order 
 
 ## 16. Contact
 
-Questions about these Terms: **[KIRBY: confirm contact email — e.g. legal@vura.io]**.
+Questions about these Terms: **legal@vura.io**.
