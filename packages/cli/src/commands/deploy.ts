@@ -100,7 +100,7 @@ export async function deployCommand(args: string[]): Promise<void> {
     ({ deployToVura } = await import('@celsian/vura-adapter-vura'));
   } catch {
     console.error('  Managed Vura deploy support is not installed in this CLI package.');
-    console.error('  The Vura Platform adapter is closed-alpha; use the Vura Platform CLI bundle or self-host adapters until access is granted.');
+    console.error('  Install it with: npm install @celsian/vura-adapter-vura');
     process.exitCode = 1;
     return;
   }
