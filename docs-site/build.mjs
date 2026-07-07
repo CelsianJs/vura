@@ -122,6 +122,7 @@ function navHtml() {
 
 const FOOTER_INNER = `
     <span>MIT licensed — forever. See <a href="https://github.com/CelsianJs/vura/blob/main/GOVERNANCE.md" target="_blank" rel="noopener">GOVERNANCE.md</a></span>
+    <span class="footer-legal"><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></span>
     <span>Built with <a href="https://whatfw.com">What Framework</a></span>
   `;
 
