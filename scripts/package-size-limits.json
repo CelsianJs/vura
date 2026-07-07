@@ -1,9 +1,10 @@
 {
-  "@celsian/vura-core": 115000,
+  "@celsian/vura-core": 120000,
   "@celsian/vura-compiler": 10000,
   "@celsian/vura-cli": 50000,
   "create-vura": 10000,
   "@celsian/vura-adapter-cloudflare": 15000,
   "@celsian/vura-adapter-lambda": 18000,
+  "@celsian/vura-adapter-vura": 12000,
   "@celsian/vura-vite-plugin": 12000
 }
