@@ -1,10 +1,12 @@
 # Terms of Service
 
-**Version 1.0.0** · Effective date: July 6, 2026
+**Version 1.0.0** · Effective date: July 7, 2026
 
 > **Beta notice.** Vura is a beta product. Features, limits, and these Terms may change while the service is in beta. Do not run production workloads that you cannot afford to lose without your own backups and monitoring in place.
 
-These Terms of Service ("**Terms**") are a legal agreement between you ("**you**", "**your**", or "**Customer**") and ZVN DEV, of Lincoln, Rhode Island, USA ("**Vura**", "**we**", "**us**", or "**our**") governing your access to and use of the Vura platform, including the dashboard at `app.vura.io`, the API at `api.vura.io`, application hosting on `*.vura.app`, our command-line tools, and related services (together, the "**Service**").
+The Vura platform is owned and operated by **ZVN DEV**, of Lincoln, Rhode Island, USA — the company behind Vura.
+
+These Terms of Service ("**Terms**") are a legal agreement between you ("**you**", "**your**", or "**Customer**") and ZVN DEV ("**Vura**", "**we**", "**us**", or "**our**") governing your access to and use of the Vura platform, including the dashboard at `app.vura.io`, the API at `api.vura.io`, application hosting on `*.vura.app`, our command-line tools, and related services (together, the "**Service**").
 
 By creating an account, clicking "I agree", or otherwise accessing or using the Service, you agree to be bound by these Terms and by our [Privacy Policy](/privacy). If you do not agree, do not use the Service.
 

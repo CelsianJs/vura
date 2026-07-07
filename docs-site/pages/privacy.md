@@ -1,8 +1,10 @@
 # Privacy Policy
 
-**Version 1.0.0** · Effective date: July 6, 2026
+**Version 1.0.0** · Effective date: July 7, 2026
 
-This Privacy Policy explains how ZVN DEV, of Lincoln, Rhode Island, USA ("**Vura**", "**we**", "**us**") collects, uses, and shares information when you use the Vura platform — the dashboard at `app.vura.io`, the API at `api.vura.io`, application hosting on `*.vura.app`, our command-line tools, and related services (the "**Service**").
+The Vura platform is owned and operated by **ZVN DEV**, of Lincoln, Rhode Island, USA — the company behind Vura.
+
+This Privacy Policy explains how ZVN DEV ("**Vura**", "**we**", "**us**") collects, uses, and shares information when you use the Vura platform — the dashboard at `app.vura.io`, the API at `api.vura.io`, application hosting on `*.vura.app`, our command-line tools, and related services (the "**Service**").
 
 This policy covers information about **you as a Vura customer**. It does **not** cover data that *your* deployed applications collect from *their* end users — for that data you are the controller and are responsible for your own privacy notice.
 
