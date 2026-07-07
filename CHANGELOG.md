@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.5.4 - 2026-07-06
+
+### Vura Platform adapter goes public
+
+- **`@celsian/vura-adapter-vura` is now published to npm.** The Vura Platform
+  live smoke passed (real production deploy through the public API + CLI), so
+  the adapter leaves closed alpha: `private` removed, added to the publish
+  package list, and the release guard in `scripts/assert-release-private.mjs`
+  retired. `vura deploy`'s missing-adapter fallback now points at
+  `npm install @celsian/vura-adapter-vura` instead of the closed-alpha notice.
 
 ### Cache tags
 

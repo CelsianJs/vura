@@ -8,8 +8,8 @@ describe('create-vura templates', () => {
 
     expect(packageJson.dependencies).toEqual({
       'what-framework': '^0.11.1',
-      '@celsian/vura-core': '0.5.3',
-      '@celsian/vura-cli': '0.5.3',
+      '@celsian/vura-core': '0.5.4',
+      '@celsian/vura-cli': '0.5.4',
       'ws': '^8.18.0',
     });
     expect(JSON.stringify(packageJson.dependencies)).not.toContain('latest');

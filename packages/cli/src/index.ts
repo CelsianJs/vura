@@ -64,7 +64,7 @@ function printHelp(): void {
     projects    Manage Vura Platform projects
                   vura projects list [--team <id-or-slug>]
                   vura projects create <name> [--team <id-or-slug>]
-    deploy      Deploy the built project to the Vura platform (closed-alpha)
+    deploy      Deploy the built project to the Vura platform (beta)
                   vura deploy [--prod] [--token <t>] [--api-url <u>]
     admin       Launch the admin dashboard
     manifest    Print the route manifest (debug)

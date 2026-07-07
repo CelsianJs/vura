@@ -2,7 +2,7 @@
 
 Managed Vura Platform adapter for [Vura](https://vura.io) applications.
 
-> **Closed alpha — not publicly available yet.** This package is published to npm but the Vura managed platform is in closed alpha; `npm install @celsian/vura-adapter-vura` will succeed but the adapter cannot connect to the platform without an alpha access grant. Use `@celsian/vura-adapter-lambda` or `@celsian/vura-adapter-cloudflare` for self-hosted deployments today.
+> **Beta.** The Vura managed platform is in open beta — sign up at [app.vura.io](https://app.vura.io). Self-hosted deployments can use `@celsian/vura-adapter-lambda` or `@celsian/vura-adapter-cloudflare` instead.
 
 ## What it does
 

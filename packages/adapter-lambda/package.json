@@ -1,6 +1,6 @@
 {
   "name": "@celsian/vura-adapter-lambda",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -20,7 +20,7 @@
     "prepack": "pnpm run build"
   },
   "dependencies": {
-    "@celsian/vura-core": "workspace:0.5.3",
+    "@celsian/vura-core": "workspace:0.5.4",
     "esbuild": "^0.28.1"
   },
   "publishConfig": {

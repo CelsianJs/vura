@@ -21,7 +21,6 @@ function findExamplePackageJsons(dir) {
 }
 
 const compilerNative = JSON.parse(readFileSync('packages/compiler-native/package.json', 'utf8'));
-const adapterVura = JSON.parse(readFileSync('packages/adapter-vura/package.json', 'utf8'));
 const failures = [];
 const publishPackageSet = new Set(publishPackages);
 const privatePackageNames = new Set();
@@ -37,14 +36,6 @@ if (compilerNative.private !== true) {
 
 if (publishPackageSet.has('packages/compiler-native')) {
   failures.push('scripts/package-list.mjs must not include packages/compiler-native in JS package publish list');
-}
-
-if (adapterVura.private !== true) {
-  failures.push('@celsian/vura-adapter-vura must remain private until Vura Platform live smoke passes');
-}
-
-if (publishPackageSet.has('packages/adapter-vura')) {
-  failures.push('scripts/package-list.mjs must not include packages/adapter-vura until Vura Platform live smoke passes');
 }
 
 for (const packageJsonPath of findExamplePackageJsons('packages')) {
