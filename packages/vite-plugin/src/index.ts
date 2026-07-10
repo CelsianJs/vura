@@ -368,11 +368,15 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             }
 
             const body = await parseNodeBody(req);
-            // Accept both `{ input: ... }` (legacy admin convention) and a raw
-            // payload posted directly as the body (enqueue()'s local fallback).
+            // Accept both `{ input: ... }` (legacy admin convention + the
+            // platform's `{ taskId, input, attempt }` wrapper) and a raw payload
+            // posted directly as the body (enqueue()'s local fallback).
             const input = body && typeof body === 'object' && 'input' in body
               ? (body as { input?: unknown }).input
               : body;
+            // Platform cron/synthetic dispatches (X-Vura-Cron: true) skip input
+            // validation, mirroring the standalone server + in-process cron.
+            const isCronDispatch = String(req.headers['x-vura-cron'] ?? '').toLowerCase() === 'true';
 
             const runResult = await runTaskOnce({
               name: taskName,
@@ -381,7 +385,7 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
                 timeout: typeof taskRoute.config.timeout === 'number' ? taskRoute.config.timeout : 30_000,
               },
               handler: handlerFn as (ctx: { attempt: number; input: unknown }) => unknown,
-              inputSchema: mod.input,
+              inputSchema: isCronDispatch ? undefined : mod.input,
             }, { input });
 
             if (runResult.validationError) {

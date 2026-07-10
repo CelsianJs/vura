@@ -381,15 +381,38 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
             return;
           }
 
+          // ── Platform dispatch header protocol ──
+          // The Vura control-plane (cron scheduler + manual-run API) POSTs a
+          // WRAPPER body `{ taskId, input, attempt }` and sets headers:
+          //   X-Vura-Task-Id: <id>  → platform dispatch; the real payload is
+          //                           `body.input`, not the body itself.
+          //   X-Vura-Cron: true     → synthetic input (scheduled runs, and
+          //                           today's platform manual runs); SKIP input
+          //                           validation, exactly like in-process cron.
+          // A raw local/manual trigger (no headers) posts the payload AS the
+          // body and is validated as-is. The upcoming enqueue() path sends
+          // X-Vura-Task-Id with a real user payload at `.input` and IS validated.
+          const isPlatformDispatch = (webHeaders.get('x-vura-task-id') ?? '') !== '';
+          const isPlatformCron = (webHeaders.get('x-vura-cron') ?? '').toLowerCase() === 'true';
+          const rawPayload = isPlatformDispatch
+            ? (bodyResult.value && typeof bodyResult.value === 'object'
+                ? (bodyResult.value as { input?: unknown }).input
+                : undefined)
+            : bodyResult.value;
+
           // Phase 1: validate the payload against the task's optional `input`
-          // schema before accepting the run. A failure short-circuits with 400
-          // (no job created, no attempts consumed).
+          // schema before accepting the run — unless this is a cron/synthetic
+          // dispatch. A failure short-circuits with 400 (no job, no attempts).
           const inputSchema = (taskRoute.module as Record<string, unknown>).input;
-          const validation = validateTaskInput(bodyResult.value, inputSchema);
-          if (!validation.ok) {
-            nodeRes.writeHead(validation.status, { 'content-type': 'application/json' });
-            nodeRes.end(JSON.stringify(validation.body));
-            return;
+          let runInput: unknown = rawPayload;
+          if (!isPlatformCron) {
+            const validation = validateTaskInput(rawPayload, inputSchema);
+            if (!validation.ok) {
+              nodeRes.writeHead(validation.status, { 'content-type': 'application/json' });
+              nodeRes.end(JSON.stringify(validation.body));
+              return;
+            }
+            runInput = validation.value;
           }
 
           const jobId = taskStore.nextId();
@@ -406,8 +429,8 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
           };
 
           // Kick off in background; return jobId immediately. Input was validated
-          // above, so the run uses the coerced value and skips re-validation.
-          runTaskOnce(def, { input: validation.value }).then((runResult) => {
+          // above (or exempted for cron), so the run uses the resolved value.
+          runTaskOnce(def, { input: runInput }).then((runResult) => {
             job.status = runResult.status;
             job.result = runResult.result;
             job.error = runResult.error;

@@ -207,6 +207,106 @@ describe('task admin lifecycle', () => {
     expect(handlerCalls).toBe(0);
   });
 
+  // Platform control-plane dispatch header protocol (X-Vura-Task-Id / X-Vura-Cron).
+  describe('platform dispatch header protocol', () => {
+    // Zod-like schema requiring a string `name`.
+    const nameSchema = {
+      parse(d: unknown) { return d; },
+      safeParse(d: unknown) {
+        const obj = (d ?? {}) as Record<string, unknown>;
+        return typeof obj.name === 'string'
+          ? { success: true, data: obj }
+          : { success: false, error: { issues: [{ path: ['name'], message: 'name is required', code: 'invalid_type' }] } };
+      },
+    };
+
+    async function pollJob(port: number, id: string): Promise<any> {
+      let job: any;
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline) {
+        const r = await fetch(`http://127.0.0.1:${port}/__tasks/${id}`);
+        job = await r.json();
+        if (job.status !== 'running') break;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      return job;
+    }
+
+    it('(a) platform cron dispatch (wrapper + both headers) is accepted without input validation', async () => {
+      let seen: unknown;
+      srv = await startVuraServer({
+        port: 0, pages: [],
+        apiRoutes: [{
+          urlPattern: '/api/nightly', methods: ['POST'], kind: 'task', filePath: 'src/api/nightly.ts',
+          config: { retries: 0, timeout: 5000 },
+          module: { schedule: '0 3 * * *', input: nameSchema, POST: ({ input }: { input: unknown }) => { seen = input; return { ran: true }; } },
+        }],
+      });
+
+      // Platform cron POSTs the wrapper body with BOTH headers; the synthetic
+      // input has no `name`, which would fail the schema if validated.
+      const res = await fetch(`http://127.0.0.1:${srv.port}/__tasks/nightly`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-vura-task-id': 'run-1', 'x-vura-cron': 'true' },
+        body: JSON.stringify({ taskId: 'run-1', input: { _cron: true, _schedule: '0 3 * * *' }, attempt: 1 }),
+      });
+      expect(res.status).toBe(202);
+      const { id } = await res.json() as { id: string };
+      const job = await pollJob(srv.port, id);
+      expect(job.status).toBe('completed');
+      // Handler ran with the UNWRAPPED synthetic input (not the wrapper).
+      expect(seen).toEqual({ _cron: true, _schedule: '0 3 * * *' });
+    });
+
+    it('(b) platform enqueue dispatch (wrapper + task-id only, valid payload) validates the UNWRAPPED payload', async () => {
+      let seen: unknown;
+      srv = await startVuraServer({
+        port: 0, pages: [],
+        apiRoutes: [{
+          urlPattern: '/api/greet', methods: ['POST'], kind: 'task', filePath: 'src/api/greet.ts',
+          config: { retries: 0, timeout: 5000 },
+          module: { input: nameSchema, POST: ({ input }: { input: unknown }) => { seen = input; return { ok: true }; } },
+        }],
+      });
+
+      const res = await fetch(`http://127.0.0.1:${srv.port}/__tasks/greet`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-vura-task-id': 'run-2' },
+        body: JSON.stringify({ taskId: 'run-2', input: { name: 'ada' }, attempt: 1 }),
+      });
+      expect(res.status).toBe(202);
+      const { id } = await res.json() as { id: string };
+      const job = await pollJob(srv.port, id);
+      expect(job.status).toBe('completed');
+      // Handler received the unwrapped, validated payload — not the wrapper.
+      expect(seen).toEqual({ name: 'ada' });
+    });
+
+    it('(c) platform enqueue dispatch with an INVALID unwrapped payload → 400, no job created', async () => {
+      let calls = 0;
+      srv = await startVuraServer({
+        port: 0, pages: [],
+        apiRoutes: [{
+          urlPattern: '/api/greet2', methods: ['POST'], kind: 'task', filePath: 'src/api/greet2.ts',
+          config: { retries: 0, timeout: 5000 },
+          module: { input: nameSchema, POST: () => { calls++; return 'ok'; } },
+        }],
+      });
+
+      const res = await fetch(`http://127.0.0.1:${srv.port}/__tasks/greet2`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-vura-task-id': 'run-3' },
+        body: JSON.stringify({ taskId: 'run-3', input: { notName: 1 }, attempt: 1 }),
+      });
+      expect(res.status).toBe(400);
+      const body = await res.json() as { code: string; details: unknown };
+      expect(body.code).toBe('VALIDATION_FAILED');
+      expect(JSON.stringify(body.details)).toContain('name is required');
+      await new Promise((r) => setTimeout(r, 30));
+      expect(calls).toBe(0);
+    });
+  });
+
   it('POST unknown task name → 404', async () => {
     srv = await startVuraServer({ port: 0, pages: [], apiRoutes: [] });
     const r = await fetch(`http://127.0.0.1:${srv.port}/__tasks/nonexistent`, { method: 'POST' });
