@@ -12,7 +12,7 @@
  */
 
 import { join } from 'node:path';
-import { buildManifest, runTaskOnce } from '@celsian/vura-core';
+import { buildManifest, runTaskOnce, buildTaskEnvelope } from '@celsian/vura-core';
 import { importRouteModule } from './shared.js';
 
 // ─── Name helpers ────────────────────────────────────────────────────────────
@@ -95,11 +95,26 @@ async function runTask(projectRoot: string, taskName: string, rawInput: string |
         timeout: typeof route.config.timeout === 'number' ? route.config.timeout : 30_000,
       },
       handler: mod.POST as (ctx: { attempt: number; input: unknown }) => unknown,
+      // Phase 1: validate --input against the task's optional `input` schema.
+      inputSchema: mod.input,
     },
     { input },
   );
 
-  console.log(JSON.stringify(result, null, 2));
+  // A schema validation failure never ran the handler — print the standard
+  // validation error body and exit 1.
+  if (result.validationError) {
+    console.error(JSON.stringify(result.validationError.body, null, 2));
+    process.exitCode = 1;
+    return;
+  }
+
+  // Print the additive run envelope ({ ok, taskName, attempts, result? }) plus
+  // the legacy status/error fields so existing consumers keep working.
+  const envelope = buildTaskEnvelope(taskName, result);
+  const output: Record<string, unknown> = { ...envelope, status: result.status };
+  if (result.error !== undefined) output.error = result.error;
+  console.log(JSON.stringify(output, null, 2));
 
   if (result.status === 'failed') {
     process.exitCode = 1;

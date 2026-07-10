@@ -27,6 +27,8 @@ import {
   parseNodeBody,
   reportError,
   getMimeType,
+  runTaskOnce,
+  buildTaskEnvelope,
   createApiApp,
   createWsUpgradeHandler,
   createNoServerWebSocketServer,
@@ -456,14 +458,42 @@ export async function startStandaloneServer(
       }
       try {
         const mod = await loadHandler(taskRoute.filePath);
+        if (typeof mod.POST !== 'function') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Task must export POST handler' }));
+          return;
+        }
         const body = await parseNodeBody(req);
-        const result = await mod.POST({
-          taskId: String(Date.now()),
-          input: (body as any)?.input,
-          attempt: 1,
-        });
+        // Accept both `{ input: ... }` (legacy admin convention + the platform's
+        // `{ taskId, input, attempt }` wrapper) and a raw payload posted directly
+        // as the body (enqueue()'s local fallback).
+        const input = body && typeof body === 'object' && 'input' in body
+          ? (body as { input?: unknown }).input
+          : body;
+        // Platform cron/synthetic dispatches (X-Vura-Cron: true) skip input
+        // validation, mirroring the standalone server + in-process cron.
+        const isCronDispatch = String(req.headers['x-vura-cron'] ?? '').toLowerCase() === 'true';
+
+        const runResult = await runTaskOnce({
+          name: taskName,
+          config: {
+            retries: typeof taskRoute.config.retries === 'number' ? taskRoute.config.retries : 0,
+            timeout: typeof taskRoute.config.timeout === 'number' ? taskRoute.config.timeout : 30_000,
+          },
+          handler: mod.POST as (ctx: { attempt: number; input: unknown }) => unknown,
+          inputSchema: isCronDispatch ? undefined : mod.input,
+        }, { input });
+
+        if (runResult.validationError) {
+          res.writeHead(runResult.validationError.statusCode, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(runResult.validationError.body));
+          return;
+        }
+
+        // Additive envelope + legacy status/result for backward compatibility.
+        const envelope = buildTaskEnvelope(taskName, runResult);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'completed', result }));
+        res.end(JSON.stringify({ ...envelope, status: runResult.status, ...(runResult.error !== undefined ? { error: runResult.error } : {}) }));
       } catch (err: any) {
         reportError(err instanceof Error ? err : new Error(String(err.message)), { method, path: url.pathname, requestId: reqCtx.requestId }, logger);
         res.writeHead(500, { 'Content-Type': 'application/json' });
