@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### `vura dev` serves all four page modes (Vite path)
+
+- **`vura dev` now renders `static` and `client` pages, not just `server` and
+  `hybrid`.** The Vite plugin's page middleware only matched
+  `mode: 'server' | 'hybrid'`, so an app made of static pages plus a client SPA
+  404'd on every page in dev (API routes worked) — the full app was only
+  runnable from the built server entry. The middleware now matches all four
+  modes and mirrors the production build and the standalone dev server:
+  `static` pages are SSR'd fresh per request (giving live reload), and `client`
+  pages are served as the SPA shell plus their browser bundle.
+- **Client and hybrid browser bundles are served on demand at
+  `/_then/pages/*.js`** — the same layout `vura build` emits — via esbuild with
+  the `generateClientPageEntry` wrapper, so the page actually boots (`mount()`
+  for client, `hydrate()` for hybrid). Previously the Vite path never emitted a
+  browser bundle for hybrid pages either, so they rendered but never hydrated;
+  that is fixed too.
+- **New test fixture** `packages/vite-plugin/test/fixtures/pages-app` (static +
+  client pages, serverless + hot API routes) and a dev-server test that boots a
+  real Vite dev server and asserts all four modes plus the API surface.
+
 ## 0.5.4 - 2026-07-06
 
 ### Vura Platform adapter goes public

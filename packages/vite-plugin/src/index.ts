@@ -3,10 +3,17 @@
  *
  * Vite plugin for Vura that:
  * 1. Adds dev middleware for API routes via CelsianApp.handle (A1.3)
- * 2. Adds dev middleware for server-mode pages (SSR with getServerData)
- * 3. Adds dev middleware for task management (/__tasks/*)
- * 4. Watches src/api/ and src/pages/ for file changes and hot-reloads
- * 5. Scans file-based routes on startup
+ * 2. Adds dev middleware for ALL four page modes (static, server, hybrid, client),
+ *    matching the production build and the standalone dev server:
+ *      - static — SSR'd fresh per request (live reload; zero client JS)
+ *      - server — SSR'd per request with getServerData
+ *      - hybrid — SSR'd + client bundle for hydration
+ *      - client — SPA shell + client bundle (boots in the browser)
+ * 3. Serves on-demand client/hybrid browser bundles at /_then/pages/*.js
+ *    (esbuild, mirroring the `vura build` output layout)
+ * 4. Adds dev middleware for task management (/__tasks/*)
+ * 5. Watches src/api/ and src/pages/ for file changes and hot-reloads
+ * 6. Scans file-based routes on startup
  */
 
 import { renderToString as builtinRenderToString } from 'what-framework/server';
@@ -26,6 +33,7 @@ import {
   GLOBAL_HOOKS_FILENAMES,
   nodeToWebRequest,
   writeWebResponse,
+  generateClientPageEntry,
 } from '@celsian/vura-core';
 import type {
   RouteManifest,
@@ -163,6 +171,55 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
       apiApp = await buildApiApp(manifest, projectRoot, server);
       compiledApiRoutes = compileRoutes(manifest.api.filter(r => r.kind !== 'task'));
 
+      // ── Browser page bundles (client/hybrid) — on-demand esbuild, dev cache ──
+      // Mirrors the standalone dev server and `vura build`: each client/hybrid
+      // page gets a bundle served at /_then/pages/<file>.js, referenced from the
+      // page shell. The bundle is a generateClientPageEntry() wrapper that calls
+      // mount() (client) / hydrate() (hybrid) — bundling the raw page module
+      // alone would leave the shell at "Loading..." forever.
+      const browserScriptPath = (page: PageRoute): string =>
+        '/_then/pages/' + page.filePath.replace(/^src\/pages\//, '').replace(/\.(tsx|jsx|ts|js)$/, '.js');
+
+      const browserBundleCache = new Map<string, string>();
+
+      async function bundleBrowserPage(page: PageRoute): Promise<string> {
+        const cached = browserBundleCache.get(page.filePath);
+        if (cached !== undefined) return cached;
+
+        const { build: esbuild } = await import('esbuild');
+        const { dirname, basename, resolve } = await import('node:path');
+        const absPath = resolve(projectRoot, page.filePath);
+
+        let jsxImportSource = '@celsian/vura-core';
+        try {
+          // @ts-ignore — optional peer dep
+          await import('what-framework/jsx-runtime');
+          jsxImportSource = 'what-framework';
+        } catch { /* not installed — keep default */ }
+
+        const result = await esbuild({
+          stdin: {
+            contents: generateClientPageEntry(`./${basename(absPath)}`, page.mode as 'client' | 'hybrid', { dev: true }),
+            resolveDir: dirname(absPath),
+            sourcefile: '__vura-client-entry__.js',
+            loader: 'js',
+          },
+          bundle: true,
+          format: 'esm',
+          target: 'es2022',
+          platform: 'browser',
+          write: false,
+          outfile: 'page.js',
+          jsx: 'automatic',
+          jsxImportSource,
+          nodePaths: [join(projectRoot, 'node_modules')],
+        });
+
+        const text = result.outputFiles[0]!.text;
+        browserBundleCache.set(page.filePath, text);
+        return text;
+      }
+
       // Watch src/api/ and src/pages/ for changes
       const apiDir = `${projectRoot}/src/api`;
       const pagesDir = `${projectRoot}/src/pages`;
@@ -183,6 +240,8 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             apiApp = await buildApiApp(nextManifest, projectRoot, server);
             manifest = nextManifest;
             compiledApiRoutes = compileRoutes(manifest.api.filter(r => r.kind !== 'task'));
+            // Drop stale client/hybrid bundles so page edits apply on next request.
+            browserBundleCache.clear();
             // The rebuilt app has a NEW wsRegistry; peers connected before this
             // rescan stay in the old one, so broadcasts split until reconnect.
             if (openWsConnections > 0) {
@@ -367,7 +426,43 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
         }
       });
 
-      // ─── Server-mode page middleware ───
+      // ─── Browser page bundle middleware (client/hybrid) ───
+      // Serves the on-demand esbuild bundles at /_then/pages/*.js, mirroring the
+      // production /_then/pages/*.js layout emitted by `vura build`.
+      server.middlewares.use(async (req, res, next) => {
+        const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+        const method = (req.method ?? 'GET').toUpperCase();
+        if (method !== 'GET') return next();
+        if (!url.pathname.startsWith('/_then/pages/') || !url.pathname.endsWith('.js')) {
+          return next();
+        }
+        const target = manifest.pages.find(
+          p => (p.mode === 'client' || p.mode === 'hybrid') && browserScriptPath(p) === url.pathname,
+        );
+        if (!target) return next();
+        try {
+          const code = await bundleBrowserPage(target);
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(code);
+        } catch (err: any) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          reportError(error, { method: 'GET', path: url.pathname }, logger);
+          if (!res.writableEnded) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'text/javascript');
+            res.end(`console.error(${JSON.stringify('[vura] client bundle failed: ' + error.message)});`);
+          }
+        }
+      });
+
+      // ─── Page middleware (all four modes: static, server, hybrid, client) ───
+      // Matches the standalone dev server and the production build:
+      //   - client — serve the SPA shell + browser bundle (no SSR; SSR'ing a
+      //     client page would run hooks like useSignal outside a component and 500)
+      //   - static/server/hybrid — SSR the component fresh per request; hybrid
+      //     also loads its browser bundle so hydrate() runs against the SSR'd DOM.
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
         const method = (req.method ?? 'GET').toUpperCase();
@@ -380,17 +475,34 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
         // Skip file requests (has extension)
         if (/\.\w+$/.test(url.pathname)) return next();
 
-        // Find matching server-mode page (uses shared matchPageRoute from @celsian/vura-core)
-        const serverPages = manifest.pages.filter(p => p.mode === 'server' || p.mode === 'hybrid');
-        const matched = coreMatchPageRoute(serverPages, url.pathname);
+        // Match against ALL page modes (uses shared matchPageRoute from @celsian/vura-core)
+        const matched = coreMatchPageRoute(manifest.pages, url.pathname);
         if (!matched) return next();
 
         try {
+          const pageMode = matched.page.mode;
           const modulePath = `/${matched.page.filePath}`;
           const mod = await server.ssrLoadModule(modulePath);
-          const Component = mod.default;
           const pageConfig = mod.page ?? {};
 
+          // Client pages render entirely in the browser: serve the shell +
+          // bundle. SSR'ing them here would call hooks (useSignal, useState)
+          // outside a component context and 500.
+          if (pageMode === 'client') {
+            const html = wrapDocument('<div id="loading">Loading...</div>', {
+              title: pageConfig.title ?? 'Vura App',
+              meta: pageConfig.meta ?? [],
+              styles: pageConfig.styles ?? [],
+              scripts: [...(pageConfig.scripts ?? []), browserScriptPath(matched.page)],
+              head: pageConfig.head ?? '',
+            });
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            res.end(html);
+            return;
+          }
+
+          const Component = mod.default;
           if (typeof Component !== 'function') {
             return next();
           }
@@ -426,7 +538,12 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             title: pageConfig.title ?? 'Vura App',
             meta: pageConfig.meta ?? [],
             styles: pageConfig.styles ?? [],
-            scripts: pageConfig.scripts ?? [],
+            // Hybrid pages also load their browser bundle so hydrate() runs
+            // against the SSR'd DOM — same contract as the production build.
+            scripts: [
+              ...(pageConfig.scripts ?? []),
+              ...(pageMode === 'hybrid' ? [browserScriptPath(matched.page)] : []),
+            ],
             head: pageConfig.head ?? '',
           });
 
