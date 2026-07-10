@@ -138,6 +138,75 @@ describe('task admin lifecycle', () => {
     expect(job.result).toEqual({ echoed: { msg: 'hello' } });
   });
 
+  it('records per-attempt metadata + ok on the completed job (Phase 1)', async () => {
+    srv = await startVuraServer({
+      port: 0, pages: [],
+      apiRoutes: [{
+        urlPattern: '/api/retry', methods: ['POST'], kind: 'task', filePath: 'src/api/retry.ts',
+        config: { retries: 1, timeout: 5000 },
+        module: {
+          POST: ({ attempt }: { attempt: number }) => { if (attempt < 2) throw new Error('flaky'); return { done: true }; },
+        },
+      }],
+    });
+
+    const triggerRes = await fetch(`http://127.0.0.1:${srv.port}/__tasks/retry`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}),
+    });
+    const { id } = await triggerRes.json() as { id: string };
+
+    let job: any;
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline) {
+      const r = await fetch(`http://127.0.0.1:${srv.port}/__tasks/${id}`);
+      job = await r.json();
+      if (job.status !== 'running') break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(job.status).toBe('completed');
+    expect(job.ok).toBe(true);
+    expect(Array.isArray(job.attempts)).toBe(true);
+    expect(job.attempts).toHaveLength(2);
+    expect(job.attempts[0].index).toBe(1);
+    expect(job.attempts[0].error).toBe('flaky');
+    expect(job.attempts[1].error).toBeUndefined();
+    expect(job.attempts[1].startedAt).toBe(new Date(job.attempts[1].startedAt).toISOString());
+  });
+
+  it('rejects an invalid payload with 400 before creating a job (Phase 1 input schema)', async () => {
+    // Zod-like schema requiring a string `name`.
+    const nameSchema = {
+      parse(d: unknown) { return d; },
+      safeParse(d: unknown) {
+        const obj = (d ?? {}) as Record<string, unknown>;
+        return typeof obj.name === 'string'
+          ? { success: true, data: obj }
+          : { success: false, error: { issues: [{ path: ['name'], message: 'name is required', code: 'invalid_type' }] } };
+      },
+    };
+
+    let handlerCalls = 0;
+    srv = await startVuraServer({
+      port: 0, pages: [],
+      apiRoutes: [{
+        urlPattern: '/api/needsname', methods: ['POST'], kind: 'task', filePath: 'src/api/needsname.ts',
+        config: { retries: 0, timeout: 5000 },
+        module: { input: nameSchema, POST: () => { handlerCalls++; return 'ok'; } },
+      }],
+    });
+
+    const res = await fetch(`http://127.0.0.1:${srv.port}/__tasks/needsname`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ notName: 1 }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json() as { code: string; details: unknown };
+    expect(body.code).toBe('VALIDATION_FAILED');
+    expect(JSON.stringify(body.details)).toContain('name is required');
+    // Give any (erroneously) scheduled run a tick — handler must never fire.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(handlerCalls).toBe(0);
+  });
+
   it('POST unknown task name → 404', async () => {
     srv = await startVuraServer({ port: 0, pages: [], apiRoutes: [] });
     const r = await fetch(`http://127.0.0.1:${srv.port}/__tasks/nonexistent`, { method: 'POST' });

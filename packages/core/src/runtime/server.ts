@@ -34,6 +34,7 @@ import {
   type TaskRunDefinition,
   type TaskAdminJob,
 } from './tasks.js';
+import { validateTaskInput } from '../validation.js';
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',
@@ -380,6 +381,17 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
             return;
           }
 
+          // Phase 1: validate the payload against the task's optional `input`
+          // schema before accepting the run. A failure short-circuits with 400
+          // (no job created, no attempts consumed).
+          const inputSchema = (taskRoute.module as Record<string, unknown>).input;
+          const validation = validateTaskInput(bodyResult.value, inputSchema);
+          if (!validation.ok) {
+            nodeRes.writeHead(validation.status, { 'content-type': 'application/json' });
+            nodeRes.end(JSON.stringify(validation.body));
+            return;
+          }
+
           const jobId = taskStore.nextId();
           const job: TaskAdminJob = { id: jobId, taskName, status: 'running', startedAt: Date.now() };
           taskStore.add(job);
@@ -393,16 +405,19 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
             handler,
           };
 
-          // Kick off in background; return jobId immediately
-          // Manual triggers pass the parsed body as input (Fix #11); cron uses { _cron: true }.
-          runTaskOnce(def, { input: bodyResult.value }).then((runResult) => {
+          // Kick off in background; return jobId immediately. Input was validated
+          // above, so the run uses the coerced value and skips re-validation.
+          runTaskOnce(def, { input: validation.value }).then((runResult) => {
             job.status = runResult.status;
             job.result = runResult.result;
             job.error = runResult.error;
+            job.ok = runResult.status === 'completed';
+            job.attempts = runResult.attemptRecords;
             job.completedAt = Date.now();
           }).catch((_err) => {
             job.status = 'failed';
             job.error = 'unexpected error';
+            job.ok = false;
             job.completedAt = Date.now();
           });
 

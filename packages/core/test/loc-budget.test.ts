@@ -13,7 +13,7 @@ function locOf(dir: string): number {
 }
 
 describe('A1.4 success metric', () => {
-  it('vura-core src LOC is below the post-Task-2 ceiling of 6450', () => {
+  it('vura-core src LOC is below the post-Task-2 ceiling of 6850', () => {
     // v0.2.0 baseline (commit 19d9442) was 5001 LOC.
     // Task 9 (hot routes A2.5): +~335 → ~5336; quality pass → ~5478.
     // Task 11 (A2.6): deleted old tasks.ts (-402), added runtime/tasks.ts
@@ -59,6 +59,13 @@ describe('A1.4 success metric', () => {
     //   (buildVuraCacheTagHeader — sanitise/cap/dedupe, mostly JSDoc rationale)
     //   + the pages.ts wrapper now sanitises authoritatively instead of passing
     //   raw tags through → actual 6415. Ceiling 6450 leaves ~35 headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(6450);
+    // Vura Tasks Phase 1 (2026-07-10): typed task input schemas
+    //   (validateTaskInput in validation.ts), per-attempt metadata + run
+    //   envelope (TaskAttempt/TaskRunEnvelope/buildTaskEnvelope + attemptRecords
+    //   in runtime/tasks.ts, input validation in runTaskOnce + server.ts POST
+    //   /__tasks path), and the new enqueue() client (enqueue.ts — platform HTTP
+    //   broker + local /__tasks fallback, mostly JSDoc). +~386 → actual 6801.
+    //   Ceiling 6850 leaves ~49 headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(6850);
   });
 });

@@ -263,6 +263,82 @@ export function validateRequest<
   return null;
 }
 
+// ─── Task input validation ───
+
+/**
+ * A task file's optional `export const input` — either a bare Zod-like schema
+ * (the whole payload is validated against it) or a `defineSchema()` RouteSchema
+ * (the payload is validated against its `body`).
+ */
+export type TaskInputSchema = ZodLikeSchema | RouteSchema;
+
+/**
+ * Result of validating a task payload against an `input` schema.
+ * On success, `value` is the (possibly coerced) payload; on failure, `body` is
+ * the validation kit's standard error shape and `status` is 400.
+ */
+export type TaskInputValidation =
+  | { ok: true; value: unknown }
+  | {
+      ok: false;
+      status: 400;
+      body: { error: string; code: string; details: ValidationError[] };
+    };
+
+/**
+ * Validate a task payload against the task file's optional `export const input`.
+ *
+ * Accepts both authoring shapes:
+ *   - `export const input = z.object({...})`             → payload validated directly
+ *   - `export const input = defineSchema({ body: ... })` → payload validated against `.body`
+ *
+ * Returns the (possibly coerced) value on success, or a 400 carrying the
+ * validation kit's standard error body (`{ error, code: 'VALIDATION_FAILED',
+ * details }`) on failure. A missing or unrecognised schema is a pass-through
+ * no-op, so tasks without an `input` export are never blocked.
+ *
+ * Used by the task executor before invoking a handler, so validation failures
+ * short-circuit with a 400 and consume no retry attempts.
+ */
+export function validateTaskInput(
+  payload: unknown,
+  input: unknown,
+): TaskInputValidation {
+  const schema = normalizeTaskSchema(input);
+  if (!schema) return { ok: true, value: payload };
+
+  // Reuse the standard request validator against a synthesized request-like
+  // object. Task payloads map to `body`; query/params are unused for tasks.
+  const reqLike = { parsedBody: payload, query: {}, params: {} } as unknown as ThenRequest;
+  const err = validateRequest(reqLike, schema);
+  if (err) {
+    return {
+      ok: false,
+      status: 400,
+      body: err.body as { error: string; code: string; details: ValidationError[] },
+    };
+  }
+  return { ok: true, value: reqLike.parsedBody };
+}
+
+/**
+ * Normalize a task `input` export into a RouteSchema the validator understands.
+ * Returns null for missing or unrecognised shapes (validation is skipped).
+ */
+function normalizeTaskSchema(input: unknown): RouteSchema | null {
+  if (!input || typeof input !== 'object') return null;
+  const asRecord = input as Record<string, unknown>;
+  // Bare Zod-like schema → validate the payload as the body.
+  if (typeof asRecord.safeParse === 'function') {
+    return { body: input as ZodLikeSchema };
+  }
+  // defineSchema() RouteSchema → validate as declared.
+  if ('body' in asRecord || 'query' in asRecord || 'params' in asRecord) {
+    return input as RouteSchema;
+  }
+  return null;
+}
+
 // ─── Internal ───
 
 function formatError(

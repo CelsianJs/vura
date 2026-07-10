@@ -27,6 +27,8 @@ import {
   parseNodeBody,
   reportError,
   getLogger,
+  runTaskOnce,
+  buildTaskEnvelope,
   createApiApp,
   createWsUpgradeHandler,
   createNoServerWebSocketServer,
@@ -366,18 +368,34 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             }
 
             const body = await parseNodeBody(req);
+            // Accept both `{ input: ... }` (legacy admin convention) and a raw
+            // payload posted directly as the body (enqueue()'s local fallback).
             const input = body && typeof body === 'object' && 'input' in body
               ? (body as { input?: unknown }).input
-              : undefined;
-            const result = await handlerFn({
-              taskId: String(Date.now()),
-              input,
-              attempt: 1,
-            });
+              : body;
 
+            const runResult = await runTaskOnce({
+              name: taskName,
+              config: {
+                retries: typeof taskRoute.config.retries === 'number' ? taskRoute.config.retries : 0,
+                timeout: typeof taskRoute.config.timeout === 'number' ? taskRoute.config.timeout : 30_000,
+              },
+              handler: handlerFn as (ctx: { attempt: number; input: unknown }) => unknown,
+              inputSchema: mod.input,
+            }, { input });
+
+            if (runResult.validationError) {
+              res.statusCode = runResult.validationError.statusCode;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify(runResult.validationError.body));
+              return;
+            }
+
+            // Additive envelope + legacy status/result for backward compatibility.
+            const envelope = buildTaskEnvelope(taskName, runResult);
             res.statusCode = 200;
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ status: 'completed', result }));
+            res.end(JSON.stringify({ ...envelope, status: runResult.status, ...(runResult.error !== undefined ? { error: runResult.error } : {}) }));
           } catch (err: any) {
             res.statusCode = 500;
             res.setHeader('Content-Type', 'application/json');

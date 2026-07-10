@@ -1,5 +1,5 @@
 {
-  "@celsian/vura-core": 120000,
+  "@celsian/vura-core": 128000,
   "@celsian/vura-compiler": 10000,
   "@celsian/vura-cli": 50000,
   "create-vura": 10000,

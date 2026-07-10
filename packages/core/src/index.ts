@@ -119,6 +119,7 @@ export {
   validate,
   withValidation,
   validateRequest,
+  validateTaskInput,
 } from './validation.js';
 
 export type {
@@ -127,7 +128,16 @@ export type {
   ValidatedData,
   ValidationError,
   ValidationResult,
+  TaskInputSchema,
+  TaskInputValidation,
 } from './validation.js';
+
+export { enqueue } from './enqueue.js';
+
+export type {
+  EnqueueOptions,
+  EnqueueResult,
+} from './enqueue.js';
 
 export {
   HookRegistry,
@@ -249,12 +259,15 @@ export {
   isTaskAdminAuthorized,
   registerTaskCrons,
   readOptionalJsonBody,
+  buildTaskEnvelope,
 } from './runtime/tasks.js';
 
 export type {
   TaskRunResult,
   TaskRunDefinition,
   TaskAdminJob,
+  TaskAttempt,
+  TaskRunEnvelope,
 } from './runtime/tasks.js';
 
 export type {

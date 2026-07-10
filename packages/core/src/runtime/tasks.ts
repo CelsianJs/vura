@@ -20,21 +20,81 @@
 
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { CelsianApp } from '@celsian/core';
+import { validateTaskInput } from '../validation.js';
 import type { RuntimeApiRoute } from './api-app.js';
 
 // ─── Public types ───────────────────────────────────────────────────────────
+
+/**
+ * Metadata for a single execution attempt of a task.
+ * Collected by runTaskOnce and surfaced in the task run envelope so callers
+ * (the platform, the CLI, the /__tasks admin surface) can see the retry history.
+ */
+export interface TaskAttempt {
+  /** 1-based attempt number. */
+  index: number;
+  /** ISO timestamp when the attempt started. */
+  startedAt: string;
+  /** Wall-clock duration of the attempt in milliseconds. */
+  durationMs: number;
+  /** Safe error message (message only, never a stack) when the attempt failed. */
+  error?: string;
+}
 
 export interface TaskRunResult {
   status: 'completed' | 'failed';
   result?: unknown;
   error?: string;
+  /** Number of attempts made (= attemptRecords.length). Kept for compatibility. */
   attempts: number;
+  /** Per-attempt metadata (added Phase 1). Empty on a validation failure. */
+  attemptRecords: TaskAttempt[];
+  /**
+   * Present when the payload failed `input` schema validation. Carries the
+   * standard validation kit error body and a 400 status. When set, no handler
+   * attempt was made and `attempts` is 0.
+   */
+  validationError?: { statusCode: 400; body: unknown };
+}
+
+/**
+ * The additive, backward-compatible envelope surfaced from a task execution.
+ * Shape is locked against the platform's run-recording contract:
+ *   { ok, taskName, attempts: TaskAttempt[], result? }
+ */
+export interface TaskRunEnvelope {
+  ok: boolean;
+  taskName: string;
+  attempts: TaskAttempt[];
+  result?: unknown;
 }
 
 export interface TaskRunDefinition {
   name: string;
   config: { retries?: number; timeout?: number };
   handler: (ctx: { attempt: number; input: unknown }) => unknown;
+  /**
+   * Optional `input` schema exported by the task file. When provided, the
+   * payload is validated before the first attempt; a failure short-circuits
+   * with a 400 (via TaskRunResult.validationError) and consumes no attempts.
+   */
+  inputSchema?: unknown;
+}
+
+/**
+ * Build the additive task run envelope from a TaskRunResult.
+ * `result` is included only on success.
+ */
+export function buildTaskEnvelope(taskName: string, result: TaskRunResult): TaskRunEnvelope {
+  const envelope: TaskRunEnvelope = {
+    ok: result.status === 'completed',
+    taskName,
+    attempts: result.attemptRecords,
+  };
+  if (result.status === 'completed') {
+    envelope.result = result.result;
+  }
+  return envelope;
 }
 
 // ─── runTaskOnce ─────────────────────────────────────────────────────────────
@@ -54,9 +114,28 @@ export async function runTaskOnce(
   def: TaskRunDefinition,
   opts: { input: unknown },
 ): Promise<TaskRunResult> {
+  // ── Input-schema validation (Phase 1) ──
+  // Runs before any attempt so a bad payload short-circuits with a 400 and
+  // consumes no retries. Skipped when the task exports no `input` schema.
+  let input = opts.input;
+  if (def.inputSchema) {
+    const validation = validateTaskInput(input, def.inputSchema);
+    if (!validation.ok) {
+      return {
+        status: 'failed',
+        error: validation.body.error,
+        attempts: 0,
+        attemptRecords: [],
+        validationError: { statusCode: 400, body: validation.body },
+      };
+    }
+    input = validation.value;
+  }
+
   const maxAttempts = Math.max(1, 1 + (def.config.retries ?? 0));
   const timeoutMs = def.config.timeout ?? 30_000;
   let lastError = '';
+  const attemptRecords: TaskAttempt[] = [];
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     // Backoff before retry (not before first attempt), capped at 30 s
@@ -68,11 +147,13 @@ export async function runTaskOnce(
       });
     }
 
+    const startedAtMs = Date.now();
+    const startedAt = new Date(startedAtMs).toISOString();
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
       const result = await Promise.race([
         // Fix #1: wrap with Promise.resolve().then() so sync handlers work.
-        Promise.resolve().then(() => def.handler({ attempt, input: opts.input })).then((r) => {
+        Promise.resolve().then(() => def.handler({ attempt, input })).then((r) => {
           clearTimeout(timeoutHandle);
           return r;
         }),
@@ -84,10 +165,11 @@ export async function runTaskOnce(
           if (typeof timeoutHandle.unref === 'function') timeoutHandle.unref();
         }),
       ]);
-      return { status: 'completed', result, attempts: attempt };
+      attemptRecords.push({ index: attempt, startedAt, durationMs: Date.now() - startedAtMs });
+      return { status: 'completed', result, attempts: attempt, attemptRecords };
     } catch (err: unknown) {
       clearTimeout(timeoutHandle);
-      // Fix #7: serialize non-Error throws correctly
+      // Fix #7: serialize non-Error throws correctly (message only — never a stack)
       if (err instanceof Error) {
         lastError = err.message;
       } else if (typeof err === 'string') {
@@ -99,10 +181,11 @@ export async function runTaskOnce(
           lastError = String(err);
         }
       }
+      attemptRecords.push({ index: attempt, startedAt, durationMs: Date.now() - startedAtMs, error: lastError });
     }
   }
 
-  return { status: 'failed', error: lastError, attempts: maxAttempts };
+  return { status: 'failed', error: lastError, attempts: maxAttempts, attemptRecords };
 }
 
 // ─── Task result store ───────────────────────────────────────────────────────
@@ -115,6 +198,10 @@ export interface TaskAdminJob {
   error?: string;
   startedAt: number;
   completedAt?: number;
+  /** true once a run completed successfully (added Phase 1). */
+  ok?: boolean;
+  /** Per-attempt metadata once the run resolved (added Phase 1). */
+  attempts?: TaskAttempt[];
 }
 
 const MAX_TASK_RESULTS = 10_000;
@@ -250,6 +337,8 @@ export function registerTaskCrons(
           job.status = runResult.status;
           job.result = runResult.result;
           job.error = runResult.error;
+          job.ok = runResult.status === 'completed';
+          job.attempts = runResult.attemptRecords;
           job.completedAt = Date.now();
           if (runResult.status === 'failed') {
             console.error(
