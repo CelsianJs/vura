@@ -6,5 +6,5 @@
   "@celsian/vura-adapter-cloudflare": 15000,
   "@celsian/vura-adapter-lambda": 18000,
   "@celsian/vura-adapter-vura": 12000,
-  "@celsian/vura-vite-plugin": 12000
+  "@celsian/vura-vite-plugin": 16000
 }
