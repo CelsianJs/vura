@@ -223,6 +223,124 @@ starts a run.
 In development with no `THEN_TASK_SECRET` set, localhost requests are allowed
 without a token.
 
+## Durable steps (`ctx.step`)
+
+Long tasks that call out to other services, wait for a child task, sleep for a
+while, or block on human approval need **durable execution**: if the process
+restarts (or a serverless invocation ends) the work already done must not be
+redone, and the wait must survive. Vura gives you this without long-lived
+processes via **step memoization** — the same model as Inngest.
+
+The task handler receives a `step` object on its context:
+
+```ts
+// src/api/onboard.ts
+export const route = { kind: 'task', retries: 3 };
+
+export async function POST({ input, step }) {
+  const user = input as { userId: string };
+
+  // Runs once, then replays its recorded output on every re-invocation.
+  const profile = await step.run('load-profile', async () => {
+    return await db.users.find(user.userId);
+  });
+
+  // Kick off a child task and wait for its result (suspends the run).
+  const enriched = await step.waitForTask('enrich', 'tasks.enrich', profile);
+
+  // Wait 24h before the follow-up — durably, not a held-open process.
+  await step.sleep('cooldown', 24 * 60 * 60);
+
+  // Block until someone completes a token (e.g. an approval webhook).
+  const decision = await step.waitForToken('approval', { timeoutSeconds: 3600 });
+  if ('timedOut' in decision) return { status: 'expired' };
+
+  await step.run('send-welcome', async () => sendEmail(profile.email));
+  return { status: 'onboarded', enriched };
+}
+```
+
+### The step API
+
+| Call | What it does |
+|---|---|
+| `step.run(key, fn)` | Runs `fn` **once**, memoized under `key`. On replay, returns the recorded output without running `fn`. |
+| `step.enqueue(key, task, payload?, opts?)` | Enqueues a task (memoized), returns `{ runId }`. Fire-and-forget. |
+| `step.waitForTask(key, task, payload?, opts?)` | Enqueues a child and **waits** for its terminal `{ ok, result?, error? }`. A child failure is **returned**, never thrown. |
+| `step.sleep(key, seconds)` | Sleep for a duration, durably. |
+| `step.sleepUntil(key, date)` | Sleep until an absolute instant. |
+| `step.waitForToken(key, { timeoutSeconds? })` | Wait for an externally-completed token; resolves to `{ payload }` or `{ timedOut: true }`. |
+
+Every `key` must be **unique within one run** — reusing a key throws a clear
+error. Keys are how replays line up recorded outputs with `step.*` calls.
+
+### Replay semantics — put side effects inside `step.run`
+
+This is the one rule that matters: **the handler body re-runs from the top on
+every re-invocation.** When a run resumes after a wait, Vura calls your handler
+again from the first line; each `step.*` call replays its memoized result until
+execution reaches the point that must wait next.
+
+So anything with a side effect — a database write, an email, a charge — must
+live **inside** `step.run` (or another step). Code in the bare handler body runs
+on *every* replay:
+
+```ts
+export async function POST({ step }) {
+  // ❌ BAD: runs on every replay — the user gets charged multiple times.
+  await chargeCard();
+
+  // ✅ GOOD: runs exactly once; replays return the recorded result.
+  await step.run('charge', () => chargeCard());
+}
+```
+
+Reads and pure computation are fine to leave in the body (they just re-run), but
+when in doubt, wrap it in a step.
+
+### How suspend/resume works
+
+When your handler hits a `waitForTask`/`sleep`/`sleepUntil`/`waitForToken` that
+isn't already satisfied, the step throws an internal signal that unwinds the
+handler and **suspends** the run. This is not a failure and consumes **no retry
+attempt** — the run envelope reports `ok: true` with a `suspended` waitpoint and
+the steps completed so far:
+
+```jsonc
+{
+  "ok": true,
+  "taskName": "onboard",
+  "suspended": {
+    "stepKey": "approval",
+    "waitpoint": { "kind": "TOKEN", "timeoutSeconds": 3600 }
+  },
+  "steps": {
+    "load-profile": { "status": "completed", "output": { /* ... */ } }
+  }
+}
+```
+
+On the platform, when the waitpoint completes (the child run finishes, the sleep
+elapses, or the token is completed) Vura re-dispatches the **same run** with the
+merged `steps` map — the waited step now present as completed — and your handler
+replays to the next wait or to completion.
+
+### Local dev caveats
+
+Under `vura dev` (and any self-hosted run without the platform), there is no
+durable queue to suspend into, so waits resolve **best-effort in-process**:
+
+- `step.sleep` / `step.sleepUntil` are real in-process timers (a very long sleep
+  can exceed the task `timeout` and fail — that's a dev-only artifact).
+- `step.waitForTask` **directly dispatches the child task and awaits its
+  result** — `vura dev`, the standalone server, and `vura tasks run` all resolve
+  children in-process.
+- `step.waitForToken` resolves `{ timedOut: true }` after its `timeoutSeconds`
+  (capped at 60s), since there is no platform to complete the token.
+
+Vura logs a one-time note the first time a durable wait runs locally. Deploy on
+Vura for real suspend/resume that survives restarts.
+
 ## Where tasks run self-hosted
 
 On a self-hosted Node deployment, task routes run inside the same `entry.js`

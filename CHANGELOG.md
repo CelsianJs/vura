@@ -1,5 +1,49 @@
 # Changelog
 
+## Unreleased
+
+### Tasks: `ctx.step` durable execution — memoized steps, waitpoints, suspend/resume
+
+Phase 2 of Vura Tasks adds durable execution over HTTP re-invocation
+(Inngest-shaped: step memoization + suspend/resume, no CRIU). Task handlers now
+receive a `step` object on their context (additive — handlers that only read
+`{ attempt, input }` are unchanged):
+
+- **`step.run(key, fn)`** — runs `fn` exactly once per run, memoized under
+  `key`. On a replay dispatch the recorded output is returned without re-running
+  `fn`, so side effects belong inside `step.run` (the bare handler body re-runs
+  top-to-bottom on every replay).
+- **`step.enqueue(key, task, payload?, opts?)`** — memoized enqueue via the
+  Phase-1 `enqueue()` client; returns `{ runId }`.
+- **`step.waitForTask(key, task, payload?, opts?)`** — "triggerAndWait":
+  suspends the run on a `RUN` waitpoint (the platform enqueues and links the
+  child — never enqueued framework-side, so replays don't double-enqueue); on
+  resume returns the child's `{ ok, result?, error? }` (a child failure is
+  returned, never thrown).
+- **`step.sleep(key, seconds)` / `step.sleepUntil(key, date)`** — `DATETIME`
+  waitpoint.
+- **`step.waitForToken(key, { timeoutSeconds? })`** — `TOKEN` waitpoint; resolves
+  to the completion `{ payload }` or `{ timedOut: true }`.
+- **Determinism guard.** Reusing a step key within one invocation throws a clear
+  error naming the key.
+- **Suspension mechanics.** A wait throws an internal `SuspendSignal` caught by
+  the executor: it consumes **no** retry attempt and is **not** a failure. The
+  run envelope gains `suspended: { stepKey, waitpoint }` and `steps` (only the
+  steps newly completed this invocation); `ok` stays `true` when suspended so
+  the platform never records failure.
+- **Dispatch protocol v2.** The `/__tasks/<name>` trigger unwraps `runId` +
+  `steps` from the control-plane wrapper (both tolerated-absent; missing steps =
+  `{}`) and threads them through the executor for replay. The `/__tasks/<id>`
+  job object carries the suspended waitpoint + completed steps.
+- **Local dev (no platform).** Waits resolve best-effort in-process — `sleep`
+  is a real timer, `waitForTask` directly dispatches the child (`vura dev`, the
+  standalone server, and `vura tasks run` all resolve children in-process), and
+  `waitForToken` resolves `{ timedOut: true }` after its timeout (capped at 60s)
+  — with a one-time note that durable semantics require the platform.
+
+Package-size limit for `@celsian/vura-core` raised 128000 → 138000 bytes to
+accommodate the new (heavily-documented) `runtime/steps.ts` module.
+
 ## 0.5.5 - 2026-07-10
 
 ### Tasks: typed input schemas, attempt metadata, `enqueue()`
