@@ -1,9 +1,9 @@
 name: CI
 
+# Runs on Depot CI (.depot/workflows/) as of 2026-07-11 (Kirby's directive).
+# This copy keeps workflow_dispatch as a manual fallback.
 on:
-  pull_request:
-  push:
-    branches: [main, audit-hardening]
+  workflow_dispatch:
 
 permissions:
   contents: read

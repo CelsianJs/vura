@@ -1,11 +1,9 @@
 name: Docs site
 
+# Runs on Depot CI (.depot/workflows/) as of 2026-07-11 (Kirby's directive).
+# This copy keeps workflow_dispatch as a manual fallback.
 on:
-  pull_request:
-    paths: ['docs-site/**', 'packages/core/package.json']
-  push:
-    branches: [main]
-    paths: ['docs-site/**', 'packages/core/package.json']
+  workflow_dispatch:
 
 permissions:
   contents: read
