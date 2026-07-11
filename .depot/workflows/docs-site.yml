@@ -1,0 +1,40 @@
+# Depot CI Migration
+# Source: .github/workflows/docs-site.yml
+#
+# Changes made:
+# - Changed GitHub runs-on labels to their Depot equivalents
+
+name: Docs site
+on:
+  pull_request:
+    paths: ['docs-site/**', 'packages/core/package.json']
+  push:
+    branches: [main]
+    paths: ['docs-site/**', 'packages/core/package.json']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Install docs-site dependencies
+        run: npm --prefix docs-site install
+      - name: Build docs site
+        run: npm --prefix docs-site run build
+      - name: Link check
+        # Skip external GitHub URLs — their tree/ paths only resolve after the
+        # PR is merged to main, so CI on a feature branch would always 404.
+        run: npx --yes linkinator docs-site/dist --recurse --silent --skip "https://github.com"
+      - name: Version badge matches monorepo
+        run: |
+          V=$(node -p "require('./packages/core/package.json').version")
+          grep -q "v$V" docs-site/dist/index.html
+      - name: Upload docs-site artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-site-dist
+          path: docs-site/dist
