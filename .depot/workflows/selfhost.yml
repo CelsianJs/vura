@@ -1,0 +1,298 @@
+# Depot CI Migration
+# Source: .github/workflows/selfhost.yml
+#
+# Changes made:
+# - Changed GitHub runs-on labels to their Depot equivalents
+
+name: Self-host guides
+# One workflow, six jobs, each mirroring its guide's commands.
+# The shared 'scaffold' job builds the workspace, packs local tarballs,
+# scaffolds an app against today's code, and uploads it as an artifact.
+# Every target job downloads that artifact — so they all test the same
+# local packages, not npm latest.
+#
+# Railway has no local emulator; the docker job IS its CI coverage.
+# See docs-site/pages/self-host/railway.md for the note.
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  # ──────────────────────────────────────────────────────────────────────
+  # scaffold: builds workspace, packs tarballs, scaffolds app, builds it.
+  # ──────────────────────────────────────────────────────────────────────
+  scaffold:
+    runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.11.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build workspace
+        run: pnpm build
+      - name: Scaffold app against local packages
+        # cd /tmp so create-vura creates /tmp/app (project name becomes the dir).
+        # link-local-packages puts tarballs in /tmp/app/.selfhost-tarballs/ by
+        # default (inside the app) so file: refs are relative and survive
+        # artifact download on a different runner.
+        run: |
+          cd /tmp && node "$GITHUB_WORKSPACE/packages/create-vura/dist/index.js" app --no-install
+          node "$GITHUB_WORKSPACE/scripts/link-local-packages.mjs" /tmp/app
+      - name: Install scaffold dependencies
+        run: |
+          cd /tmp/app
+          npm install --no-audit --no-fund
+      - name: Build scaffold app
+        run: |
+          cd /tmp/app
+          npm run build
+      - name: Assert build output shape
+        run: |
+          test -f /tmp/app/dist/server/entry.js
+          test -d /tmp/app/dist/static
+          # Dockerfile and fly.toml are emitted by vura build when hot routes
+          # are present (the default scaffold has /api/chat and /api/health).
+          # template.yaml is only emitted when the lambda adapter is configured
+          # — it is NOT present in the base scaffold build.
+          test -f /tmp/app/dist/Dockerfile
+          test -f /tmp/app/dist/fly.toml
+      - name: Upload scaffold artifact (without node_modules)
+        uses: actions/upload-artifact@v7
+        with:
+          name: scaffold-app
+          # Exclude node_modules — each consumer job installs what it needs.
+          # Tarballs are in .selfhost-tarballs/ and are included.
+          path: |
+            /tmp/app
+            !/tmp/app/**/node_modules/**
+          include-hidden-files: true
+  # ──────────────────────────────────────────────────────────────────────
+  # node-vps: mirrors the node-vps guide — prod server boots, serves a
+  # static page, an API route, and accepts a WebSocket upgrade.
+  # Does NOT test systemd or Caddy — those require a real Linux host.
+  # ──────────────────────────────────────────────────────────────────────
+  node-vps:
+    needs: scaffold
+    runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: scaffold-app
+          path: app
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Install dist dependencies (ws for WebSocket)
+        run: |
+          cd app/dist
+          npm install --no-audit --no-fund
+      - name: Boot production server and smoke
+        run: |
+          cd app
+          PORT=3000 NODE_ENV=production node dist/server/entry.js &
+          npx --yes wait-on -t 30000 http://localhost:3000
+          # Static page
+          curl -fsS http://localhost:3000/ | grep -q '<h1'
+          # API route
+          curl -fsS http://localhost:3000/api/hello | grep -q '"message"'
+          # WebSocket: /api/chat sends a Welcome message on connect.
+          # A single 'message' event from the Welcome line is sufficient
+          # proof of upgrade (matches the guide smoke test).
+          # Run from dist/ so Node finds the ws package installed there.
+          cd dist && node --input-type=module -e '
+            const { WebSocket } = await import("ws");
+            const ws = new WebSocket("ws://localhost:3000/api/chat");
+            ws.on("message", (data) => {
+              const text = data.toString();
+              if (!text.startsWith("Welcome")) { console.error("unexpected WS message:", text); process.exit(1); }
+              console.log("WS OK:", text.substring(0, 60));
+              process.exit(0);
+            });
+            ws.on("error", (e) => { console.error("WS error:", e.message); process.exit(1); });
+            setTimeout(() => { console.error("no WS message within 5s"); process.exit(1); }, 5000);
+          '
+  # ──────────────────────────────────────────────────────────────────────
+  # docker: mirrors the docker guide — builds the image using the guide's
+  # exact Dockerfile (extracted from the guide markdown), runs the
+  # container, curls the smoke surface.
+  # Also provides CI coverage for the railway guide (Docker-based).
+  # Does NOT test Docker Compose or healthcheck config.
+  # ──────────────────────────────────────────────────────────────────────
+  docker:
+    needs: scaffold
+    runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+    steps:
+      - uses: actions/checkout@v7
+        # checkout needed for the guide markdown source
+      - uses: actions/download-artifact@v8
+        with:
+          name: scaffold-app
+          path: app
+      - name: Extract Dockerfile from guide and build image
+        # The guide says: docker build -f dist/Dockerfile dist
+        # We extract the Dockerfile into dist/ and build with dist/ as context.
+        run: |
+          node scripts/extract-guide-dockerfile.mjs \
+            docs-site/pages/self-host/docker.md \
+            > app/dist/Dockerfile
+          docker build -t vura-selfhost-test app/dist
+      - name: Run container and smoke
+        run: |
+          docker run -d -p 3000:3000 --name vura-app vura-selfhost-test
+          npx --yes wait-on -t 30000 http://localhost:3000
+          # Static page
+          curl -fsS http://localhost:3000/ | grep -q '<h1'
+          # API route
+          curl -fsS http://localhost:3000/api/hello | grep -q '"message"'
+          docker logs vura-app
+  # ──────────────────────────────────────────────────────────────────────
+  # fly: validates the fly.toml from the guide with flyctl, then boots
+  # the same Docker image locally to confirm the smoke surface serves.
+  # Does NOT deploy to Fly — no cloud credentials in CI.
+  # ──────────────────────────────────────────────────────────────────────
+  fly:
+    needs: scaffold
+    runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: scaffold-app
+          path: app
+      - name: Validate guide fly.toml structure
+        # flyctl config validate hits the Fly API (requires auth).
+        # Instead: extract the fly.toml and verify required fields are
+        # present with a simple Node.js check — no credentials needed.
+        # This still proves the guide's fly.toml is well-formed and matches
+        # what vura build emits.
+        run: |
+          node scripts/extract-guide-block.mjs \
+            docs-site/pages/self-host/fly.md toml \
+            > app/fly.toml
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const toml = readFileSync("app/fly.toml", "utf8");
+            const required = ["app =", "kill_signal =", "kill_timeout =", "[http_service]", "internal_port =", "auto_stop_machines ="];
+            for (const key of required) {
+              if (!toml.includes(key)) { console.error("fly.toml missing required field:", key); process.exit(1); }
+            }
+            console.log("fly.toml structure OK — required fields present");
+          '
+      - name: Build the Docker image Fly would run
+        run: |
+          node scripts/extract-guide-dockerfile.mjs \
+            docs-site/pages/self-host/docker.md \
+            > app/dist/Dockerfile
+          docker build -t vura-fly-test app/dist
+      - name: Run image locally and smoke
+        run: |
+          docker run -d -p 8080:3000 vura-fly-test
+          npx --yes wait-on -t 30000 http://localhost:8080
+          curl -fsS http://localhost:8080/ | grep -q '<h1'
+          curl -fsS http://localhost:8080/api/hello | grep -q '"message"'
+  # ──────────────────────────────────────────────────────────────────────
+  # cloudflare: builds with the Cloudflare adapter, runs wrangler dev
+  # (workerd, local emulation), curls /api/hello and the static page.
+  # Does NOT deploy to Cloudflare — no credentials in CI; edge behavior
+  # is out of scope.
+  # ──────────────────────────────────────────────────────────────────────
+  cloudflare:
+    needs: scaffold
+    runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+    steps:
+      - uses: actions/checkout@v7
+        # checkout needed for scripts/use-adapter.mjs
+      - uses: actions/download-artifact@v8
+        with:
+          name: scaffold-app
+          path: app
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Switch to Cloudflare adapter and install
+        run: |
+          node scripts/use-adapter.mjs app cloudflare
+          cd app
+          npm install --no-audit --no-fund
+      - name: Build with Cloudflare adapter
+        run: |
+          cd app
+          npm run build 2>&1 | tee /tmp/cf-build.log
+          # Hot routes are expected to be excluded (adapter warns but succeeds)
+          test -f dist/cloudflare/wrangler.toml
+          test -f dist/cloudflare/entry.js
+      - name: Smoke under wrangler dev (workerd local)
+        run: |
+          cd app/dist/cloudflare
+          npx --yes wrangler dev --local --port 8787 &
+          # Use TCP wait — wrangler is ready when the port is open, regardless
+          # of HTTP status code on the root path.
+          npx --yes wait-on -t 60000 tcp:localhost:8787
+          curl -fsS http://localhost:8787/api/hello | grep -q '"message"'
+  # ──────────────────────────────────────────────────────────────────────
+  # lambda: builds with the Lambda adapter, validates template.yaml with
+  # sam validate --lint, then curls /api/hello under sam local start-api
+  # (Docker-backed Lambda emulation).
+  # Does NOT deploy to AWS — no credentials in CI; API Gateway and IAM
+  # behavior are out of scope.
+  # ──────────────────────────────────────────────────────────────────────
+  lambda:
+    needs: scaffold
+    runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: scaffold-app
+          path: app
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+      - name: Switch to Lambda adapter and install
+        run: |
+          node scripts/use-adapter.mjs app lambda
+          cd app
+          npm install --no-audit --no-fund
+      - name: Build with Lambda adapter
+        run: |
+          cd app
+          npm run build 2>&1 | tee /tmp/lambda-build.log
+          # Hot routes are expected to be excluded (adapter warns but succeeds)
+          test -f dist/template.yaml
+      - name: Validate SAM template
+        run: |
+          cd app
+          sam validate --template dist/template.yaml --lint
+      - name: Smoke under sam local start-api
+        run: |
+          cd app
+          sam local start-api \
+            --template dist/template.yaml \
+            --port 3001 \
+            &
+          # sam local raises KeyError on HEAD requests (wait-on default) —
+          # use TCP wait until the port opens, then curl with GET.
+          # Generous timeout: sam local may pull a Docker image on first run.
+          npx --yes wait-on -t 120000 tcp:localhost:3001
+          # Retry curl a few times to allow sam local to fully initialise
+          for i in 1 2 3 4 5; do
+            result=$(curl -s http://localhost:3001/api/hello)
+            echo "$result"
+            echo "$result" | grep -q '"message"' && break
+            sleep 2
+          done
+          curl -fsS http://localhost:3001/api/hello | grep -q '"message"'
