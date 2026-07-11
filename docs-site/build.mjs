@@ -78,6 +78,13 @@ const REFERENCE = [
   ['/reference/route-kinds', 'Route kinds'],
   ['/reference/page-modes', 'Page modes'],
   ['/reference/data-fetching', 'Data fetching'],
+  ['/reference/tasks', 'Tasks'],
+  ['/reference/streaming', 'Streaming'],
+  ['/reference/hooks', 'Hooks'],
+  ['/reference/errors', 'Error handling'],
+  ['/reference/auth', 'Auth'],
+  ['/reference/logging', 'Logging'],
+  ['/reference/server', 'Programmatic server'],
   ['/reference/cli', 'CLI'],
   ['/reference/adapters', 'Adapters'],
 ];

@@ -133,6 +133,43 @@ Exits with code `1` on failure (unknown task, handler throws, exhausted retries)
 
 ---
 
+## `vura admin`
+
+Launch a local web dashboard for the current project — routes, deployment targets, build output, and environment variables — inspired by Vercel's dashboard.
+
+```sh
+vura admin [--port <n>] [--host <addr>]
+```
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--port <n>` | `4000` | Port to listen on. |
+| `--host <addr>` | `127.0.0.1` | Host to bind. **Must be a loopback address** (`127.0.0.1`, `localhost`, or `::1`). |
+
+The dashboard scans your project with `buildManifest`, shows API routes and pages, reports which build artifacts exist under `dist/`, and lets you **edit `.env` and `.env.local`** in the browser.
+
+**Loopback only, by design.** Because the dashboard reads and writes local secrets, `vura admin` refuses to bind to a non-loopback host and exits with an error. Its API is additionally guarded by a per-session token and same-origin checks.
+
+**Expected output:**
+
+```
+  ┌─────────────────────────────────────────┐
+  │                                         │
+  │   vura admin                            │
+  │                                         │
+  │   Dashboard: http://localhost:4000      │
+  │   Token:     a1b2c3d4                    │
+  │   Project:   my-app                      │
+  │                                         │
+  │   3 API routes · 4 pages                 │
+  │                                         │
+  └─────────────────────────────────────────┘
+```
+
+The server runs until interrupted (`Ctrl-C`).
+
+---
+
 ## `vura routes inspect`
 
 Inspect source routes as user-facing runtime profiles without deploying or
