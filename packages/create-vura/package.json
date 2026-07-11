@@ -1,6 +1,6 @@
 {
   "name": "create-vura",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "description": "Scaffold a new Vura project",
   "type": "module",
   "bin": {

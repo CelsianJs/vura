@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.6 - 2026-07-11
 
 ### Tasks: `ctx.step` durable execution — memoized steps, waitpoints, suspend/resume
 
@@ -43,6 +43,19 @@ receive a `step` object on their context (additive — handlers that only read
 
 Package-size limit for `@celsian/vura-core` raised 128000 → 138000 bytes to
 accommodate the new (heavily-documented) `runtime/steps.ts` module.
+
+### Fixed
+
+- **Serverless task entries now run the real executor.** The generated
+  Workers task wrapper (`dist/functions/task_*/index.js`) previously hand-rolled
+  its own executor: handlers received no `step`/`runId`/`steps` (any `step.*`
+  task crashed on serverless), input schemas were never validated, and
+  framework retries didn't run there. The entry is now a thin source that
+  applies the platform dispatch header protocol and delegates to the same
+  `runTaskOnce` executor as the hot server, bundled self-contained for Workers.
+  Found by the Phase-2 production E2E.
+- The task run envelope now carries a top-level `error` on failure (mirrors the
+  last attempt's error) so platforms can propagate child-task failure messages.
 
 ## 0.5.5 - 2026-07-10
 
