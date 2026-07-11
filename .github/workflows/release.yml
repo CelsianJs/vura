@@ -67,6 +67,10 @@ jobs:
       - run: node scripts/publish-packages.mjs
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # Provenance is explicit opt-in: only this GitHub-hosted publisher has
+          # a Sigstore-accepted OIDC identity (Depot emulates the GHA env but
+          # its identity token is rejected with a 400).
+          NPM_PROVENANCE: '1'
       - run: pnpm verify:registry
       - uses: actions/upload-artifact@v7
         if: always()

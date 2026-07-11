@@ -135,11 +135,13 @@ try {
     const tarball = pnpmPack(item.pkg, tmp);
     const args = ['publish', tarball, '--access', 'public', '--tag', distTag];
     if (dryRun) args.push('--dry-run');
-    // Provenance needs a real GitHub Actions OIDC identity, not just GHA-shaped
-    // env (Depot CI emulates GITHUB_ACTIONS but has no Actions OIDC endpoint) —
-    // gate on the token-request URL npm's provenance flow actually uses, so
-    // publish works from GitHub Actions (with provenance) and Depot (without).
-    if (!dryRun && process.env.GITHUB_ACTIONS === 'true' && process.env.ACTIONS_ID_TOKEN_REQUEST_URL) {
+    // Provenance is EXPLICIT OPT-IN (NPM_PROVENANCE=1), set only by the
+    // GitHub-hosted fallback publisher. Env sniffing does not work: Depot CI
+    // emulates the full GHA env INCLUDING ACTIONS_ID_TOKEN_REQUEST_URL, but
+    // Sigstore rejects its identity token (400 CA_CREATE_SIGNING_CERTIFICATE_
+    // ERROR — failed the v0.5.6 publish). Depot releases ship without
+    // provenance; a GH workflow_dispatch re-publish re-attaches it.
+    if (!dryRun && process.env.NPM_PROVENANCE === '1' && process.env.ACTIONS_ID_TOKEN_REQUEST_URL) {
       args.push('--provenance');
     }
     run('npm', args);
