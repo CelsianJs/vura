@@ -12,11 +12,11 @@ importers:
   .:
     dependencies:
       what-core:
-        specifier: ^0.11.2
-        version: 0.11.5
+        specifier: ^0.11.6
+        version: 0.11.6
       what-framework:
         specifier: ^0.11.1
-        version: 0.11.5(@babel/core@7.29.7)
+        version: 0.11.6(@babel/core@7.29.7)
     devDependencies:
       '@types/node':
         specifier: 26.1.0
@@ -35,13 +35,13 @@ importers:
         version: 6.0.3
       vite:
         specifier: ^8.1.3
-        version: 8.1.3(@types/node@26.1.0)(esbuild@0.28.1)
+        version: 8.1.4(@types/node@26.1.0)(esbuild@0.28.1)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.0)(happy-dom@20.10.6)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1))
+        version: 4.1.10(@types/node@26.1.0)(happy-dom@20.10.6)(vite@8.1.4(@types/node@26.1.0)(esbuild@0.28.1))
       wrangler:
         specifier: ^4.102.0
-        version: 4.107.0
+        version: 4.110.0
       ws:
         specifier: ^8.18.0
         version: 8.21.0
@@ -67,7 +67,7 @@ importers:
         version: link:../../packages/core
       what-framework:
         specifier: ^0.11.1
-        version: 0.11.5(@babel/core@7.29.7)
+        version: 0.11.6(@babel/core@7.29.7)
 
   examples/hot-server: {}
 
@@ -107,7 +107,7 @@ importers:
         version: 0.28.1
       what-framework:
         specifier: ^0.11.1
-        version: 0.11.5(@babel/core@7.29.7)
+        version: 0.11.6(@babel/core@7.29.7)
     devDependencies:
       '@celsian/vura-adapter-vura':
         specifier: workspace:0.5.6
@@ -140,10 +140,10 @@ importers:
         version: 0.28.1
       what-framework:
         specifier: ^0.11.1
-        version: 0.11.5(@babel/core@7.29.7)
+        version: 0.11.6(@babel/core@7.29.7)
       what-isr:
         specifier: ^0.11.1
-        version: 0.11.5(what-server@0.11.5(what-core@0.11.5)(what-router@0.11.5(what-core@0.11.5)))
+        version: 0.11.6(what-server@0.11.6(what-core@0.11.6)(what-router@0.11.6(what-core@0.11.6)))
     devDependencies:
       '@types/ws':
         specifier: ^8.18.1
@@ -171,10 +171,10 @@ importers:
         version: 0.28.1
       vite:
         specifier: ^6.0.0 || ^7.0.0 || ^8.0.0
-        version: 8.1.3(@types/node@26.1.0)(esbuild@0.28.1)
+        version: 8.1.4(@types/node@26.1.0)(esbuild@0.28.1)
       what-framework:
         specifier: ^0.11.1
-        version: 0.11.5(@babel/core@7.29.7)
+        version: 0.11.6(@babel/core@7.29.7)
     devDependencies:
       '@types/ws':
         specifier: ^8.18.1
@@ -288,32 +288,32 @@ packages:
       workerd:
         optional: true
 
-  '@cloudflare/workerd-darwin-64@1.20260701.1':
-    resolution: {integrity: sha512-Zd9Y1bah6DwwBN2RW8vJohffQrIUazb8UXnqSNecOxM+jJLhUuvv5IOG8dbHcV83TyZAubea6gsQXo2yH1lDdw==}
+  '@cloudflare/workerd-darwin-64@1.20260708.1':
+    resolution: {integrity: sha512-HXFCvhS1wpg3uXO0CLUwmwC41i2loM5FSK69EUchOBpmYBAXxT1oHLm6EOA5lqhTk5Mu9kjRiQYxa1GwKPwfJg==}
     engines: {node: '>=16'}
     cpu: [x64]
     os: [darwin]
 
-  '@cloudflare/workerd-darwin-arm64@1.20260701.1':
-    resolution: {integrity: sha512-yBLsjS1qCWqFyCY37qRUrYfzHHvMGvjh8zRKJ6MvUivYDhkZTzqduppK38FoqYvayLJ5KbcxH7zo5rkxGqbsaA==}
+  '@cloudflare/workerd-darwin-arm64@1.20260708.1':
+    resolution: {integrity: sha512-JVlJaKDoRTVKSroHIlf8g3UCPjKj4iDbMZE2CNYht5qQ+2rL0FAUiVlV82G3BqKnnw9kHYnnsMzC08b9zVtdzA==}
     engines: {node: '>=16'}
     cpu: [arm64]
     os: [darwin]
 
-  '@cloudflare/workerd-linux-64@1.20260701.1':
-    resolution: {integrity: sha512-vMfqSIMfoo4xmZXEuUVqLpSFS921YKjiR9q7kDXPi6Vld1PK74UHg9LZuBavT2KSyemHUCTpj9y/4JSYOEyQbQ==}
+  '@cloudflare/workerd-linux-64@1.20260708.1':
+    resolution: {integrity: sha512-3daE60YdD7YX0Jtuzc9DE/r/qMkmx8ZvHTkF8Mzmp3F5tbzlV0DAzmu5PFUPF2WuvtKbAhZKbvC2cHmWpQYxnA==}
     engines: {node: '>=16'}
     cpu: [x64]
     os: [linux]
 
-  '@cloudflare/workerd-linux-arm64@1.20260701.1':
-    resolution: {integrity: sha512-HRfwbKU2pK44V2NhoM0+iH0JJSj7nQ9Wv13ifIiGYCmTtDL8/zKtEhX7kQ3D4Vy/Cpjhttl0FkfqXj1aqLDPPg==}
+  '@cloudflare/workerd-linux-arm64@1.20260708.1':
+    resolution: {integrity: sha512-VLdNYOx5Hj+9C6isy0ACWZsbMtSxex2DIJWEe7cZxUdlphZ58ZT8zxNXK8yunFiowd34hn3VwGMopdvdj8lvmA==}
     engines: {node: '>=16'}
     cpu: [arm64]
     os: [linux]
 
-  '@cloudflare/workerd-windows-64@1.20260701.1':
-    resolution: {integrity: sha512-ngxCiIN9s/fM2o1IBMD0o1/mcXrv2NJVdyznh51UH8sQuvrTrXvV2nM0Uj/qU2wMwF6prgNBcdcd7AZeZGiBQA==}
+  '@cloudflare/workerd-windows-64@1.20260708.1':
+    resolution: {integrity: sha512-bC/aSAwLy16Vjo24i9XU3aWH+eRgz7NeR5xPKavGbembO18ZywYTQbXh14eXtY6fAqN3RzRG8psijTdhX4xydA==}
     engines: {node: '>=16'}
     cpu: [x64]
     os: [win32]
@@ -1339,8 +1339,8 @@ packages:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
     engines: {node: '>=12'}
 
-  baseline-browser-mapping@2.10.42:
-    resolution: {integrity: sha512-c/jurFrDLyui7o1J86yLkRu4LMsTYcBohveus7/I2Hzdn9KIP2bdJPTue/lR1KH46enoPbD77GKeSYNdyPoD3Q==}
+  baseline-browser-mapping@2.10.43:
+    resolution: {integrity: sha512-AjYpR78kDWAY3Efj+cDTFH9t9SCoL7OoTp1BOb0mQV7S+6CiLwnWM3FyxhJtdPufDFKzmCSFoUncKjWgJEZTCQ==}
     engines: {node: '>=6.0.0'}
     hasBin: true
 
@@ -1350,8 +1350,8 @@ packages:
   blake3-wasm@2.1.5:
     resolution: {integrity: sha512-F1+K8EbfOZE49dtoPtmxUQrpXaBIl3ICvasLh+nJta0xkz+9kF/7uet9fLnwKqhDrmj6g+6K3Tw9yQPUg2ka5g==}
 
-  browserslist@4.28.5:
-    resolution: {integrity: sha512-Cu2E6QejHWzuDMTkuwgpABFgDfZrXLQq5V13YOACZx4mFAG4IwGTbTfHPMr4WtxlHoXSM8FIuRwYYCz5XiabaQ==}
+  browserslist@4.28.6:
+    resolution: {integrity: sha512-FQBYNK15VMslhLHpA7+n+n1GOlF1kId2xcCg7/j95f24AOF6VDYMNH4mFxF7KuaTdv627faazpOAjFzMrfJOUw==}
     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
     hasBin: true
 
@@ -1359,8 +1359,8 @@ packages:
     resolution: {integrity: sha512-nEh+kZOPY1w+gcCMobZ6ETUp9WfibndnosbpwB1iJk/8Gt5ZF2bhS6+B6bPYz424KtwsR6Rflc3tCz1/ghX2dQ==}
     engines: {node: '>=4.0'}
 
-  caniuse-lite@1.0.30001802:
-    resolution: {integrity: sha512-vmv8ub2xwTNmljSKf82mtCk5JH7hC+YgzLj3P5zotvA0tPQ9016tdNNOG8WRca1IxOnhSsivB+J0z5FeE5LOUw==}
+  caniuse-lite@1.0.30001805:
+    resolution: {integrity: sha512-52noaS3DubycKSXaU30TwPGIp+POyQSUVa5jBEq3vkRkY0kjyb3LQgvhU6WGyCcyXqVLWO0Cw0Q6BSdD0kUfVA==}
 
   chai@6.2.2:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
@@ -1405,8 +1405,8 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
-  electron-to-chromium@1.5.387:
-    resolution: {integrity: sha512-TaxwufTFDufvPEoXdhwVrA3UdFWBeWGkYoJ1K8ldF1xe6gKfth6iRNS5lTQ5JPNOHdGQm8PT1QYKUqFLCiUefQ==}
+  electron-to-chromium@1.5.389:
+    resolution: {integrity: sha512-cEto7aeOqBfU1D+c5py5pE+ooscKE75JifxLBdFUZsqAxRS6y7kebtxAZvICszSl05gPjYHDTjY+lXpyGvpJbg==}
 
   emnapi@1.11.2:
     resolution: {integrity: sha512-iMt/XQc69fFn2EvcU6tm14HmXKwyy0lnABugsQlqp6xFuZIUuO+ONVSg2mz+MTVF8WbC+bic65AvRXdoldALKg==}
@@ -1583,8 +1583,8 @@ packages:
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
-  miniflare@4.20260701.0:
-    resolution: {integrity: sha512-L6eAAi6IKtyb/7J6L+YsH2vb1yBrJWKRXI293JYDiMl70+6nncdAgigex58w6WBd+CwvdMsqOyNyGs95Op5gWQ==}
+  miniflare@4.20260708.1:
+    resolution: {integrity: sha512-c94O9zRDISdqO18EHt6l0iF/fWgWt8p18PJvRsA/L/NJZ9Cfke3s/F5Blg1XXF7WDutVRzWVWy8Vy4LaT5ifsA==}
     engines: {node: '>=22.0.0'}
     hasBin: true
 
@@ -1600,8 +1600,8 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  node-releases@2.0.50:
-    resolution: {integrity: sha512-J6l92tKHX6w8Jy5nO1Vuc01NoIiRGi/d6qBKVxh+IQ8Cr3b6HbVNfKiF8ZpFKufTwpwxMmce2W3iQZ861ZRyTg==}
+  node-releases@2.0.51:
+    resolution: {integrity: sha512-wRNIrw4DmVLKQlbgOMdkMx27Wrpzes2hh5Jtbi2bjPd+4wJstWIqP5A+lscnqbm0xxmT5Bpg8Lec5ItEBwx6BQ==}
     engines: {node: '>=18'}
 
   obug@2.1.3:
@@ -1616,10 +1616,6 @@ packages:
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
-
-  picomatch@4.0.4:
-    resolution: {integrity: sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A==}
-    engines: {node: '>=12'}
 
   picomatch@4.0.5:
     resolution: {integrity: sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A==}
@@ -1716,8 +1712,8 @@ packages:
     peerDependencies:
       browserslist: '>= 4.21.0'
 
-  vite@8.1.3:
-    resolution: {integrity: sha512-Ds+gBRbj0lwRO2Y5hwnUBdxSwlAve9LeRyU4sNnAr0ewW0gWF0n5bgXgUzbgZ49MV9BVUAQUFYVcDUcilUExMA==}
+  vite@8.1.4:
+    resolution: {integrity: sha512-bTT9PsdWO+MQMNG9ZXIP/qM9wGh37DFxTV/sPq9cFpHr3w4jkgef032PkAL9jAqhk3Nz8NQw3O8n6/xFkqO4QQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
     peerDependencies:
@@ -1800,36 +1796,36 @@ packages:
       jsdom:
         optional: true
 
-  what-compiler@0.11.5:
-    resolution: {integrity: sha512-BlCUHzSgY5tEmCr9bHZRMYOEmmCsmvzEDJLNdNC3nHuhcAslQQIgVpjlnbsIeo+58hFDHTbeDfCVVX7DlJfXgg==}
+  what-compiler@0.11.6:
+    resolution: {integrity: sha512-DM+F4zf3dms//IfYnnrSdHYwrVhActxk/Nv2FNYxEhGVMIO+2If4ZBWk1y0KUSwIo/JWz0y3uG0ihS6d9377xg==}
     peerDependencies:
       '@babel/core': ^7.0.0
-      what-core: ^0.11.5
+      what-core: ^0.11.6
 
-  what-core@0.11.5:
-    resolution: {integrity: sha512-IBMxNwRQ1qTPE1Uk//gG/PrMqXlbqsRuYD+F9Xt/ELLmLq+ez7vpDdEGZV759r2OuuMAI1jUalqEaFfGeWpr6w==}
+  what-core@0.11.6:
+    resolution: {integrity: sha512-Lcmcyp3M5QB46MAhSltfzokK6cutpmSuwmK66VmvyMWsHSZk4YtOp3/OOsc7KIpNZwhUwlMNjcr23Imrq1IQjw==}
 
-  what-framework@0.11.5:
-    resolution: {integrity: sha512-uLuu7oBBn0O8Qxa4g/nT3yG95EaKgTMOyR6whdKHRLGOSva+Rul/QAiUCrGq0TSx6AkGZcsdyxBKSidlEzXRIg==}
+  what-framework@0.11.6:
+    resolution: {integrity: sha512-8++N/o1aWncuZ/8ZA3KwB5vN330q3lWrJ4+uo5LieVSU1XbyaMEGXhu+kDCSZjA+eJQXmz82n1Ywsp78uPxjYA==}
 
-  what-isr@0.11.5:
-    resolution: {integrity: sha512-jgunnhAkH5IvZt9Egi3mKeqHuzabA5q946YtdP62Z70/2tLMbDkwQ0SKV7+iPR3i7AbOjh+20noX9jXE7NaILQ==}
+  what-isr@0.11.6:
+    resolution: {integrity: sha512-m6f3WKlcfgbzPDDhSPoT/1jAW8mW/5U+tHexrXqtJosj4f/RpkwVRXL4uCpciMqYnav66pvbh1U648szzaq0QA==}
     peerDependencies:
-      what-server: ^0.11.5
+      what-server: ^0.11.6
     peerDependenciesMeta:
       what-server:
         optional: true
 
-  what-router@0.11.5:
-    resolution: {integrity: sha512-QdsbEo3koljRnpsJNAb0Fn9TNimmtYLJTep3bZHzcAussQF1Yd8/LmpvQVn0goKWKhSaTMO4TY6KFCFe5H5qmw==}
+  what-router@0.11.6:
+    resolution: {integrity: sha512-Wm/tHhj5T28bbExLnJzZFJcjJl86bm4No4cmPG4Zgw6mfH4ZnfuoJqZacKmoXLvBDXHYJdS2SqWjKA6Hozxmtw==}
     peerDependencies:
-      what-core: ^0.11.5
+      what-core: ^0.11.6
 
-  what-server@0.11.5:
-    resolution: {integrity: sha512-fjeTWCiJoEFK/CyaQEZMVG/002H88Ad6F10Drb71G7K7BMNti91cyS/M9Cxqc1b7zJ7sr6I0PP7XI6F5ZmDkbQ==}
+  what-server@0.11.6:
+    resolution: {integrity: sha512-lLfRuvUWsm6QfQEQvdJhUKSg54dSbn58IsYf2E9ev8iOP3cDnnKYPMhosT6F9B7s3uVdMmYc4zbS5CDTy+g1+Q==}
     peerDependencies:
-      what-core: ^0.11.5
-      what-router: ^0.11.5
+      what-core: ^0.11.6
+      what-router: ^0.11.6
     peerDependenciesMeta:
       what-router:
         optional: true
@@ -1843,17 +1839,17 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
-  workerd@1.20260701.1:
-    resolution: {integrity: sha512-uF813NG09JwNRRUfJ0zBomyTslSPM810dMj9LVvkQ7RAkLrQLzAlPU8Xh/3dIqZDo2bfd7tChbf2PtqLRARRJQ==}
+  workerd@1.20260708.1:
+    resolution: {integrity: sha512-WAK+Kt/VVCSldH2qSr8lx46XCJ4Q+bdlHNaFqUtOHthBEIB8C1N8HVW+VOLrxDoTCk0NGNv0zajnBeQK4JOB9w==}
     engines: {node: '>=16'}
     hasBin: true
 
-  wrangler@4.107.0:
-    resolution: {integrity: sha512-fw69ThymNitZ0oIEBU2yNeq3kK59UKz/jyA3udwRrQIAIsxX57q5qLOpPTN7qc5t8n9pnUeofe0uxtMuhQZW8w==}
+  wrangler@4.110.0:
+    resolution: {integrity: sha512-xZeXKYi7hxQRF5anL+v77RkufJNpF9f3Eqeyqq2QBsETpLZgh0Agj0jJ6JPtkbgn6ukZdh8OK5egsGPWIditgg==}
     engines: {node: '>=22.0.0'}
     hasBin: true
     peerDependencies:
-      '@cloudflare/workers-types': ^4.20260701.1
+      '@cloudflare/workers-types': ^5.20260708.1
     peerDependenciesMeta:
       '@cloudflare/workers-types':
         optional: true
@@ -1921,7 +1917,7 @@ snapshots:
     dependencies:
       '@babel/compat-data': 7.29.7
       '@babel/helper-validator-option': 7.29.7
-      browserslist: 4.28.5
+      browserslist: 4.28.6
       lru-cache: 5.1.1
       semver: 6.3.1
 
@@ -2002,25 +1998,25 @@ snapshots:
 
   '@cloudflare/kv-asset-handler@0.5.0': {}
 
-  '@cloudflare/unenv-preset@2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260701.1)':
+  '@cloudflare/unenv-preset@2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260708.1)':
     dependencies:
       unenv: 2.0.0-rc.24
     optionalDependencies:
-      workerd: 1.20260701.1
+      workerd: 1.20260708.1
 
-  '@cloudflare/workerd-darwin-64@1.20260701.1':
+  '@cloudflare/workerd-darwin-64@1.20260708.1':
     optional: true
 
-  '@cloudflare/workerd-darwin-arm64@1.20260701.1':
+  '@cloudflare/workerd-darwin-arm64@1.20260708.1':
     optional: true
 
-  '@cloudflare/workerd-linux-64@1.20260701.1':
+  '@cloudflare/workerd-linux-64@1.20260708.1':
     optional: true
 
-  '@cloudflare/workerd-linux-arm64@1.20260701.1':
+  '@cloudflare/workerd-linux-arm64@1.20260708.1':
     optional: true
 
-  '@cloudflare/workerd-windows-64@1.20260701.1':
+  '@cloudflare/workerd-windows-64@1.20260708.1':
     optional: true
 
   '@cspotcode/source-map-support@0.8.1':
@@ -2805,13 +2801,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
-  '@vitest/mocker@4.1.10(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1))':
+  '@vitest/mocker@4.1.10(vite@8.1.4(@types/node@26.1.0)(esbuild@0.28.1))':
     dependencies:
       '@vitest/spy': 4.1.10
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 8.1.3(@types/node@26.1.0)(esbuild@0.28.1)
+      vite: 8.1.4(@types/node@26.1.0)(esbuild@0.28.1)
 
   '@vitest/pretty-format@4.1.10':
     dependencies:
@@ -2841,25 +2837,25 @@ snapshots:
 
   assertion-error@2.0.1: {}
 
-  baseline-browser-mapping@2.10.42: {}
+  baseline-browser-mapping@2.10.43: {}
 
   before-after-hook@4.0.0: {}
 
   blake3-wasm@2.1.5: {}
 
-  browserslist@4.28.5:
+  browserslist@4.28.6:
     dependencies:
-      baseline-browser-mapping: 2.10.42
-      caniuse-lite: 1.0.30001802
-      electron-to-chromium: 1.5.387
-      node-releases: 2.0.50
-      update-browserslist-db: 1.2.3(browserslist@4.28.5)
+      baseline-browser-mapping: 2.10.43
+      caniuse-lite: 1.0.30001805
+      electron-to-chromium: 1.5.389
+      node-releases: 2.0.51
+      update-browserslist-db: 1.2.3(browserslist@4.28.6)
 
   buffer-image-size@0.6.4:
     dependencies:
       '@types/node': 26.1.0
 
-  caniuse-lite@1.0.30001802: {}
+  caniuse-lite@1.0.30001805: {}
 
   chai@6.2.2: {}
 
@@ -2885,7 +2881,7 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
-  electron-to-chromium@1.5.387: {}
+  electron-to-chromium@1.5.389: {}
 
   emnapi@1.11.2: {}
 
@@ -3043,12 +3039,12 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  miniflare@4.20260701.0:
+  miniflare@4.20260708.1:
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       sharp: 0.34.5
       undici: 7.28.0
-      workerd: 1.20260701.1
+      workerd: 1.20260708.1
       ws: 8.21.0
       youch: 4.1.0-beta.10
     transitivePeerDependencies:
@@ -3061,7 +3057,7 @@ snapshots:
 
   nanoid@3.3.12: {}
 
-  node-releases@2.0.50: {}
+  node-releases@2.0.51: {}
 
   obug@2.1.3: {}
 
@@ -3070,8 +3066,6 @@ snapshots:
   pathe@2.0.3: {}
 
   picocolors@1.1.1: {}
-
-  picomatch@4.0.4: {}
 
   picomatch@4.0.5: {}
 
@@ -3179,16 +3173,16 @@ snapshots:
 
   universal-user-agent@7.0.3: {}
 
-  update-browserslist-db@1.2.3(browserslist@4.28.5):
+  update-browserslist-db@1.2.3(browserslist@4.28.6):
     dependencies:
-      browserslist: 4.28.5
+      browserslist: 4.28.6
       escalade: 3.2.0
       picocolors: 1.1.1
 
-  vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1):
+  vite@8.1.4(@types/node@26.1.0)(esbuild@0.28.1):
     dependencies:
       lightningcss: 1.32.0
-      picomatch: 4.0.4
+      picomatch: 4.0.5
       postcss: 8.5.16
       rolldown: 1.1.4
       tinyglobby: 0.2.17
@@ -3197,10 +3191,10 @@ snapshots:
       esbuild: 0.28.1
       fsevents: 2.3.3
 
-  vitest@4.1.10(@types/node@26.1.0)(happy-dom@20.10.6)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)):
+  vitest@4.1.10(@types/node@26.1.0)(happy-dom@20.10.6)(vite@8.1.4(@types/node@26.1.0)(esbuild@0.28.1)):
     dependencies:
       '@vitest/expect': 4.1.10
-      '@vitest/mocker': 4.1.10(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1))
+      '@vitest/mocker': 4.1.10(vite@8.1.4(@types/node@26.1.0)(esbuild@0.28.1))
       '@vitest/pretty-format': 4.1.10
       '@vitest/runner': 4.1.10
       '@vitest/snapshot': 4.1.10
@@ -3217,7 +3211,7 @@ snapshots:
       tinyexec: 1.2.4
       tinyglobby: 0.2.17
       tinyrainbow: 3.1.0
-      vite: 8.1.3(@types/node@26.1.0)(esbuild@0.28.1)
+      vite: 8.1.4(@types/node@26.1.0)(esbuild@0.28.1)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 26.1.0
@@ -3225,35 +3219,35 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  what-compiler@0.11.5(@babel/core@7.29.7)(what-core@0.11.5):
+  what-compiler@0.11.6(@babel/core@7.29.7)(what-core@0.11.6):
     dependencies:
       '@babel/core': 7.29.7
-      what-core: 0.11.5
+      what-core: 0.11.6
 
-  what-core@0.11.5: {}
+  what-core@0.11.6: {}
 
-  what-framework@0.11.5(@babel/core@7.29.7):
+  what-framework@0.11.6(@babel/core@7.29.7):
     dependencies:
-      what-compiler: 0.11.5(@babel/core@7.29.7)(what-core@0.11.5)
-      what-core: 0.11.5
-      what-router: 0.11.5(what-core@0.11.5)
-      what-server: 0.11.5(what-core@0.11.5)(what-router@0.11.5(what-core@0.11.5))
+      what-compiler: 0.11.6(@babel/core@7.29.7)(what-core@0.11.6)
+      what-core: 0.11.6
+      what-router: 0.11.6(what-core@0.11.6)
+      what-server: 0.11.6(what-core@0.11.6)(what-router@0.11.6(what-core@0.11.6))
     transitivePeerDependencies:
       - '@babel/core'
 
-  what-isr@0.11.5(what-server@0.11.5(what-core@0.11.5)(what-router@0.11.5(what-core@0.11.5))):
+  what-isr@0.11.6(what-server@0.11.6(what-core@0.11.6)(what-router@0.11.6(what-core@0.11.6))):
     optionalDependencies:
-      what-server: 0.11.5(what-core@0.11.5)(what-router@0.11.5(what-core@0.11.5))
+      what-server: 0.11.6(what-core@0.11.6)(what-router@0.11.6(what-core@0.11.6))
 
-  what-router@0.11.5(what-core@0.11.5):
+  what-router@0.11.6(what-core@0.11.6):
     dependencies:
-      what-core: 0.11.5
+      what-core: 0.11.6
 
-  what-server@0.11.5(what-core@0.11.5)(what-router@0.11.5(what-core@0.11.5)):
+  what-server@0.11.6(what-core@0.11.6)(what-router@0.11.6(what-core@0.11.6)):
     dependencies:
-      what-core: 0.11.5
+      what-core: 0.11.6
     optionalDependencies:
-      what-router: 0.11.5(what-core@0.11.5)
+      what-router: 0.11.6(what-core@0.11.6)
 
   whatwg-mimetype@3.0.0: {}
 
@@ -3262,24 +3256,24 @@ snapshots:
       siginfo: 2.0.0
       stackback: 0.0.2
 
-  workerd@1.20260701.1:
+  workerd@1.20260708.1:
     optionalDependencies:
-      '@cloudflare/workerd-darwin-64': 1.20260701.1
-      '@cloudflare/workerd-darwin-arm64': 1.20260701.1
-      '@cloudflare/workerd-linux-64': 1.20260701.1
-      '@cloudflare/workerd-linux-arm64': 1.20260701.1
-      '@cloudflare/workerd-windows-64': 1.20260701.1
+      '@cloudflare/workerd-darwin-64': 1.20260708.1
+      '@cloudflare/workerd-darwin-arm64': 1.20260708.1
+      '@cloudflare/workerd-linux-64': 1.20260708.1
+      '@cloudflare/workerd-linux-arm64': 1.20260708.1
+      '@cloudflare/workerd-windows-64': 1.20260708.1
 
-  wrangler@4.107.0:
+  wrangler@4.110.0:
     dependencies:
       '@cloudflare/kv-asset-handler': 0.5.0
-      '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260701.1)
+      '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260708.1)
       blake3-wasm: 2.1.5
       esbuild: 0.28.1
-      miniflare: 4.20260701.0
+      miniflare: 4.20260708.1
       path-to-regexp: 6.3.0
       unenv: 2.0.0-rc.24
-      workerd: 1.20260701.1
+      workerd: 1.20260708.1
     optionalDependencies:
       fsevents: 2.3.3
     transitivePeerDependencies:
