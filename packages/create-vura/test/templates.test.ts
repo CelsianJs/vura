@@ -1,5 +1,13 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { getFiles } from '../src/index.js';
+
+// The scaffold pins @celsian/vura-* to create-vura's own version (the packages
+// release as a fixed group), so derive the expectation from package.json rather
+// than hardcoding a version that breaks on every release bump.
+const vuraVersion = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+).version as string;
 
 describe('create-vura templates', () => {
   it('pins generated dependencies instead of mixing latest ranges', () => {
@@ -8,8 +16,8 @@ describe('create-vura templates', () => {
 
     expect(packageJson.dependencies).toEqual({
       'what-framework': '^0.11.1',
-      '@celsian/vura-core': '0.5.4',
-      '@celsian/vura-cli': '0.5.4',
+      '@celsian/vura-core': vuraVersion,
+      '@celsian/vura-cli': vuraVersion,
       'ws': '^8.18.0',
     });
     expect(JSON.stringify(packageJson.dependencies)).not.toContain('latest');

@@ -1,6 +1,29 @@
 # Changelog
 
-## Unreleased
+## 0.5.5 - 2026-07-10
+
+### Tasks: typed input schemas, attempt metadata, `enqueue()`
+
+- **Typed task payloads.** A task file may `export const input = defineSchema({...})`
+  (or a bare Zod-like schema). The executor validates the payload before the
+  first attempt on every payload-bearing path (direct route, `/__tasks` admin
+  run, dev servers, CLI `vura tasks run`); a mismatch returns `400` with the
+  validation kit's error shape, the handler never runs, and no retries are
+  consumed. Scheduled (cron) runs use synthetic input and are exempt.
+- **Per-attempt run metadata.** Task executions now report
+  `{ ok, taskName, attempts: [{ index, startedAt, durationMs, error? }], result? }`
+  — the retry history that was previously invisible to callers. Additive:
+  existing response fields are unchanged. The `/__tasks/<id>` job object carries
+  `ok` + `attempts`; errors are message-only (never a stack in production).
+- **`enqueue(taskName, payload?, { delaySeconds?, idempotencyKey? })`** — new
+  public export for on-demand task runs. On a platform deployment it POSTs to
+  the injected `VURA_TASK_ENQUEUE_URL` with the deployment-scoped
+  `VURA_TASK_ENQUEUE_TOKEN` (durable queue, per-team concurrency, run history);
+  locally it falls back to direct `/__tasks` dispatch with best-effort delay.
+- **Platform dispatch header protocol.** The `/__tasks/<name>` trigger unwraps
+  the control-plane wrapper body (`X-Vura-Task-Id` present → payload is
+  `body.input`) and skips input validation for synthetic cron dispatches
+  (`X-Vura-Cron: true`). Raw local triggers are validated as-is.
 
 ### `vura dev` serves all four page modes (Vite path)
 
