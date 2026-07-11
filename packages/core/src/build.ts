@@ -65,6 +65,7 @@ export { startVuraServer, serveStaticIfFound } from './runtime/server.${ext('run
 export { createApiApp } from './runtime/api-app.${ext('runtime/api-app')}';
 export { createVuraCache, revalidatePath, revalidateTag } from './runtime/cache.${ext('runtime/cache')}';
 export { buildWhatRoutes, createPagesHandler, createVuraRenderRoute } from './runtime/pages.${ext('runtime/pages')}';
+export { runTaskOnce, buildTaskEnvelope } from './runtime/tasks.${ext('runtime/tasks')}';
 `,
         };
       });
@@ -371,53 +372,89 @@ export default {
 // ─── Task Entry Generator ───
 
 /**
- * Generate a self-contained serverless entry for a task route.
- * Wraps the handler with timeout enforcement and retry metadata.
+ * Generate the serverless entry SOURCE for a task route. The emitted file is a
+ * THIN wiring module (like the server entry): it delegates execution to core's
+ * `runTaskOnce` — the single task executor — so the serverless path has the
+ * exact same semantics as the hot server: input-schema validation (skipped for
+ * cron/synthetic dispatches), framework-owned retries with per-attempt timeout,
+ * the platform dispatch header protocol (X-Vura-Task-Id wrapper unwrap,
+ * X-Vura-Cron exemption), and the Phase-2 durable-run fields (`runId`, `steps`,
+ * `step` on the handler ctx, suspend envelopes). build() esbuild-bundles this
+ * source into a self-contained index.js (Workers have no node_modules).
  */
 export function generateTaskEntry(route: ApiRoute, projectRoot: string): string {
   const varName = routeToVarName(route);
   const timeoutMs = (route.config.timeout as number) || 30000;
+  const retries = typeof route.config.retries === 'number' ? route.config.retries : 0;
+  // Dot-form task name — must match the hot server + platform (deriveTaskName).
+  const taskName = route.urlPattern.replace(/^\/api\//, '').replace(/\//g, '.');
 
   return `import * as ${varName} from './route.js';
+import { runTaskOnce, buildTaskEnvelope } from '@celsian/vura-core';
 
-const handler = ${varName}.POST;
-const TIMEOUT_MS = ${timeoutMs};
+const TASK_NAME = ${JSON.stringify(taskName)};
+const MAX_BODY_BYTES = 64 * 1024;
 
-function parseBody(request) {
-  const ct = request.headers.get('content-type') || '';
-  if (!request.body) return Promise.resolve(null);
-  if (ct.includes('application/json')) return request.json().catch(() => null);
-  return request.text();
+function json(status, body) {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
 // Worker-compatible fetch handler for task execution
 export default {
   async fetch(request) {
     if (request.method !== 'POST') {
-      return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { status: 405, headers: { 'content-type': 'application/json' } });
+      return json(405, { error: 'Method Not Allowed' });
+    }
+    if (typeof ${varName}.POST !== 'function') {
+      return json(500, { error: 'Task must export a POST handler' });
     }
 
-    const body = await parseBody(request);
-    const taskId = body && body.taskId || String(Date.now());
-    const attempt = body && body.attempt || 1;
-
-    try {
-      let timer;
-      const result = await Promise.race([
-        handler({ taskId, input: body && body.input, attempt }).then(r => { clearTimeout(timer); return r; }),
-        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Task timeout after ' + TIMEOUT_MS + 'ms')), TIMEOUT_MS); }),
-      ]);
-
-      return new Response(JSON.stringify({ taskId, attempt, status: 'completed', result }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    } catch (err) {
-      return new Response(JSON.stringify({ taskId, attempt, status: 'failed', error: err.message }), {
-        status: 500,
-        headers: { 'content-type': 'application/json' },
-      });
+    // Optional JSON body, size-capped like the hot server's /__tasks path.
+    const text = await request.text().catch(() => '');
+    if (text.length > MAX_BODY_BYTES) {
+      return json(413, { error: 'Request body exceeds ' + MAX_BODY_BYTES + ' bytes' });
     }
+    let body = null;
+    if (text) {
+      try { body = JSON.parse(text); } catch { return json(400, { error: 'Request body must be valid JSON' }); }
+    }
+
+    // Platform dispatch header protocol (same as the hot server):
+    //   X-Vura-Task-Id → wrapper body { taskId, runId?, input, attempt, steps? };
+    //                    the real payload is body.input, not the body itself.
+    //   X-Vura-Cron    → synthetic input (cron/manual); skip input validation.
+    const isPlatformDispatch = (request.headers.get('x-vura-task-id') ?? '') !== '';
+    const isPlatformCron = (request.headers.get('x-vura-cron') ?? '').toLowerCase() === 'true';
+    const wrapper = isPlatformDispatch && body && typeof body === 'object' ? body : undefined;
+    const rawPayload = isPlatformDispatch ? (wrapper ? wrapper.input : undefined) : body;
+    const runId = wrapper && typeof wrapper.runId === 'string' ? wrapper.runId : undefined;
+    const steps = wrapper && wrapper.steps && typeof wrapper.steps === 'object' ? wrapper.steps : {};
+
+    const result = await runTaskOnce(
+      {
+        name: TASK_NAME,
+        config: { retries: ${retries}, timeout: ${timeoutMs} },
+        handler: ${varName}.POST,
+        inputSchema: isPlatformCron ? undefined : ${varName}.input,
+      },
+      {
+        input: rawPayload,
+        runId,
+        steps,
+        // A platform dispatch implies durable suspend/resume; otherwise fall
+        // back to env detection (enqueue bindings present = platform).
+        hasPlatform: isPlatformDispatch ? true : undefined,
+      },
+    );
+
+    // Schema rejection is terminal and consumes no attempts — surface the 400
+    // body verbatim so the platform records it as a validation failure.
+    if (result.validationError) {
+      return json(result.validationError.statusCode, result.validationError.body);
+    }
+
+    const envelope = buildTaskEnvelope(TASK_NAME, result);
+    return json(envelope.ok ? 200 : 500, envelope);
   },
 };
 `;
@@ -508,10 +545,16 @@ export async function build(
     const funcDir = join(functionsDir, funcName);
     await mkdir(funcDir, { recursive: true });
 
-    const entryCode = generateTaskEntry(route, projectRoot);
-    const entryPath = join(funcDir, 'index.js');
-    await writeFile(entryPath, entryCode);
+    // route.js must exist before the entry is bundled (the thin source imports it).
     await bundleRouteModule(route, projectRoot, join(funcDir, 'route.js'), 'neutral');
+
+    // Thin source delegating to core runTaskOnce (written for inspection, like
+    // entry.source.mjs), then esbuild-bundled self-contained for Workers.
+    const entryCode = generateTaskEntry(route, projectRoot);
+    const sourcePath = join(funcDir, 'index.source.mjs');
+    await writeFile(sourcePath, entryCode);
+    const entryPath = join(funcDir, 'index.js');
+    await bundleTaskEntry(sourcePath, entryPath, projectRoot);
 
     taskEntries.push({ route, entryPath });
   }
@@ -579,6 +622,33 @@ async function bundleRouteModule(
     plugins: [vuraCoreSelfResolvePlugin()],
     external: externalList,
     ...(platform === 'neutral' ? { banner: { js: 'const process = globalThis.process || { env: {} };' } } : {}),
+  });
+}
+
+/**
+ * Bundle a generated task-entry thin source into a self-contained Workers
+ * module. Neutral platform (no Node builtins at runtime), `./route.js` inlined
+ * from the already-bundled sibling, core runtime inlined via the self-resolve
+ * shim, and the same `process` shim banner as other neutral bundles (core's
+ * enqueue/steps read process.env for platform detection).
+ */
+async function bundleTaskEntry(
+  sourcePath: string,
+  outfile: string,
+  projectRoot: string,
+): Promise<void> {
+  const { build: esbuild } = await import('esbuild');
+  await esbuild({
+    entryPoints: [sourcePath],
+    bundle: true,
+    format: 'esm',
+    target: 'es2022',
+    platform: 'neutral',
+    outfile,
+    nodePaths: [join(projectRoot, 'node_modules'), join(process.cwd(), 'node_modules')],
+    plugins: [vuraCoreSelfResolvePlugin()],
+    external: [...NODE_EXTERNAL_BUILTINS],
+    banner: { js: 'const process = globalThis.process || { env: {} };' },
   });
 }
 
