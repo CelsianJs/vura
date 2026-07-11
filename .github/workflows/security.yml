@@ -1,9 +1,10 @@
 name: Security scanning
 
+# Runs on Depot CI (.depot/workflows/) as of 2026-07-11 (Kirby's directive).
+# This copy keeps workflow_dispatch as a manual fallback (+ the weekly cron
+# until Depot's schedule trigger is verified firing).
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
   schedule:
     - cron: '23 4 * * 1'
 
