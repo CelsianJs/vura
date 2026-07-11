@@ -217,7 +217,7 @@ The first advisor pass is manifest-only:
 
 ## `vura login`
 
-Authenticate the CLI against the Vura Platform (closed-alpha — see `vura deploy` below). Credentials are written to `~/.vura/credentials` at mode `0600`, the same file every other platform-aware command reads.
+Authenticate the CLI against the Vura Platform (see `vura deploy` below). Credentials are written to `~/.vura/credentials` at mode `0600`, the same file every other platform-aware command reads.
 
 ```sh
 vura login
@@ -257,17 +257,16 @@ vura projects create <name> [--team <id-or-slug>]
 vura deploy [--prod] [--token <t>] [--api-url <u>] [--project-id <id>]
 ```
 
-Deploys the `dist/` build output to the Vura Platform. This is **closed-alpha**: the command itself ships in the open-source CLI and runs through these checks —
+Deploys the `dist/` build output to the Vura Platform. The command ships in the open-source CLI and runs through these checks —
 
 1. Resolve an auth token (`--token` > `VURA_TOKEN` > `~/.vura/credentials`, i.e. whatever `vura login` wrote). Missing → `Not authenticated. Run vura login, set VURA_TOKEN, or pass --token <token>.`
 2. Resolve a linked project (`--project-id` > `VURA_PROJECT_ID` > `.vura/project.json`, i.e. whatever `vura projects create` wrote). Missing → points you at `vura teams list` and `vura projects create`.
 3. Require a build at `dist/manifest.json` → run `vura build` first if missing.
-4. Upload via `@celsian/vura-adapter-vura`'s `deployToVura`. That adapter package is **not published** — it ships only as a peer dependency for platform-alpha users, so on a normal open-source install this step fails with:
+4. Upload via `@celsian/vura-adapter-vura`'s `deployToVura`. That adapter package is published to npm as an optional peer dependency of the CLI, so it isn't pulled in automatically — if it's missing, this step fails with:
 
    ```
      Managed Vura deploy support is not installed in this CLI package.
-     The Vura Platform adapter is closed-alpha; use the Vura Platform CLI bundle or
-     self-host adapters until access is granted.
+     Install it with: npm install @celsian/vura-adapter-vura
    ```
 
 Exits with code `1` when any step fails. This is not a gate on capability — `vura build` produces deployable artifacts for all self-host targets today regardless of platform access. See the [self-host guides](/self-host/).
