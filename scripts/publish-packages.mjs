@@ -135,7 +135,13 @@ try {
     const tarball = pnpmPack(item.pkg, tmp);
     const args = ['publish', tarball, '--access', 'public', '--tag', distTag];
     if (dryRun) args.push('--dry-run');
-    if (!dryRun && process.env.GITHUB_ACTIONS === 'true') args.push('--provenance');
+    // Provenance needs a real GitHub Actions OIDC identity, not just GHA-shaped
+    // env (Depot CI emulates GITHUB_ACTIONS but has no Actions OIDC endpoint) —
+    // gate on the token-request URL npm's provenance flow actually uses, so
+    // publish works from GitHub Actions (with provenance) and Depot (without).
+    if (!dryRun && process.env.GITHUB_ACTIONS === 'true' && process.env.ACTIONS_ID_TOKEN_REQUEST_URL) {
+      args.push('--provenance');
+    }
     run('npm', args);
     published.push(packageSpec(item.name, item.version));
   }
