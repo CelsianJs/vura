@@ -90,6 +90,8 @@ export interface TaskRunEnvelope {
   taskName: string;
   attempts: TaskAttempt[];
   result?: unknown;
+  /** Terminal failure message (mirrors TaskRunResult.error). Failed runs only. */
+  error?: string;
   /**
    * Present when the handler suspended on a waitpoint (Phase 2). `ok` stays
    * true — the run is waiting, not failed; the platform must NOT record failure.
@@ -159,6 +161,9 @@ export function buildTaskEnvelope(taskName: string, result: TaskRunResult): Task
   };
   if (result.status === 'completed') {
     envelope.result = result.result;
+  }
+  if (result.status === 'failed' && typeof result.error === 'string') {
+    envelope.error = result.error;
   }
   if (result.status === 'suspended' && result.suspended) {
     envelope.suspended = result.suspended;

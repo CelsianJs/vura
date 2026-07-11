@@ -73,6 +73,12 @@ describe('A1.4 success metric', () => {
     //   runtime/tasks.ts (RunTaskOnceOptions, suspended status, step ctx,
     //   TaskAdminJob fields) + dispatch-v2 parsing & a local child dispatcher in
     //   runtime/server.ts. +~499 → actual 7300. Ceiling 7350 leaves ~50 headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(7350);
+    // Task-entry unification (2026-07-11): the generated serverless task entry
+    //   now delegates to runTaskOnce instead of hand-rolling a third executor
+    //   (prod bug: step-using tasks crashed on WfP; schemas/retries never ran
+    //   serverless). generateTaskEntry template grew (header protocol + envelope
+    //   + docs) + bundleTaskEntry helper in build.ts, envelope `error` field in
+    //   runtime/tasks.ts. +~101 → actual 7401. Ceiling 7450 leaves ~49 headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(7450);
   });
 });

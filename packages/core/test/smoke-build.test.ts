@@ -348,24 +348,32 @@ console.log(JSON.stringify({ status: response.status, body: await response.json(
     expect(echoResult.body).toEqual({ echo: { text: 'hello' } });
   });
 
-  it('task entries import bundled route.js artifacts, not raw TypeScript', async () => {
+  it('task entries bundle route.js + core executor, not raw TypeScript', async () => {
     const task = buildResult.taskEntries[0]!;
     const code = readFileSync(task.entryPath, 'utf-8');
+    const sourceCode = readFileSync(join(dirname(task.entryPath), 'index.source.mjs'), 'utf-8');
     const routeCode = readFileSync(join(dirname(task.entryPath), 'route.js'), 'utf-8');
-    expect(code).toContain("from './route.js'");
+    // The thin source wires the bundled route artifact through core's
+    // runTaskOnce; the shipped index.js is fully self-contained (Workers have
+    // no node_modules), so the route + executor are inlined, never imported.
+    expect(sourceCode).toContain("from './route.js'");
+    expect(sourceCode).toContain("from '@celsian/vura-core'");
     expect(code).not.toMatch(/from ['\"].*\.tsx?['\"]/);
+    expect(code).not.toContain("from '@celsian/vura-core'");
     expect(routeCode).not.toContain('ctx: {');
 
+    // Platform-protocol dispatch (X-Vura-Task-Id wrapper) → run envelope.
     const taskResult = runModuleJson(task.entryPath, `
 const response = await mod.default.fetch(new Request('https://example.com/api/jobs', {
   method: 'POST',
-  headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ taskId: 'task-1', input: { text: 'hello' } }),
+  headers: { 'content-type': 'application/json', 'x-vura-task-id': 'task-1' },
+  body: JSON.stringify({ taskId: 'task-1', input: { text: 'hello' }, attempt: 1, steps: {} }),
 }));
 console.log(JSON.stringify({ status: response.status, body: await response.json() }));
 `);
     expect(taskResult.status).toBe(200);
-    expect(taskResult.body).toMatchObject({ taskId: 'task-1', status: 'completed', result: { upper: 'HELLO' } });
+    expect(taskResult.body).toMatchObject({ ok: true, taskName: 'jobs', result: { upper: 'HELLO' } });
+    expect(Array.isArray(taskResult.body.attempts)).toBe(true);
   });
 });
 
