@@ -265,10 +265,31 @@ export {
 export type {
   TaskRunResult,
   TaskRunDefinition,
+  TaskHandlerContext,
+  RunTaskOnceOptions,
   TaskAdminJob,
   TaskAttempt,
   TaskRunEnvelope,
 } from './runtime/tasks.js';
+
+// Vura Tasks Phase 2 — durable-execution step API.
+export {
+  createTaskStep,
+  SuspendSignal,
+  isSuspendSignal,
+  DuplicateStepKeyError,
+} from './runtime/steps.js';
+
+export type {
+  TaskStep,
+  Waitpoint,
+  WaitpointKind,
+  StepRecord,
+  StepEnqueueOptions,
+  ChildRunResult,
+  LocalChildDispatch,
+  EnqueueFn,
+} from './runtime/steps.js';
 
 export type {
   HotPeer,

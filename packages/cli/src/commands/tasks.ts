@@ -87,6 +87,26 @@ async function runTask(projectRoot: string, taskName: string, rawInput: string |
     return;
   }
 
+  // Off-platform child dispatcher so `step.waitForTask` resolves the child
+  // in-process when running a task from the CLI (no durable platform).
+  const localChildDispatch = async (childName: string, childPayload?: unknown) => {
+    const childRoute = taskRoutes.find((r) => taskNameFromPattern(r.urlPattern) === childName);
+    if (!childRoute) return { ok: false, error: `Task not found: ${childName}` };
+    const childMod = await importRouteModule(projectRoot, childRoute.filePath);
+    if (typeof childMod.POST !== 'function') return { ok: false, error: 'Task must export POST handler' };
+    const childRes = await runTaskOnce({
+      name: childName,
+      config: {
+        retries: typeof childRoute.config.retries === 'number' ? childRoute.config.retries : 0,
+        timeout: typeof childRoute.config.timeout === 'number' ? childRoute.config.timeout : 30_000,
+      },
+      handler: childMod.POST as (ctx: { attempt: number; input: unknown }) => unknown,
+    }, { input: childPayload, hasPlatform: false, localChildDispatch });
+    return childRes.status === 'completed'
+      ? { ok: true, result: childRes.result }
+      : { ok: false, error: childRes.error };
+  };
+
   const result = await runTaskOnce(
     {
       name: taskName,
@@ -98,7 +118,7 @@ async function runTask(projectRoot: string, taskName: string, rawInput: string |
       // Phase 1: validate --input against the task's optional `input` schema.
       inputSchema: mod.input,
     },
-    { input },
+    { input, hasPlatform: false, localChildDispatch },
   );
 
   // A schema validation failure never ran the handler — print the standard

@@ -34,6 +34,7 @@ import {
   type TaskRunDefinition,
   type TaskAdminJob,
 } from './tasks.js';
+import type { LocalChildDispatch, StepRecord } from './steps.js';
 import { validateTaskInput } from '../validation.js';
 
 const MIME_TYPES: Record<string, string> = {
@@ -283,6 +284,31 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
     return urlPattern.replace(/^\/api\//, '').replace(/\//g, '.');
   }
 
+  // Off-platform child dispatcher for `step.waitForTask` (Phase 2). Runs the
+  // named child task in-process and returns its terminal result. Only consulted
+  // when no durable platform is present (local `node dist/server`); on a real
+  // deployment the platform enqueues+links children and the run suspends.
+  const localChildDispatch: LocalChildDispatch = async (childName, payload) => {
+    const childRoute = taskRoutes.find((r) => taskNameFromPattern(r.urlPattern) === childName);
+    if (!childRoute) return { ok: false, error: `Task not found: ${childName}` };
+    const childHandler = (childRoute.module as { POST?: TaskRunDefinition['handler'] }).POST;
+    if (typeof childHandler !== 'function') return { ok: false, error: 'Task must export POST handler' };
+    const childRes = await runTaskOnce(
+      {
+        name: childName,
+        config: {
+          retries: typeof childRoute.config.retries === 'number' ? childRoute.config.retries : 0,
+          timeout: typeof childRoute.config.timeout === 'number' ? childRoute.config.timeout : 30000,
+        },
+        handler: childHandler,
+      },
+      { input: payload, hasPlatform: false, localChildDispatch },
+    );
+    return childRes.status === 'completed'
+      ? { ok: true, result: childRes.result }
+      : { ok: false, error: childRes.error };
+  };
+
   // Register cron jobs and collect registered task defs for admin list
   const registeredTasks = taskRoutes.length > 0
     ? registerTaskCrons(app, taskRoutes, taskStore, taskNameFromPattern)
@@ -394,11 +420,18 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
           // X-Vura-Task-Id with a real user payload at `.input` and IS validated.
           const isPlatformDispatch = (webHeaders.get('x-vura-task-id') ?? '') !== '';
           const isPlatformCron = (webHeaders.get('x-vura-cron') ?? '').toLowerCase() === 'true';
-          const rawPayload = isPlatformDispatch
-            ? (bodyResult.value && typeof bodyResult.value === 'object'
-                ? (bodyResult.value as { input?: unknown }).input
-                : undefined)
-            : bodyResult.value;
+          const wrapper = isPlatformDispatch && bodyResult.value && typeof bodyResult.value === 'object'
+            ? (bodyResult.value as { input?: unknown; runId?: unknown; steps?: unknown })
+            : undefined;
+          const rawPayload = isPlatformDispatch ? wrapper?.input : bodyResult.value;
+          // ── Dispatch body v2 (Phase 2) ──
+          // The platform wrapper additionally carries `runId` + `steps` for
+          // durable replay. Both are tolerated-absent (missing steps = {}).
+          const runId = typeof wrapper?.runId === 'string' ? wrapper.runId : undefined;
+          const dispatchSteps: Record<string, StepRecord> =
+            wrapper?.steps && typeof wrapper.steps === 'object'
+              ? (wrapper.steps as Record<string, StepRecord>)
+              : {};
 
           // Phase 1: validate the payload against the task's optional `input`
           // schema before accepting the run — unless this is a cron/synthetic
@@ -430,12 +463,23 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
 
           // Kick off in background; return jobId immediately. Input was validated
           // above (or exempted for cron), so the run uses the resolved value.
-          runTaskOnce(def, { input: runInput }).then((runResult) => {
+          // Phase 2: thread the dispatch runId + persisted steps for durable
+          // replay; a platform dispatch implies a durable platform (suspend on
+          // waits), otherwise fall back to env detection + local child dispatch.
+          runTaskOnce(def, {
+            input: runInput,
+            runId,
+            steps: dispatchSteps,
+            hasPlatform: isPlatformDispatch ? true : undefined,
+            localChildDispatch,
+          }).then((runResult) => {
             job.status = runResult.status;
             job.result = runResult.result;
             job.error = runResult.error;
-            job.ok = runResult.status === 'completed';
+            job.ok = runResult.status !== 'failed';
             job.attempts = runResult.attemptRecords;
+            job.suspended = runResult.suspended;
+            job.steps = runResult.steps;
             job.completedAt = Date.now();
           }).catch((_err) => {
             job.status = 'failed';

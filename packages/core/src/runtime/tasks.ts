@@ -21,6 +21,16 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { CelsianApp } from '@celsian/core';
 import { validateTaskInput } from '../validation.js';
+import { enqueue } from '../enqueue.js';
+import {
+  createTaskStep,
+  isSuspendSignal,
+  type EnqueueFn,
+  type LocalChildDispatch,
+  type StepRecord,
+  type TaskStep,
+  type Waitpoint,
+} from './steps.js';
 import type { RuntimeApiRoute } from './api-app.js';
 
 // ─── Public types ───────────────────────────────────────────────────────────
@@ -42,7 +52,7 @@ export interface TaskAttempt {
 }
 
 export interface TaskRunResult {
-  status: 'completed' | 'failed';
+  status: 'completed' | 'failed' | 'suspended';
   result?: unknown;
   error?: string;
   /** Number of attempts made (= attemptRecords.length). Kept for compatibility. */
@@ -55,24 +65,59 @@ export interface TaskRunResult {
    * attempt was made and `attempts` is 0.
    */
   validationError?: { statusCode: 400; body: unknown };
+  /**
+   * Present when `status === 'suspended'` (Phase 2): the step that suspended the
+   * run and the waitpoint the platform must create. Suspension is not a failure
+   * and consumes no retry attempt.
+   */
+  suspended?: { stepKey: string; waitpoint: Waitpoint };
+  /**
+   * Steps newly completed during THIS invocation (Phase 2). Surfaced on every
+   * terminal outcome so the platform can persist them for replay. Absent/empty
+   * when the handler used no steps.
+   */
+  steps?: Record<string, StepRecord>;
 }
 
 /**
  * The additive, backward-compatible envelope surfaced from a task execution.
  * Shape is locked against the platform's run-recording contract:
- *   { ok, taskName, attempts: TaskAttempt[], result? }
+ *   Phase 1: { ok, taskName, attempts: TaskAttempt[], result? }
+ *   Phase 2: additionally { suspended?, steps? } — `ok` is true when suspended.
  */
 export interface TaskRunEnvelope {
   ok: boolean;
   taskName: string;
   attempts: TaskAttempt[];
   result?: unknown;
+  /**
+   * Present when the handler suspended on a waitpoint (Phase 2). `ok` stays
+   * true — the run is waiting, not failed; the platform must NOT record failure.
+   */
+  suspended?: { stepKey: string; waitpoint: Waitpoint };
+  /** Steps newly completed this invocation (Phase 2). Omitted when empty. */
+  steps?: Record<string, StepRecord>;
+}
+
+/**
+ * The context object passed to a task's POST handler.
+ *
+ * Phase 2 adds `runId` and `step` additively — a handler that only reads
+ * `{ attempt, input }` keeps working unchanged.
+ */
+export interface TaskHandlerContext {
+  attempt: number;
+  input: unknown;
+  /** The platform run id when dispatched as part of a durable run (Phase 2). */
+  runId?: string;
+  /** Durable-execution step API (Phase 2). */
+  step: TaskStep;
 }
 
 export interface TaskRunDefinition {
   name: string;
   config: { retries?: number; timeout?: number };
-  handler: (ctx: { attempt: number; input: unknown }) => unknown;
+  handler: (ctx: TaskHandlerContext) => unknown;
   /**
    * Optional `input` schema exported by the task file. When provided, the
    * payload is validated before the first attempt; a failure short-circuits
@@ -81,18 +126,45 @@ export interface TaskRunDefinition {
   inputSchema?: unknown;
 }
 
+/** Options for {@link runTaskOnce}. Only `input` is required (Phase 1 compat). */
+export interface RunTaskOnceOptions {
+  input: unknown;
+  /** Persisted steps from the dispatch (Phase 2). Missing = `{}` (first run). */
+  steps?: Record<string, StepRecord>;
+  /** Platform run id threaded onto the handler ctx (Phase 2). */
+  runId?: string;
+  /**
+   * Whether a durable platform is present. When true, wait steps suspend; when
+   * false, they resolve best-effort in-process. Defaults to detecting the
+   * platform enqueue env (`VURA_TASK_ENQUEUE_URL` + `VURA_TASK_ENQUEUE_TOKEN`).
+   */
+  hasPlatform?: boolean;
+  /** Enqueue client for `step.enqueue`/`step.waitForTask`. Defaults to `enqueue`. */
+  enqueueFn?: EnqueueFn;
+  /** Local child dispatcher for off-platform `step.waitForTask`. */
+  localChildDispatch?: LocalChildDispatch;
+}
+
 /**
  * Build the additive task run envelope from a TaskRunResult.
- * `result` is included only on success.
+ * `result` is included only on success; `suspended` only when waiting.
+ * `ok` is true for both completed and suspended runs — only a real failure is
+ * `ok: false` (the platform keys failure-recording off this).
  */
 export function buildTaskEnvelope(taskName: string, result: TaskRunResult): TaskRunEnvelope {
   const envelope: TaskRunEnvelope = {
-    ok: result.status === 'completed',
+    ok: result.status !== 'failed',
     taskName,
     attempts: result.attemptRecords,
   };
   if (result.status === 'completed') {
     envelope.result = result.result;
+  }
+  if (result.status === 'suspended' && result.suspended) {
+    envelope.suspended = result.suspended;
+  }
+  if (result.steps && Object.keys(result.steps).length > 0) {
+    envelope.steps = result.steps;
   }
   return envelope;
 }
@@ -112,7 +184,7 @@ export function buildTaskEnvelope(taskName: string, result: TaskRunResult): Task
  */
 export async function runTaskOnce(
   def: TaskRunDefinition,
-  opts: { input: unknown },
+  opts: RunTaskOnceOptions,
 ): Promise<TaskRunResult> {
   // ── Input-schema validation (Phase 1) ──
   // Runs before any attempt so a bad payload short-circuits with a 400 and
@@ -132,6 +204,18 @@ export async function runTaskOnce(
     input = validation.value;
   }
 
+  // ── Durable-step state (Phase 2) ──
+  // `dispatchSteps` = steps persisted by the platform (replayed, read-only).
+  // `newSteps` accumulates steps completed THIS invocation — shared across the
+  // internal retry passes below so a mid-handler failure never redoes a step.
+  const dispatchSteps: Record<string, StepRecord> = opts.steps ?? {};
+  const newSteps: Record<string, StepRecord> = {};
+  const hasPlatform = opts.hasPlatform ??
+    Boolean((process.env.VURA_TASK_ENQUEUE_URL ?? '').trim() && (process.env.VURA_TASK_ENQUEUE_TOKEN ?? '').trim());
+  const enqueueFn: EnqueueFn = opts.enqueueFn ?? enqueue;
+  const stepsOut = (): Record<string, StepRecord> | undefined =>
+    Object.keys(newSteps).length > 0 ? newSteps : undefined;
+
   const maxAttempts = Math.max(1, 1 + (def.config.retries ?? 0));
   const timeoutMs = def.config.timeout ?? 30_000;
   let lastError = '';
@@ -147,13 +231,23 @@ export async function runTaskOnce(
       });
     }
 
+    // Fresh step per pass: shares the memo (`dispatchSteps`/`newSteps`) but keeps
+    // its own duplicate-key guard, so a replay of the same key is fine.
+    const step = createTaskStep({
+      completed: dispatchSteps,
+      newSteps,
+      hasPlatform,
+      enqueueFn,
+      localChildDispatch: opts.localChildDispatch,
+    });
+
     const startedAtMs = Date.now();
     const startedAt = new Date(startedAtMs).toISOString();
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
       const result = await Promise.race([
         // Fix #1: wrap with Promise.resolve().then() so sync handlers work.
-        Promise.resolve().then(() => def.handler({ attempt, input })).then((r) => {
+        Promise.resolve().then(() => def.handler({ attempt, input, runId: opts.runId, step })).then((r) => {
           clearTimeout(timeoutHandle);
           return r;
         }),
@@ -166,9 +260,21 @@ export async function runTaskOnce(
         }),
       ]);
       attemptRecords.push({ index: attempt, startedAt, durationMs: Date.now() - startedAtMs });
-      return { status: 'completed', result, attempts: attempt, attemptRecords };
+      return { status: 'completed', result, attempts: attempt, attemptRecords, steps: stepsOut() };
     } catch (err: unknown) {
       clearTimeout(timeoutHandle);
+      // Phase 2: a suspend is not a failure and consumes no attempt — return the
+      // waitpoint + any steps completed before the suspend, without recording
+      // this pass as an attempt.
+      if (isSuspendSignal(err)) {
+        return {
+          status: 'suspended',
+          attempts: attemptRecords.length,
+          attemptRecords,
+          suspended: { stepKey: err.stepKey, waitpoint: err.waitpoint },
+          steps: stepsOut(),
+        };
+      }
       // Fix #7: serialize non-Error throws correctly (message only — never a stack)
       if (err instanceof Error) {
         lastError = err.message;
@@ -185,7 +291,7 @@ export async function runTaskOnce(
     }
   }
 
-  return { status: 'failed', error: lastError, attempts: maxAttempts, attemptRecords };
+  return { status: 'failed', error: lastError, attempts: maxAttempts, attemptRecords, steps: stepsOut() };
 }
 
 // ─── Task result store ───────────────────────────────────────────────────────
@@ -193,15 +299,19 @@ export async function runTaskOnce(
 export interface TaskAdminJob {
   id: string;
   taskName: string;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'completed' | 'failed' | 'suspended';
   result?: unknown;
   error?: string;
   startedAt: number;
   completedAt?: number;
-  /** true once a run completed successfully (added Phase 1). */
+  /** true once a run completed successfully OR suspended (added Phase 1/2). */
   ok?: boolean;
   /** Per-attempt metadata once the run resolved (added Phase 1). */
   attempts?: TaskAttempt[];
+  /** Waitpoint the run is blocked on when `status === 'suspended'` (Phase 2). */
+  suspended?: { stepKey: string; waitpoint: Waitpoint };
+  /** Steps completed during the invocation (Phase 2). */
+  steps?: Record<string, StepRecord>;
 }
 
 const MAX_TASK_RESULTS = 10_000;
@@ -337,8 +447,10 @@ export function registerTaskCrons(
           job.status = runResult.status;
           job.result = runResult.result;
           job.error = runResult.error;
-          job.ok = runResult.status === 'completed';
+          job.ok = runResult.status !== 'failed';
           job.attempts = runResult.attemptRecords;
+          job.suspended = runResult.suspended;
+          job.steps = runResult.steps;
           job.completedAt = Date.now();
           if (runResult.status === 'failed') {
             console.error(

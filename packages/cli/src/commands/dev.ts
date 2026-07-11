@@ -43,6 +43,8 @@ import type {
   RuntimeApiRoute,
   GlobalHooks,
   RouteManifest,
+  LocalChildDispatch,
+  StepRecord,
 } from '@celsian/vura-core';
 
 interface DevOptions {
@@ -465,14 +467,45 @@ export async function startStandaloneServer(
         }
         const body = await parseNodeBody(req);
         // Accept both `{ input: ... }` (legacy admin convention + the platform's
-        // `{ taskId, input, attempt }` wrapper) and a raw payload posted directly
-        // as the body (enqueue()'s local fallback).
-        const input = body && typeof body === 'object' && 'input' in body
-          ? (body as { input?: unknown }).input
-          : body;
+        // `{ taskId, input, attempt, runId?, steps? }` wrapper) and a raw payload
+        // posted directly as the body (enqueue()'s local fallback).
+        const isWrapper = body && typeof body === 'object' && 'input' in body;
+        const input = isWrapper ? (body as { input?: unknown }).input : body;
         // Platform cron/synthetic dispatches (X-Vura-Cron: true) skip input
         // validation, mirroring the standalone server + in-process cron.
         const isCronDispatch = String(req.headers['x-vura-cron'] ?? '').toLowerCase() === 'true';
+        const isPlatformDispatch = String(req.headers['x-vura-task-id'] ?? '') !== '';
+        // Dispatch body v2 (Phase 2): tolerate-absent runId + steps.
+        const runId = isWrapper && typeof (body as { runId?: unknown }).runId === 'string'
+          ? (body as { runId?: string }).runId
+          : undefined;
+        const dispatchSteps: Record<string, StepRecord> =
+          isWrapper && (body as { steps?: unknown }).steps && typeof (body as { steps?: unknown }).steps === 'object'
+            ? ((body as { steps?: Record<string, StepRecord> }).steps as Record<string, StepRecord>)
+            : {};
+
+        // Off-platform child dispatcher so `step.waitForTask` resolves the child
+        // in-process during `vura dev` (no durable platform → waits run locally).
+        const localChildDispatch: LocalChildDispatch = async (childName, childPayload) => {
+          const childRoute = manifest.api.find(
+            (r) => r.kind === 'task' &&
+              r.urlPattern.replace(/^\/api\//, '').replace(/\//g, '.') === childName,
+          );
+          if (!childRoute) return { ok: false, error: `Task not found: ${childName}` };
+          const childMod = await loadHandlerCached(childRoute.filePath);
+          if (typeof childMod.POST !== 'function') return { ok: false, error: 'Task must export POST handler' };
+          const childRes = await runTaskOnce({
+            name: childName,
+            config: {
+              retries: typeof childRoute.config.retries === 'number' ? childRoute.config.retries : 0,
+              timeout: typeof childRoute.config.timeout === 'number' ? childRoute.config.timeout : 30_000,
+            },
+            handler: childMod.POST as (ctx: { attempt: number; input: unknown }) => unknown,
+          }, { input: childPayload, hasPlatform: false, localChildDispatch });
+          return childRes.status === 'completed'
+            ? { ok: true, result: childRes.result }
+            : { ok: false, error: childRes.error };
+        };
 
         const runResult = await runTaskOnce({
           name: taskName,
@@ -482,7 +515,13 @@ export async function startStandaloneServer(
           },
           handler: mod.POST as (ctx: { attempt: number; input: unknown }) => unknown,
           inputSchema: isCronDispatch ? undefined : mod.input,
-        }, { input });
+        }, {
+          input,
+          runId,
+          steps: dispatchSteps,
+          hasPlatform: isPlatformDispatch ? true : undefined,
+          localChildDispatch,
+        });
 
         if (runResult.validationError) {
           res.writeHead(runResult.validationError.statusCode, { 'Content-Type': 'application/json' });
