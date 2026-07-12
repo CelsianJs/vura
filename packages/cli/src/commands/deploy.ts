@@ -117,7 +117,7 @@ export async function deployCommand(args: string[]): Promise<void> {
 
     console.log('');
     console.log(`  ${flags.production ? 'Production' : 'Preview'} deployment ready.`);
-    console.log(`  URL: https://${result.url}`);
+    console.log(`  URL: ${result.url}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`  Deployment failed: ${message}`);

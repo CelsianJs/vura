@@ -78,7 +78,7 @@ describe('deployToVura', () => {
       logger: (line: string) => printed.push(line),
     });
 
-    expect(result).toEqual({ deploymentId: 'dep_1', url: 'app.vura.io', status: 'ready' });
+    expect(result).toEqual({ deploymentId: 'dep_1', url: 'https://app.vura.io', status: 'ready' });
 
     // create + (building poll: status+logs) + (ready poll: status+logs)
     const urls = fetchMock.mock.calls.map((c) => String(c[0]));
