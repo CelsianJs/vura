@@ -145,7 +145,7 @@ export function vuraAdapter(options: VuraAdapterOptions = {}): ThenAdapter {
       } else {
         console.log(`\x1b[32m[vura] Preview deployment ready!\x1b[0m`);
       }
-      console.log(`\x1b[36m[vura]\x1b[0m URL: https://${result.url}`);
+      console.log(`\x1b[36m[vura]\x1b[0m URL: ${result.url}`);
     },
   };
 }
@@ -285,7 +285,11 @@ export async function deployToVura(options: DeployToVuraOptions): Promise<Deploy
 
     const created = (await createRes.json()) as { data: { id: string; url: string; status: string } };
     const deploymentId = created.data.id;
-    const deploymentUrl = created.data.url;
+    // Older API versions returned a bare host; newer ones a full https:// URL.
+    // Normalize so callers can print it verbatim (no `https://https://`).
+    const deploymentUrl = created.data.url.startsWith('http')
+      ? created.data.url
+      : `https://${created.data.url}`;
 
     logger(`\x1b[36m[vura]\x1b[0m Deployment created: ${deploymentId.slice(0, 8)}\n`);
 
