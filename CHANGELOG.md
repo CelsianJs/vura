@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.7 - 2026-07-11
+
+### Fixes
+
+- **Docs-site landing restyled** — the landing rewrite had shipped without CSS
+  for its sections (hero, one-line-change compare, ladder, pillars, license);
+  vura.io and platform deploys of the docs site rendered unstyled. (#71)
+- **Build warning for HTML-string pages** — `renderStaticPages` now warns when
+  a page component returns a raw HTML string, which `renderToString` escapes
+  to literal text. Return JSX / `h()` nodes instead. (#71)
+- **`vura deploy` URL print** — the adapter and CLI prepended `https://` to a
+  deployment URL that already includes it, printing `https://https://…`.
+  Normalized once in `deployToVura`. (#72)
+
 ## 0.5.6 - 2026-07-11
 
 ### Tasks: `ctx.step` durable execution — memoized steps, waitpoints, suspend/resume

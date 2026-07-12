@@ -1,6 +1,6 @@
 {
   "name": "@celsian/vura-adapter-vura",
-  "version": "0.5.6",
+  "version": "0.5.7",
   "publishConfig": {
     "access": "public"
   },
@@ -23,7 +23,7 @@
     "prepack": "pnpm run build"
   },
   "dependencies": {
-    "@celsian/vura-core": "workspace:0.5.6"
+    "@celsian/vura-core": "workspace:0.5.7"
   },
   "license": "MIT",
   "description": "Vura Platform deployment adapter for Vura applications",
