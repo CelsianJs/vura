@@ -67,6 +67,11 @@ export async function renderStaticPages(
     } else {
       // Static and hybrid: pre-render the component
       const vnode = Component(pageConfig.props ?? {});
+      if (typeof vnode === 'string' && /^\s*</.test(vnode)) {
+        console.warn(
+          `  [then] Warning: ${page.filePath} returned an HTML string — it will be escaped and render as literal text. Return JSX / h() nodes instead.`,
+        );
+      }
       bodyHtml = renderToString(vnode);
 
       if (page.mode === 'hybrid') {
