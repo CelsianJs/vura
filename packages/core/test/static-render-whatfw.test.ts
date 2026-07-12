@@ -22,6 +22,28 @@ describe('static render uses real what-framework renderToString', () => {
     expect(written).toContain('<title>Home</title>');
   });
 
+  it('warns when a page component returns a raw HTML string (it gets escaped)', async () => {
+    const outDir = await mkdtemp(join(tmpdir(), 'vura-sr-'));
+    const pages = [{
+      filePath: 'src/pages/index.ts', urlPattern: '/', mode: 'static' as const,
+      hasGetServerData: false, config: {},
+    }];
+    const loadModule = async () => ({
+      default: () => '<main><h1>Oops</h1></main>',
+    });
+    const warnings: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (...args: unknown[]) => { warnings.push(args.join(' ')); };
+    try {
+      const results = await renderStaticPages(pages, loadModule, outDir);
+      // The string is escaped (safe default), and the author is told why.
+      expect(results[0]!.html).toContain('&lt;main&gt;');
+      expect(warnings.some(w => w.includes('returned an HTML string'))).toBe(true);
+    } finally {
+      console.warn = origWarn;
+    }
+  });
+
   it('does not export builtinRenderToString anymore', async () => {
     const mod = await import('../src/static-render.js');
     expect((mod as Record<string, unknown>).builtinRenderToString).toBeUndefined();
