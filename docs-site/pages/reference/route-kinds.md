@@ -22,8 +22,12 @@ export const route = {
 
 | Class | Use it for | Memory contract |
 |---|---|---|
-| `function` (default) | Stateless HTTP, SSR, native modules, CPU work, media/doc processing, AI payloads, and ordinary tasks | `1gb` default; `4gb`, `6gb`, `8gb`, or `12gb` selectable |
+| `function` (default) | Stateless HTTP endpoints, native modules, CPU work, media/doc processing, AI payloads, and ordinary tasks | `1gb` default; `4gb`, `6gb`, `8gb`, or `12gb` selectable |
 | `dedicated` | WebSockets, listening sockets, process-local state, background loops, and always-on work | Machine profile; optional memory/CPU are preserved in the manifest |
+
+On managed Vura, server and hybrid pages currently use the persistent Dedicated
+project runtime because their request-time SSR handler needs the full server
+build context. They are not placed in an individual Function endpoint.
 
 Dedicated manifests also carry the legacy `machine.memoryMb` / `machine.cpus`
 shape so current platform hot-task sizing honors canonical memory and CPU

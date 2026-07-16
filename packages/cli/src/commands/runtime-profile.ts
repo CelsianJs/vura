@@ -108,7 +108,9 @@ function computeDetails(route: ApiRoute): Pick<RuntimeRouteInspection,
     timeout,
     providerRecommendation: 'serverless-function',
     confidence: 'medium',
-    reasons: ['Stateless endpoints and tasks default to scale-to-zero Function compute at 1gb.'],
+    reasons: [memory && memory !== '1gb'
+      ? `The route explicitly selects ${memory} of scale-to-zero Function memory.`
+      : 'Stateless endpoints and tasks default to scale-to-zero Function compute at 1gb.'],
   };
 }
 

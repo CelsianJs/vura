@@ -1,6 +1,6 @@
 {
   "name": "@celsian/vura-core",
-  "version": "0.5.13",
+  "version": "0.5.14",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -31,7 +31,7 @@
   "dependencies": {
     "@celsian/core": "^0.5.2",
     "@celsian/jwt": "^0.5.2",
-    "@celsian/vura-compiler": "workspace:0.5.13",
+    "@celsian/vura-compiler": "workspace:0.5.14",
     "esbuild": "^0.28.1",
     "what-framework": "^0.11.1",
     "what-isr": "^0.11.1"
