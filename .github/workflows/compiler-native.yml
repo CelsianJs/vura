@@ -50,6 +50,16 @@ jobs:
         with:
           node-version: 20
 
+      - name: Setup pnpm
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.11.0
+
+      - name: Install JavaScript test dependencies
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: pnpm install --frozen-lockfile
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -83,6 +93,10 @@ jobs:
         if: startsWith(matrix.target, 'aarch64-unknown-linux')
         working-directory: packages/compiler-native
         run: napi build --platform --release --target ${{ matrix.target }} --zig
+
+      - name: Verify native scanner parity
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: pnpm test:compiler-native
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

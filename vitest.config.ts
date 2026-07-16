@@ -12,6 +12,14 @@ export default defineConfig({
     // (and test:selfhost-audit) would collect and run their test files too.
     // configDefaults.exclude preserves the stock excludes (node_modules,
     // dist, etc.).
-    exclude: [...configDefaults.exclude, '**/.claude/**'],
+    // compiler-native is an unpublished prototype whose tests require a
+    // platform-specific .node artifact. Its dedicated build workflow compiles
+    // that artifact and runs the parity suite; the public JS release gate must
+    // remain hermetic on clean runners where no native package is installed.
+    exclude: [
+      ...configDefaults.exclude,
+      '**/.claude/**',
+      'packages/compiler-native/test/**',
+    ],
   },
 });
