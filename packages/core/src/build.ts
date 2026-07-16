@@ -491,6 +491,11 @@ export async function build(
   await mkdir(serverDir, { recursive: true });
   await mkdir(functionsDir, { recursive: true });
 
+  // Function and task artifacts are ESM .js files. Keep the entire subtree
+  // self-describing for Node 20 and tools that do not perform syntax-based
+  // module detection.
+  await writeFile(join(functionsDir, 'package.json'), JSON.stringify({ type: 'module' }, null, 2) + '\n');
+
   // Bundle API modules for the generated hot server. The generated server is
   // plain ESM and imports `dist/server/api/**/*.js`, so TypeScript source
   // routes must be transpiled even when callers use the core build API
