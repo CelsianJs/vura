@@ -153,6 +153,24 @@ async function assertScaffoldBuildAndBoot(scaffoldDir) {
   }
 }
 
+function assertManagedDeployAdapterLoads(scaffoldDir) {
+  const vuraBin = realpathSync(installedBinPath(scaffoldDir, 'vura'));
+  const result = spawnSync(process.execPath, [
+    vuraBin,
+    'deploy',
+    '--token', 'registry-smoke-token',
+    '--project-id', 'registry-smoke-project',
+    '--api-url', 'http://127.0.0.1:1',
+  ], { cwd: scaffoldDir, encoding: 'utf8' });
+  const output = `${result.stdout}\n${result.stderr}`;
+  if (!output.includes('Deployment failed:')) {
+    throw new Error(`registry vura deploy did not invoke the managed adapter; output=${JSON.stringify(output)}`);
+  }
+  if (output.includes('deploy support is not installed') || output.includes('npm install @celsian/vura-adapter-vura')) {
+    throw new Error(`registry vura deploy could not resolve its managed adapter; output=${JSON.stringify(output)}`);
+  }
+}
+
 async function packageSpec(pkgDir) {
   const packageJson = JSON.parse(await readFile(join(root, pkgDir, 'package.json'), 'utf8'));
   if (packageJson.private) return null;
@@ -194,6 +212,7 @@ try {
     await import('@celsian/vura-compiler');
     await import('@celsian/vura-adapter-cloudflare');
     await import('@celsian/vura-adapter-lambda');
+    await import('@celsian/vura-adapter-vura');
     await import('@celsian/vura-vite-plugin');
     console.log('VURA_REGISTRY_IMPORT_OK');
   `;
@@ -212,12 +231,20 @@ try {
 
   run(process.execPath, [createThenBin, 'registry-smoke-app', '--no-install'], { cwd: tmp });
   completedChecks.push('create-vura --no-install');
-  await assertScaffoldBuildAndBoot(join(tmp, 'registry-smoke-app'));
+  const scaffoldDir = join(tmp, 'registry-smoke-app');
+  const scaffoldPackage = JSON.parse(await readFile(join(scaffoldDir, 'package.json'), 'utf8'));
+  if (!scaffoldPackage.dependencies?.['@celsian/vura-adapter-vura']) {
+    throw new Error('registry create-vura scaffold omitted @celsian/vura-adapter-vura');
+  }
+  completedChecks.push('generated app managed adapter dependency');
+  await assertScaffoldBuildAndBoot(scaffoldDir);
   completedChecks.push('generated app npm install/build/boot');
+  assertManagedDeployAdapterLoads(scaffoldDir);
+  completedChecks.push('generated app vura deploy adapter load');
 
   await writeArtifact('passed', specs);
 
-  console.log(`OK: registry smoke installed, verified CLI bins/direct help, real scaffold build/boot, and imported ${specs.length} package(s): ${specs.join(', ')}`);
+  console.log(`OK: registry smoke installed, verified CLI bins/direct help, real scaffold build/boot/deploy adapter load, and imported ${specs.length} package(s): ${specs.join(', ')}`);
 } catch (err) {
   await writeArtifact('failed', specs, {
     error: err instanceof Error ? err.message : String(err),

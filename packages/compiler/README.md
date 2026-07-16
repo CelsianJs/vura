@@ -1,12 +1,12 @@
 # @celsian/vura-compiler
 
-Pure-JS compiler for [Vura](https://vura.io) — regex-based route scanning and JSX transforms.
+Pure-JS compiler for [Vura](https://vura.io) — safe static route scanning and JSX transforms.
 
 [![npm version](https://img.shields.io/npm/v/@celsian/vura-compiler)](https://www.npmjs.com/package/@celsian/vura-compiler)
 
 ## What it does
 
-`@celsian/vura-compiler` scans route and page source files to extract HTTP methods, route config (`kind`, `schedule`, etc.), and page modes without a full AST parse. It also handles the JSX transform step. This package is the pure-JS path used internally by `@celsian/vura-cli` and `@celsian/vura-vite-plugin` — you do not need to install it directly unless building custom tooling. For projects that need faster scanning, `@celsian/vura-compiler-native` (unpublished prototype) exposes the same API surface using AST-based analysis.
+`@celsian/vura-compiler` scans route and page source files to extract HTTP methods, nested route config, and page modes without importing or executing application code. Its restricted route-literal parser supports strings, finite numbers (including numeric separators), booleans, null, arrays, nested objects, and TypeScript `as const`; calls, identifiers, spreads, computed properties, and templates fail with a source-located error. Deployment-affecting page values such as `mode`, `revalidate`, and `tags` must be static literals; page modes must be quoted strings. Explicit presentation references such as `styles: [baseStyles]` are omitted from the manifest and evaluated only when the renderer loads the page module. This package is the pure-JS path used by `@celsian/vura-core` — you do not need to install it directly unless building custom tooling.
 
 ## Install
 

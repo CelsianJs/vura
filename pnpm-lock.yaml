@@ -135,6 +135,9 @@ importers:
       '@celsian/jwt':
         specifier: ^0.5.2
         version: 0.5.4
+      '@celsian/vura-compiler':
+        specifier: workspace:0.5.7
+        version: link:../compiler
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1

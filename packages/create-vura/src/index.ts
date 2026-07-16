@@ -189,7 +189,8 @@ dist/
 
     'src/api/hello.ts': `import type { CelsianRequest, CelsianReply } from '@celsian/vura-core';
 
-export const route = { kind: 'serverless' };
+// Function is the safe default: scale-to-zero compute with 1 GiB of memory.
+export const route = { compute: { class: 'function', memory: '1gb' } };
 
 export function GET(req: CelsianRequest, reply: CelsianReply) {
   return reply.json({ message: 'Hello from Vura!' });
@@ -198,11 +199,8 @@ export function GET(req: CelsianRequest, reply: CelsianReply) {
 
     'src/api/health.ts': `import type { CelsianRequest, CelsianReply } from '@celsian/vura-core';
 
-// A plain request/response endpoint — serverless so it deploys everywhere
-// (Node, Cloudflare, Lambda). Only use kind: 'hot' for routes that need a
-// persistent connection (WebSockets), since hot routes are excluded from
-// serverless adapter bundles.
-export const route = { kind: 'serverless' };
+// A plain request/response endpoint belongs on scale-to-zero Function compute.
+export const route = { compute: { class: 'function', memory: '1gb' } };
 
 export function GET(req: CelsianRequest, reply: CelsianReply) {
   return reply.json({ status: 'ok', uptime: process.uptime() });
@@ -214,9 +212,9 @@ export function GET(req: CelsianRequest, reply: CelsianReply) {
     // external message bus — see vura docs for multi-instance hot routes.
     'src/api/chat.ts': `import type { HotPeer, HotRequest } from '@celsian/vura-core';
 
-// kind: 'hot' enables the WebSocket upgrade path for this route.
+// Dedicated compute enables the persistent WebSocket upgrade path.
 // The ws package must be installed: npm install ws
-export const route = { kind: 'hot' };
+export const route = { compute: { class: 'dedicated' } };
 
 /**
  * Called once per WebSocket connection on open.
@@ -256,7 +254,12 @@ export function websocket(peer: HotPeer, req: HotRequest) {
     // Run manually: vura tasks run cleanup
     'src/api/cleanup.ts': `// kind: 'task' marks this file as a background task route.
 // It is NOT exposed as a regular HTTP endpoint — calls go through /__tasks.
-export const route = { kind: 'task', retries: 2, timeout: 60_000 };
+export const route = {
+  kind: 'task',
+  compute: { class: 'function', memory: '1gb' },
+  retries: 2,
+  timeout: 60_000,
+};
 
 // Cron expression: run at 03:00 UTC every day.
 // Vura reads this field and registers the schedule with the celsian cron engine.

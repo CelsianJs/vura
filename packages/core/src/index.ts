@@ -15,6 +15,14 @@ export type {
   HttpMethod,
 } from './manifest.js';
 
+export type {
+  ComputeClass,
+  EdgeEligibility,
+  FunctionMemory,
+  NormalizedRouteCompute,
+  RouteComputeRequest,
+} from '@celsian/vura-compiler';
+
 export {
   defineConfig,
 } from './config.js';

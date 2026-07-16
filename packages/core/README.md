@@ -22,7 +22,7 @@ npm install @celsian/vura-core
 import type { CelsianRequest, CelsianReply } from '@celsian/vura-core';
 import { revalidateTag } from '@celsian/vura-core';
 
-export const route = { kind: 'serverless' };
+export const route = { compute: { class: 'function', memory: '1gb' } };
 
 export async function POST(req: CelsianRequest, reply: CelsianReply) {
   const body = req.parsedBody as { title: string };

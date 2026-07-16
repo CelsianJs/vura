@@ -41,7 +41,8 @@
     },
     "vuraPackages": [
       "@celsian/vura-core",
-      "@celsian/vura-cli"
+      "@celsian/vura-cli",
+      "@celsian/vura-adapter-vura"
     ]
   }
 }

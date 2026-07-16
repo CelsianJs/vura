@@ -13,7 +13,7 @@ commitment is written down in [GOVERNANCE.md](./GOVERNANCE.md) and enforced by
 ## Install
 
 ```sh
-pnpm add @celsian/vura-core @celsian/vura-cli
+pnpm add @celsian/vura-core @celsian/vura-cli @celsian/vura-adapter-vura
 ```
 
 The CLI exposes `vura` as the installed command. The package was historically named `then`/`thenjs`; `then` is a shell reserved word and was never a safe script name. Only `vura` ships as a bin — use it in all scripts.
@@ -57,9 +57,17 @@ Example scripts:
 }
 ```
 
-`vura deploy` is reserved for the managed Vura Platform and intentionally
-fails closed in the open-source CLI. Use `vura build` plus the adapter output
-for self-hosted deployments until managed deployment access is available.
+The generated project includes managed deployment support. After linking a
+project and building it, `vura deploy` uploads a preview and `vura deploy
+--prod` targets production. Self-hosting remains available through the Node,
+Cloudflare, and Lambda build outputs.
+
+API endpoints and tasks default to scale-to-zero Function compute at 1 GiB;
+selectable Function profiles are 1, 4, 6, 8, and 12 GiB. Dedicated is the
+persistent path for WebSockets and process-local state. Edge is a fixed 128 MiB
+optimization request: source code cannot self-enable it, and the manifest keeps
+the endpoint on Function until the platform marks it eligible from observed
+runtime and memory telemetry.
 
 ## Deploy today
 
@@ -117,6 +125,7 @@ The generated hot server serves API routes first, server/hybrid runtime pages ne
 - `@celsian/vura-cli` — `vura` command-line interface (historically named `then`/`thenjs`; only `vura` ships as a bin).
 - `@celsian/vura-adapter-lambda` — AWS Lambda/API Gateway deployment artifacts.
 - `@celsian/vura-adapter-cloudflare` — Cloudflare Workers deployment artifacts.
+- `@celsian/vura-adapter-vura` — managed Vura preview and production deployment.
 - `@celsian/vura-vite-plugin` — Vite integration.
 - `@celsian/vura-compiler` — pure JavaScript compiler fallback.
 

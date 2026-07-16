@@ -1,28 +1,270 @@
 //! AST-based route and page scanner.
 //!
-//! Parses TypeScript/JSX files with swc_ecma_parser and walks the AST to extract:
-//! - Exported HTTP method functions (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS)
-//! - Route config: `export const route = { kind: 'serverless', ... }`
-//! - Page config: `export const page = { mode: 'static', ... }`
-//! - Default exports and getServerData exports
+//! Route metadata is accepted only as a restricted static literal. The native
+//! scanner deliberately mirrors the JavaScript fallback: it never evaluates a
+//! module, rejects dynamic route config, preserves nested literals, normalizes
+//! compute placement, and treats Edge as a pending request rather than an
+//! effective runtime selected by source code.
 
 use crate::ScanResult;
-use swc_common::{
-    input::StringInput,
-    sync::Lrc,
-    SourceMap,
-};
+use napi::bindgen_prelude::{Either, Null};
+use serde_json::{Map, Number, Value};
+use swc_common::{input::StringInput, sync::Lrc, SourceMap, Span, Spanned};
 use swc_ecma_ast::*;
-use swc_ecma_parser::{lexer::Lexer, Parser, Syntax, TsSyntax, EsSyntax};
+use swc_ecma_parser::{lexer::Lexer, EsSyntax, Parser, Syntax, TsSyntax};
 
 const HTTP_METHODS: &[&str] = &["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+const FUNCTION_MEMORY: &[&str] = &["1gb", "4gb", "6gb", "8gb", "12gb"];
+
+enum ParsedValue {
+    Value(Value),
+    /// Page presentation metadata may refer to values evaluated by the page
+    /// renderer. Omit those references from the build manifest.
+    Omit,
+}
+
+struct StaticConfigScanner<'a> {
+    cm: &'a Lrc<SourceMap>,
+}
+
+impl StaticConfigScanner<'_> {
+    fn error(&self, span: Span, context: &str, message: &str) -> anyhow::Error {
+        let loc = self.cm.lookup_char_pos(span.lo());
+        anyhow::anyhow!(
+            "[VURA_CONFIG] {} config at {}:{}: {}",
+            context,
+            loc.line,
+            loc.col_display + 1,
+            message,
+        )
+    }
+
+    fn object(
+        &self,
+        expr: &Expr,
+        context: &str,
+        omit_identifier_references: bool,
+    ) -> anyhow::Result<Map<String, Value>> {
+        match self.value(expr, context, omit_identifier_references)? {
+            ParsedValue::Value(Value::Object(value)) => Ok(value),
+            _ => Err(self.error(expr.span(), context, "expected a plain object literal")),
+        }
+    }
+
+    fn value(
+        &self,
+        expr: &Expr,
+        context: &str,
+        omit_identifier_references: bool,
+    ) -> anyhow::Result<ParsedValue> {
+        match expr {
+            Expr::Paren(value) => self.value(&value.expr, context, omit_identifier_references),
+            Expr::TsAs(value) => self.value(&value.expr, context, omit_identifier_references),
+            Expr::TsConstAssertion(value) => {
+                self.value(&value.expr, context, omit_identifier_references)
+            }
+            Expr::TsSatisfies(value) => {
+                self.value(&value.expr, context, omit_identifier_references)
+            }
+            Expr::TsTypeAssertion(value) => {
+                self.value(&value.expr, context, omit_identifier_references)
+            }
+            Expr::Object(object) => {
+                let mut result = Map::new();
+                for property in &object.props {
+                    let property = match property {
+                        PropOrSpread::Spread(spread) => {
+                            return Err(self.error(
+                                spread.dot3_token,
+                                context,
+                                "spread properties are not allowed",
+                            ));
+                        }
+                        PropOrSpread::Prop(property) => property,
+                    };
+
+                    let key_value = match property.as_ref() {
+                        Prop::KeyValue(value) => value,
+                        Prop::Shorthand(value) => {
+                            return Err(self.error(
+                                value.span,
+                                context,
+                                "object properties must use key: literal syntax",
+                            ));
+                        }
+                        other => {
+                            return Err(self.error(
+                                other.span(),
+                                context,
+                                "object properties must use key: literal syntax",
+                            ));
+                        }
+                    };
+
+                    let key = match &key_value.key {
+                        PropName::Ident(value) => value.sym.to_string(),
+                        PropName::Str(value) => value.value.to_string(),
+                        PropName::Computed(value) => {
+                            return Err(self.error(
+                                value.span,
+                                context,
+                                "computed properties are not allowed",
+                            ));
+                        }
+                        other => {
+                            return Err(self.error(
+                                other.span(),
+                                context,
+                                "object keys must be identifiers or string literals",
+                            ));
+                        }
+                    };
+
+                    let omit_property_reference =
+                        omit_identifier_references || (context == "page" && key == "styles");
+                    let parsed = self.value(&key_value.value, context, omit_property_reference)?;
+                    if let ParsedValue::Value(value) = parsed {
+                        result.insert(key, value);
+                    }
+                }
+                Ok(ParsedValue::Value(Value::Object(result)))
+            }
+            Expr::Array(array) => {
+                let mut result = Vec::new();
+                let mut has_dynamic_value = false;
+                for element in &array.elems {
+                    let element = element.as_ref().ok_or_else(|| {
+                        self.error(array.span, context, "array holes are not allowed")
+                    })?;
+                    if let Some(spread) = element.spread {
+                        return Err(self.error(spread, context, "array spreads are not allowed"));
+                    }
+                    match self.value(&element.expr, context, omit_identifier_references)? {
+                        ParsedValue::Value(value) => result.push(value),
+                        ParsedValue::Omit => has_dynamic_value = true,
+                    }
+                }
+                if has_dynamic_value {
+                    Ok(ParsedValue::Omit)
+                } else {
+                    Ok(ParsedValue::Value(Value::Array(result)))
+                }
+            }
+            Expr::Lit(Lit::Str(value)) => {
+                Ok(ParsedValue::Value(Value::String(value.value.to_string())))
+            }
+            Expr::Lit(Lit::Bool(value)) => Ok(ParsedValue::Value(Value::Bool(value.value))),
+            Expr::Lit(Lit::Null(_)) => Ok(ParsedValue::Value(Value::Null)),
+            Expr::Lit(Lit::Num(value)) => self.number(
+                value.value,
+                value.raw.as_ref().map(|raw| raw.as_ref()),
+                value.span,
+                context,
+            ),
+            Expr::Unary(value) if value.op == UnaryOp::Minus => {
+                if let Expr::Lit(Lit::Num(number)) = value.arg.as_ref() {
+                    self.number(
+                        -number.value,
+                        number.raw.as_ref().map(|raw| raw.as_ref()),
+                        value.span,
+                        context,
+                    )
+                } else {
+                    Err(self.error(value.span, context, "invalid numeric literal"))
+                }
+            }
+            Expr::Ident(value) if omit_identifier_references => {
+                let _ = value;
+                Ok(ParsedValue::Omit)
+            }
+            Expr::Ident(value) => {
+                Err(self.error(value.span, context, "identifiers are not allowed as values"))
+            }
+            Expr::Call(value) => {
+                Err(self.error(value.span, context, "identifiers are not allowed as values"))
+            }
+            Expr::Tpl(value) => {
+                Err(self.error(value.span, context, "template literals are not allowed"))
+            }
+            other => Err(self.error(other.span(), context, "expected a static literal")),
+        }
+    }
+
+    fn number(
+        &self,
+        value: f64,
+        raw: Option<&str>,
+        span: Span,
+        context: &str,
+    ) -> anyhow::Result<ParsedValue> {
+        if raw.is_some_and(|raw| !is_decimal_literal(raw)) {
+            return Err(self.error(span, context, "invalid numeric literal"));
+        }
+        if !value.is_finite() {
+            return Err(self.error(span, context, "numeric literal must be finite"));
+        }
+        let value = Number::from_f64(value)
+            .ok_or_else(|| self.error(span, context, "invalid numeric literal"))?;
+        Ok(ParsedValue::Value(Value::Number(value)))
+    }
+}
+
+/// Match the JavaScript fallback's intentionally narrow decimal grammar.
+/// Hex, octal, binary, bigint, and malformed separator forms are not config
+/// literals even though the TypeScript parser can represent some of them.
+fn is_decimal_literal(raw: &str) -> bool {
+    fn digits(bytes: &[u8], index: &mut usize) -> bool {
+        if !bytes.get(*index).is_some_and(u8::is_ascii_digit) {
+            return false;
+        }
+        *index += 1;
+        while *index < bytes.len() {
+            if bytes[*index].is_ascii_digit() {
+                *index += 1;
+            } else if bytes[*index] == b'_' && bytes.get(*index + 1).is_some_and(u8::is_ascii_digit)
+            {
+                *index += 2;
+            } else {
+                break;
+            }
+        }
+        true
+    }
+
+    let bytes = raw.as_bytes();
+    let mut index = 0;
+    if bytes.first() == Some(&b'.') {
+        index += 1;
+        if !digits(bytes, &mut index) {
+            return false;
+        }
+    } else {
+        if !digits(bytes, &mut index) {
+            return false;
+        }
+        if bytes.get(index) == Some(&b'.') {
+            index += 1;
+            if bytes.get(index).is_some_and(u8::is_ascii_digit) && !digits(bytes, &mut index) {
+                return false;
+            }
+        }
+    }
+
+    if matches!(bytes.get(index), Some(b'e' | b'E')) {
+        index += 1;
+        if matches!(bytes.get(index), Some(b'+' | b'-')) {
+            index += 1;
+        }
+        if !digits(bytes, &mut index) {
+            return false;
+        }
+    }
+    index == bytes.len()
+}
 
 pub fn scan(source: &str, file_type: &str) -> anyhow::Result<ScanResult> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(
-        Lrc::new(swc_common::FileName::Anon),
-        source.to_string(),
-    );
+    let fm = cm.new_source_file(Lrc::new(swc_common::FileName::Anon), source.to_string());
 
     let syntax = match file_type {
         "ts" => Syntax::Typescript(TsSyntax {
@@ -42,175 +284,461 @@ pub fn scan(source: &str, file_type: &str) -> anyhow::Result<ScanResult> {
         _ => Syntax::Es(EsSyntax::default()),
     };
 
-    let lexer = Lexer::new(
-        syntax,
-        EsVersion::Es2022,
-        StringInput::from(&*fm),
-        None,
-    );
-
+    let lexer = Lexer::new(syntax, EsVersion::Es2022, StringInput::from(&*fm), None);
     let mut parser = Parser::new_from(lexer);
-    let module = parser
-        .parse_module()
-        .map_err(|e| anyhow::anyhow!("Parse error: {:?}", e))?;
+    let module = parser.parse_module().map_err(|error| {
+        let loc = cm.lookup_char_pos(error.span().lo());
+        anyhow::anyhow!(
+            "Parse error at {}:{}: {:?}",
+            loc.line,
+            loc.col_display + 1,
+            error,
+        )
+    })?;
 
-    let mut methods: Vec<String> = Vec::new();
-    let mut kind = String::from("serverless");
+    let mut method_exports = Vec::new();
     let mut has_default_export = false;
     let mut has_get_server_data = false;
-    let mut page_mode: Option<String> = None;
-    let mut config = serde_json::Map::new();
+    let mut has_websocket = false;
+    let mut route_expr: Option<&Expr> = None;
+    let mut page_expr: Option<&Expr> = None;
+    let mut kind_expr: Option<&Expr> = None;
+    let mut schedule_expr: Option<&Expr> = None;
 
     for item in &module.body {
-        match item {
-            ModuleItem::ModuleDecl(decl) => {
-                match decl {
-                    // export function GET(...) / export async function GET(...)
-                    ModuleDecl::ExportDecl(export_decl) => {
-                        match &export_decl.decl {
-                            Decl::Fn(fn_decl) => {
-                                let name = fn_decl.ident.sym.as_ref();
-                                if HTTP_METHODS.contains(&name) {
-                                    methods.push(name.to_string());
-                                }
-                                if name == "getServerData" {
-                                    has_get_server_data = true;
-                                }
-                            }
-                            // export const GET = ... / export const route = { ... }
-                            Decl::Var(var_decl) => {
-                                for decl in &var_decl.decls {
-                                    if let Pat::Ident(ident) = &decl.name {
-                                        let name = ident.id.sym.as_ref();
+        let ModuleItem::ModuleDecl(declaration) = item else {
+            continue;
+        };
+        match declaration {
+            ModuleDecl::ExportDecl(export) => match &export.decl {
+                Decl::Fn(function) => {
+                    let name = function.ident.sym.as_ref();
+                    if HTTP_METHODS.contains(&name) {
+                        method_exports.push(name.to_string());
+                    }
+                    if name == "getServerData" {
+                        has_get_server_data = true;
+                    }
+                    if name == "websocket" {
+                        has_websocket = true;
+                    }
+                }
+                Decl::Var(variable) => {
+                    for declarator in &variable.decls {
+                        let Pat::Ident(identifier) = &declarator.name else {
+                            continue;
+                        };
+                        let name = identifier.id.sym.as_ref();
 
-                                        // Check for HTTP method exports
-                                        if HTTP_METHODS.contains(&name) {
-                                            methods.push(name.to_string());
-                                        }
-
-                                        if name == "getServerData" {
-                                            has_get_server_data = true;
-                                        }
-
-                                        // Extract route config
-                                        if name == "route" {
-                                            if let Some(init) = &decl.init {
-                                                extract_object_config(init, &mut kind, &mut config, "route");
-                                            }
-                                        }
-
-                                        // Extract page config
-                                        if name == "page" {
-                                            if let Some(init) = &decl.init {
-                                                let mut page_kind = String::new();
-                                                extract_object_config(init, &mut page_kind, &mut config, "page");
-                                                if let Some(mode) = config.get("mode") {
-                                                    if let Some(mode_str) = mode.as_str() {
-                                                        page_mode = Some(mode_str.to_string());
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                        if variable.kind == VarDeclKind::Const && HTTP_METHODS.contains(&name) {
+                            method_exports.push(name.to_string());
+                        }
+                        if matches!(variable.kind, VarDeclKind::Const | VarDeclKind::Let)
+                            && name == "getServerData"
+                        {
+                            has_get_server_data = true;
+                        }
+                        if variable.kind == VarDeclKind::Const && name == "websocket" {
+                            has_websocket = true;
+                        }
+                        if variable.kind != VarDeclKind::Const {
+                            continue;
+                        }
+                        let Some(initializer) = declarator.init.as_deref() else {
+                            continue;
+                        };
+                        match name {
+                            "route" => route_expr = Some(initializer),
+                            "page" => page_expr = Some(initializer),
+                            "kind" => kind_expr = Some(initializer),
+                            "schedule" => schedule_expr = Some(initializer),
                             _ => {}
                         }
                     }
-
-                    // export default function ...
-                    ModuleDecl::ExportDefaultDecl(_) => {
-                        has_default_export = true;
-                    }
-
-                    // export default expr
-                    ModuleDecl::ExportDefaultExpr(_) => {
-                        has_default_export = true;
-                    }
-
-                    _ => {}
                 }
+                _ => {}
+            },
+            ModuleDecl::ExportDefaultDecl(_) | ModuleDecl::ExportDefaultExpr(_) => {
+                has_default_export = true;
             }
             _ => {}
         }
     }
 
-    // Extract kind from config if present
-    if let Some(kind_val) = config.get("kind") {
-        if let Some(k) = kind_val.as_str() {
-            kind = k.to_string();
-        }
+    method_exports.sort_by_key(|method| {
+        HTTP_METHODS
+            .iter()
+            .position(|candidate| candidate == method)
+            .unwrap_or(HTTP_METHODS.len())
+    });
+    method_exports.dedup();
+
+    let scanner = StaticConfigScanner { cm: &cm };
+    let has_route_config = route_expr.is_some() || kind_expr.is_some();
+    let (kind, mut config) = if !method_exports.is_empty() || has_websocket || has_route_config {
+        read_route_config(&scanner, route_expr, kind_expr, schedule_expr)?
+    } else {
+        (String::from("serverless"), Map::new())
+    };
+
+    let page_config = if let Some(page) = page_expr {
+        scanner.object(page, "page", false)?
+    } else {
+        Map::new()
+    };
+    let mut page_mode = page_config
+        .get("mode")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    config.extend(page_config);
+
+    if page_mode.is_none() && has_get_server_data {
+        page_mode = Some(String::from("server"));
     }
 
     Ok(ScanResult {
-        methods,
+        methods: method_exports,
         kind,
         has_default_export,
         has_get_server_data,
-        page_mode,
-        config: serde_json::Value::Object(config),
+        page_mode: page_mode.map(Either::A).unwrap_or_else(|| Either::B(Null)),
+        config: Value::Object(config),
     })
 }
 
-/// Extract key-value pairs from an object literal expression.
-fn extract_object_config(
-    expr: &Expr,
-    kind: &mut String,
-    config: &mut serde_json::Map<String, serde_json::Value>,
-    _context: &str,
-) {
-    if let Expr::Object(obj) = unbox_expr(expr) {
-        for prop in &obj.props {
-            if let PropOrSpread::Prop(prop) = prop {
-                if let Prop::KeyValue(kv) = prop.as_ref() {
-                    let key = match &kv.key {
-                        PropName::Ident(ident) => Some(ident.sym.to_string()),
-                        PropName::Str(s) => Some(s.value.to_string()),
-                        _ => None,
-                    };
+fn read_route_config(
+    scanner: &StaticConfigScanner<'_>,
+    route_expr: Option<&Expr>,
+    kind_expr: Option<&Expr>,
+    schedule_expr: Option<&Expr>,
+) -> anyhow::Result<(String, Map<String, Value>)> {
+    let mut config = if let Some(route) = route_expr {
+        scanner.object(route, "route", false)?
+    } else {
+        Map::new()
+    };
 
-                    if let Some(key) = key {
-                        match unbox_expr(&kv.value) {
-                            Expr::Lit(Lit::Str(s)) => {
-                                let val = s.value.to_string();
-                                if key == "kind" {
-                                    *kind = val.clone();
-                                }
-                                config.insert(key, serde_json::Value::String(val));
-                            }
-                            Expr::Lit(Lit::Num(n)) => {
-                                config.insert(
-                                    key,
-                                    serde_json::Value::Number(
-                                        serde_json::Number::from_f64(n.value)
-                                            .unwrap_or(serde_json::Number::from(0)),
-                                    ),
-                                );
-                            }
-                            Expr::Lit(Lit::Bool(b)) => {
-                                config.insert(key, serde_json::Value::Bool(b.value));
-                            }
-                            _ => {}
-                        }
-                    }
+    if route_expr.is_none() {
+        if let Some(kind) = kind_expr {
+            match scanner.value(kind, "route kind", false)? {
+                ParsedValue::Value(Value::String(value)) => {
+                    config.insert(String::from("kind"), Value::String(value));
+                }
+                _ => {
+                    return Err(scanner.error(
+                        kind.span(),
+                        "route",
+                        "exported route kind must be a string literal",
+                    ));
                 }
             }
         }
     }
 
-    // Handle `as const` expressions
-    if let Expr::TsAs(ts_as) = expr {
-        extract_object_config(&ts_as.expr, kind, config, _context);
+    if !config.contains_key("schedule") {
+        if let Some(schedule) = schedule_expr {
+            match scanner.value(schedule, "route schedule", false)? {
+                ParsedValue::Value(Value::String(value)) => {
+                    config.insert(String::from("schedule"), Value::String(value));
+                }
+                _ => {
+                    return Err(scanner.error(
+                        schedule.span(),
+                        "route",
+                        "exported task schedule must be a string literal",
+                    ));
+                }
+            }
+        }
     }
+
+    let span = route_expr
+        .map(Spanned::span)
+        .or_else(|| kind_expr.map(Spanned::span))
+        .or_else(|| schedule_expr.map(Spanned::span))
+        .unwrap_or_default();
+    normalize_route_config(scanner, config, span)
 }
 
-/// Unwrap parenthesized and type assertion expressions.
-fn unbox_expr(expr: &Expr) -> &Expr {
-    match expr {
-        Expr::Paren(p) => unbox_expr(&p.expr),
-        Expr::TsAs(ts) => unbox_expr(&ts.expr),
-        Expr::TsSatisfies(ts) => unbox_expr(&ts.expr),
-        Expr::TsTypeAssertion(ts) => unbox_expr(&ts.expr),
-        _ => expr,
+fn normalize_route_config(
+    scanner: &StaticConfigScanner<'_>,
+    mut config: Map<String, Value>,
+    span: Span,
+) -> anyhow::Result<(String, Map<String, Value>)> {
+    let kind = match config.get("kind") {
+        None => String::from("serverless"),
+        Some(Value::String(value)) if matches!(value.as_str(), "serverless" | "hot" | "task") => {
+            value.clone()
+        }
+        Some(_) => {
+            return Err(scanner.error(
+                span,
+                "route",
+                "route.kind must be 'serverless', 'hot', or 'task'",
+            ));
+        }
+    };
+
+    if config
+        .get("compute")
+        .is_some_and(|value| !value.is_object())
+    {
+        return Err(scanner.error(
+            span,
+            "route",
+            "route.compute must be a plain object literal",
+        ));
     }
+    if config
+        .get("machine")
+        .is_some_and(|value| !value.is_object())
+    {
+        return Err(scanner.error(
+            span,
+            "route",
+            "legacy route.machine must be a plain object literal",
+        ));
+    }
+
+    let raw_compute = config
+        .get("compute")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let machine = config
+        .get("machine")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let explicit_class = match raw_compute.get("class") {
+        None => None,
+        Some(Value::String(value))
+            if matches!(value.as_str(), "edge" | "function" | "dedicated") =>
+        {
+            Some(value.clone())
+        }
+        Some(_) => {
+            return Err(scanner.error(
+                span,
+                "route",
+                "route.compute.class must be 'edge', 'function', or 'dedicated'",
+            ));
+        }
+    };
+
+    let has_legacy_hot_marker = config.get("hot") == Some(&Value::Bool(true))
+        || ["runtime", "placement", "target"]
+            .iter()
+            .any(|key| config.get(*key).and_then(Value::as_str) == Some("hot"));
+    let legacy_dedicated = kind == "hot" || has_legacy_hot_marker || !machine.is_empty();
+    let requested_class = explicit_class.clone().unwrap_or_else(|| {
+        if legacy_dedicated {
+            String::from("dedicated")
+        } else {
+            String::from("function")
+        }
+    });
+
+    if kind == "hot"
+        && explicit_class
+            .as_deref()
+            .is_some_and(|value| value != "dedicated")
+    {
+        return Err(scanner.error(
+            span,
+            "route",
+            "kind: 'hot' conflicts with a non-dedicated compute.class",
+        ));
+    }
+
+    let compute = match requested_class.as_str() {
+        "edge" => normalize_edge(scanner, raw_compute, span)?,
+        "function" => normalize_function(scanner, raw_compute, span)?,
+        "dedicated" => normalize_dedicated(scanner, machine.clone(), raw_compute, span)?,
+        _ => unreachable!("compute class was validated above"),
+    };
+    if requested_class == "dedicated" {
+        let compatible_machine = dedicated_machine_compatibility(machine, &compute);
+        if !compatible_machine.is_empty() {
+            config.insert(String::from("machine"), Value::Object(compatible_machine));
+        }
+        if kind == "task" && !has_legacy_hot_marker {
+            config.insert(String::from("hot"), Value::Bool(true));
+        }
+    }
+    config.insert(String::from("compute"), Value::Object(compute));
+
+    let effective_kind = if kind == "task" {
+        "task"
+    } else if requested_class == "dedicated" {
+        "hot"
+    } else {
+        "serverless"
+    };
+    Ok((effective_kind.to_string(), config))
+}
+
+fn normalize_edge(
+    scanner: &StaticConfigScanner<'_>,
+    mut compute: Map<String, Value>,
+    span: Span,
+) -> anyhow::Result<Map<String, Value>> {
+    let requested_memory = compute
+        .get("memory")
+        .cloned()
+        .unwrap_or_else(|| Value::String(String::from("128mb")));
+    if requested_memory != Value::String(String::from("128mb")) {
+        return Err(scanner.error(
+            span,
+            "route",
+            "Edge requests have fixed memory '128mb'; Function supports 1gb/4gb/6gb/8gb/12gb",
+        ));
+    }
+    if compute.contains_key("cpu") {
+        return Err(scanner.error(
+            span,
+            "route",
+            "Edge requests cannot select CPU; request Function or Dedicated compute instead",
+        ));
+    }
+
+    compute.insert(String::from("class"), Value::String(String::from("edge")));
+    compute.insert(String::from("memory"), Value::String(String::from("128mb")));
+    compute.insert(
+        String::from("effectiveClass"),
+        Value::String(String::from("function")),
+    );
+    compute.insert(
+        String::from("effectiveMemory"),
+        Value::String(String::from("1gb")),
+    );
+    compute.insert(
+        String::from("requestedClass"),
+        Value::String(String::from("edge")),
+    );
+    compute.insert(
+        String::from("requestedMemory"),
+        Value::String(String::from("128mb")),
+    );
+    compute.insert(
+        String::from("edgeEligibility"),
+        Value::String(String::from("pending")),
+    );
+    Ok(compute)
+}
+
+fn normalize_function(
+    scanner: &StaticConfigScanner<'_>,
+    mut compute: Map<String, Value>,
+    span: Span,
+) -> anyhow::Result<Map<String, Value>> {
+    let memory = compute
+        .get("memory")
+        .and_then(Value::as_str)
+        .unwrap_or("1gb")
+        .to_owned();
+    if !FUNCTION_MEMORY.contains(&memory.as_str())
+        || compute
+            .get("memory")
+            .is_some_and(|value| !value.is_string())
+    {
+        return Err(scanner.error(
+            span,
+            "route",
+            "Function memory must be one of '1gb', '4gb', '6gb', '8gb', or '12gb'",
+        ));
+    }
+    assert_cpu(scanner, compute.get("cpu"), span)?;
+    compute.insert(
+        String::from("class"),
+        Value::String(String::from("function")),
+    );
+    compute.insert(String::from("memory"), Value::String(memory));
+    Ok(compute)
+}
+
+fn normalize_dedicated(
+    scanner: &StaticConfigScanner<'_>,
+    mut machine: Map<String, Value>,
+    compute: Map<String, Value>,
+    span: Span,
+) -> anyhow::Result<Map<String, Value>> {
+    let cpu = [
+        compute.get("cpu"),
+        compute.get("cpus"),
+        machine.get("cpu"),
+        machine.get("cpus"),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|value| !value.is_null());
+    assert_cpu(scanner, cpu, span)?;
+    machine.extend(compute);
+    machine.insert(
+        String::from("class"),
+        Value::String(String::from("dedicated")),
+    );
+    Ok(machine)
+}
+
+fn dedicated_machine_compatibility(
+    mut machine: Map<String, Value>,
+    compute: &Map<String, Value>,
+) -> Map<String, Value> {
+    if let Some(memory_mb) = compute
+        .get("memory")
+        .or_else(|| compute.get("memoryMb"))
+        .and_then(memory_to_mb)
+        .and_then(Number::from_f64)
+    {
+        machine.insert(String::from("memoryMb"), Value::Number(memory_mb));
+    }
+    if let Some(cpu) = compute
+        .get("cpu")
+        .or_else(|| compute.get("cpus"))
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .and_then(Number::from_f64)
+    {
+        machine.insert(String::from("cpus"), Value::Number(cpu));
+    }
+    machine
+}
+
+fn memory_to_mb(value: &Value) -> Option<f64> {
+    if let Some(value) = value.as_f64() {
+        return (value.is_finite() && value > 0.0).then(|| value.floor());
+    }
+    let raw = value.as_str()?.trim().to_ascii_lowercase();
+    let (amount, multiplier) = if let Some(amount) = raw.strip_suffix("gib") {
+        (amount, 1024.0)
+    } else if let Some(amount) = raw.strip_suffix("gb") {
+        (amount, 1024.0)
+    } else if let Some(amount) = raw.strip_suffix("mib") {
+        (amount, 1.0)
+    } else {
+        (raw.strip_suffix("mb")?, 1.0)
+    };
+    let amount = amount.trim().parse::<f64>().ok()?;
+    (amount.is_finite() && amount > 0.0).then(|| (amount * multiplier).floor())
+}
+
+fn assert_cpu(
+    scanner: &StaticConfigScanner<'_>,
+    cpu: Option<&Value>,
+    span: Span,
+) -> anyhow::Result<()> {
+    if let Some(cpu) = cpu {
+        let valid = cpu
+            .as_f64()
+            .is_some_and(|value| value.is_finite() && value > 0.0 && value.fract() == 0.0);
+        if !valid {
+            return Err(scanner.error(
+                span,
+                "route",
+                "route.compute.cpu must be a positive integer",
+            ));
+        }
+    }
+    Ok(())
 }

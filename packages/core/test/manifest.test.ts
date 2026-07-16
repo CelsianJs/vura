@@ -3,6 +3,13 @@ import { extractApiExports, extractPageConfig, fileToUrlPattern, buildManifest }
 import { dirname, join } from 'node:path';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import {
+  invalidRouteConfigFixtures,
+  invalidPageConfigFixtures,
+  scannerFalsePositiveFixtures,
+  validPageConfigFixtures,
+  validRouteConfigFixtures,
+} from '../../../test/fixtures/static-route-config.js';
 
 const tempRoots = new Set<string>();
 
@@ -88,9 +95,37 @@ describe('extractApiExports', () => {
       'http://localhost:3000',
     ]);
   });
+
+  it.each(validRouteConfigFixtures)('matches the shared compiler fixture: $name', ({ source, expectedKind, expectedConfig }) => {
+    const result = extractApiExports(source);
+    expect(result.kind).toBe(expectedKind);
+    expect(result.config).toEqual(expectedConfig);
+  });
+
+  it.each(invalidRouteConfigFixtures)('rejects unsafe shared fixture: $name', ({ source, message }) => {
+    expect(() => extractApiExports(source)).toThrow(message);
+    expect(() => extractApiExports(source)).toThrow(/route config at \d+:\d+/);
+  });
+
+  it.each(scannerFalsePositiveFixtures)('ignores scanner false positive: $name', ({ source }) => {
+    const result = extractApiExports(source);
+    expect(result.methods).toEqual([]);
+    expect(result.config).toEqual({ compute: { class: 'function', memory: '1gb' } });
+  });
 });
 
 describe('extractPageConfig', () => {
+  it.each(validPageConfigFixtures)('preserves shared page fixture: $name', ({ source, expectedMode, expectedConfig }) => {
+    const result = extractPageConfig(source);
+    expect(result.mode).toBe(expectedMode);
+    expect(result.config).toEqual(expectedConfig);
+  });
+
+  it.each(invalidPageConfigFixtures)('rejects unsafe shared page fixture: $name', ({ source, message }) => {
+    expect(() => extractPageConfig(source)).toThrow(message);
+    expect(() => extractPageConfig(source)).toThrow(/page config at \d+:\d+/);
+  });
+
   it('detects static mode', () => {
     const source = `export const page = { mode: 'static' };`;
     expect(extractPageConfig(source).mode).toBe('static');

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { scanRoute, transformJsx } from '../src/index.js';
+import {
+  invalidRouteConfigFixtures,
+  invalidPageConfigFixtures,
+  scannerFalsePositiveFixtures,
+  validPageConfigFixtures,
+  validRouteConfigFixtures,
+} from '../../../test/fixtures/static-route-config.js';
 
 describe('scanRoute', () => {
   it('detects HTTP method exports', () => {
@@ -74,6 +81,34 @@ describe('scanRoute', () => {
     expect(result.methods).toEqual([]);
     expect(result.kind).toBe('serverless');
     expect(result.hasDefaultExport).toBe(false);
+  });
+
+  it.each(validRouteConfigFixtures)('parses shared fixture: $name', ({ source, expectedKind, expectedConfig }) => {
+    const result = scanRoute(source, 'ts');
+    expect(result.kind).toBe(expectedKind);
+    expect(result.config).toEqual(expectedConfig);
+  });
+
+  it.each(invalidRouteConfigFixtures)('rejects unsafe shared fixture: $name', ({ source, message }) => {
+    expect(() => scanRoute(source, 'ts')).toThrow(message);
+    expect(() => scanRoute(source, 'ts')).toThrow(/route config at \d+:\d+/);
+  });
+
+  it.each(validPageConfigFixtures)('preserves shared page fixture: $name', ({ source, expectedMode, expectedConfig }) => {
+    const result = scanRoute(source, 'tsx');
+    expect(result.pageMode).toBe(expectedMode);
+    expect(result.config).toEqual(expectedConfig);
+  });
+
+  it.each(invalidPageConfigFixtures)('rejects unsafe shared page fixture: $name', ({ source, message }) => {
+    expect(() => scanRoute(source, 'tsx')).toThrow(message);
+    expect(() => scanRoute(source, 'tsx')).toThrow(/page config at \d+:\d+/);
+  });
+
+  it.each(scannerFalsePositiveFixtures)('ignores scanner false positive: $name', ({ source }) => {
+    const result = scanRoute(source, 'ts');
+    expect(result.methods).toEqual([]);
+    expect(result.config).toEqual({});
   });
 });
 

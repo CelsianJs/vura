@@ -6,7 +6,7 @@ CLI for [Vura](https://vura.io) — develop, build, and run tasks for Vura appli
 
 ## What it does
 
-`@celsian/vura-cli` provides the `vura` command for developing and building Vura projects. It scans routes, starts the Vite dev server with API middleware, bundles for production, lets you inspect runtime placement, and lets you run task routes by name from the terminal. `vura deploy` is reserved for the managed Vura Platform and intentionally fails closed in the OSS CLI — use an adapter (`adapter-lambda`, `adapter-cloudflare`) to self-host. The package was historically named `then`/`thenjs`; the only installed bin is `vura`.
+`@celsian/vura-cli` provides the `vura` command for developing, building, inspecting, and deploying Vura projects. It reports effective Function/Dedicated placement and pending Edge requests, including memory, CPU, timeout, provider recommendation, confidence, and reasons. `create-vura` installs the managed deployment adapter, so `vura deploy` works without a follow-up package install. Self-hosted builds can use the Lambda or Cloudflare adapters. The package was historically named `then`/`thenjs`; the only installed bin is `vura`.
 
 ## Install
 
@@ -43,6 +43,10 @@ Inspect runtime placement without deploying:
 vura routes inspect --json
 vura runtime advise --json
 ```
+
+An Edge declaration is a request, not an override. The CLI reports it as
+pending while the route continues on 1 GiB Function compute; only measured
+platform eligibility can promote it to the fixed 128 MiB Edge runtime.
 
 (`then` is a shell reserved word — use `vura` in all scripts.)
 
