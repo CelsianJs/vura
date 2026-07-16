@@ -607,7 +607,20 @@ ${bold('Options:')}
   console.log();
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+function isDirectExecution(): boolean {
+  const argvEntry = process.argv[1];
+  if (!argvEntry) return false;
+
+  try {
+    return fs.realpathSync(argvEntry) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectExecution()) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
