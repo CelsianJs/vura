@@ -105,6 +105,7 @@ describe('CLI deploy command', () => {
       projectId: 'proj_42',
       production: true,
       distDir: join(root, 'dist'),
+      projectRoot: root,
     });
   });
 

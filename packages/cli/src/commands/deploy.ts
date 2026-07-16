@@ -1,8 +1,9 @@
 /**
  * `vura deploy` — deploy the built project to the Vura platform.
  *
- * Packages `dist/`, uploads it to the Vura API, streams build logs, and prints
- * the resulting deployment URL. The actual upload/poll flow lives in
+ * Packages `dist/` (plus runtime dependencies for Dedicated/server builds),
+ * uploads it to the Vura API, streams build logs, and prints the resulting
+ * deployment URL. The actual upload/poll flow lives in
  * `@celsian/vura-adapter-vura` (`deployToVura`) so the adapter's `buildEnd`
  * hook and this command share one implementation.
  *
@@ -108,6 +109,7 @@ export async function deployCommand(args: string[]): Promise<void> {
   try {
     const result = await deployToVura({
       distDir,
+      projectRoot,
       apiUrl,
       token,
       projectId,
