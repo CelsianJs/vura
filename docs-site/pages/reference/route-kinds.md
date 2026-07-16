@@ -3,7 +3,7 @@
 Every file in `src/api/` has two independent concerns:
 
 - `kind` describes handler behavior (`task` versus an HTTP endpoint). The legacy `serverless` and `hot` values remain compatible for one migration window.
-- `compute.class` describes execution: `function`, `dedicated`, or an `edge` eligibility request.
+- `compute.class` describes execution: `function` or `dedicated`.
 
 New HTTP endpoints and tasks default to `function` with `1gb` of memory.
 
@@ -24,21 +24,14 @@ export const route = {
 |---|---|---|
 | `function` (default) | Stateless HTTP, SSR, native modules, CPU work, media/doc processing, AI payloads, and ordinary tasks | `1gb` default; `4gb`, `6gb`, `8gb`, or `12gb` selectable |
 | `dedicated` | WebSockets, listening sockets, process-local state, background loops, and always-on work | Machine profile; optional memory/CPU are preserved in the manifest |
-| `edge` request | Small Web-API-only handlers where measured latency justifies the constraints | Fixed `128mb`; no CPU selection |
-
-`edge` in source is deliberately not an activation switch. The manifest keeps
-`class: 'edge'` as the requested placement while recording
-`effectiveClass: 'function'`, `effectiveMemory: '1gb'`, and
-`edgeEligibility: 'pending'`. The managed platform may promote it only after
-observed runtime/memory telemetry marks that endpoint eligible in the UI.
 
 Dedicated manifests also carry the legacy `machine.memoryMb` / `machine.cpus`
 shape so current platform hot-task sizing honors canonical memory and CPU
 requests during the compatibility window.
 
 Use `vura routes inspect --json` or `vura runtime advise --json` to see the
-effective class, request state, memory, CPU, timeout, provider recommendation,
-confidence, and reasons before deployment.
+effective class, memory, CPU, timeout, provider recommendation, confidence, and
+reasons before deployment.
 
 Deployment-relevant route config is a static literal contract. Strings, finite numbers,
 numeric separators, booleans, null, arrays, nested objects, and `as const` are
