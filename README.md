@@ -64,10 +64,9 @@ Cloudflare, and Lambda build outputs.
 
 API endpoints and tasks default to scale-to-zero Function compute at 1 GiB;
 selectable Function profiles are 1, 4, 6, 8, and 12 GiB. Dedicated is the
-persistent path for WebSockets and process-local state. Edge is a fixed 128 MiB
-optimization request: source code cannot self-enable it, and the manifest keeps
-the endpoint on Function until the platform marks it eligible from observed
-runtime and memory telemetry.
+persistent path for WebSockets, process-local state, and latency-sensitive
+always-warm endpoints. Dedicated capacity uses provider-neutral profiles from
+`nano` through `4xlarge`, or explicit memory and CPU values where supported.
 
 ## Deploy today
 

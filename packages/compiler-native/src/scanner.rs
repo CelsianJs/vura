@@ -3,8 +3,7 @@
 //! Route metadata is accepted only as a restricted static literal. The native
 //! scanner deliberately mirrors the JavaScript fallback: it never evaluates a
 //! module, rejects dynamic route config, preserves nested literals, normalizes
-//! compute placement, and treats Edge as a pending request rather than an
-//! effective runtime selected by source code.
+//! compute placement, and exposes only Function or Dedicated compute.
 
 use crate::ScanResult;
 use napi::bindgen_prelude::{Either, Null};
@@ -513,7 +512,7 @@ fn normalize_route_config(
     let explicit_class = match raw_compute.get("class") {
         None => None,
         Some(Value::String(value))
-            if matches!(value.as_str(), "edge" | "function" | "dedicated") =>
+            if matches!(value.as_str(), "function" | "dedicated") =>
         {
             Some(value.clone())
         }
@@ -521,7 +520,7 @@ fn normalize_route_config(
             return Err(scanner.error(
                 span,
                 "route",
-                "route.compute.class must be 'edge', 'function', or 'dedicated'",
+                "route.compute.class must be 'function' or 'dedicated'",
             ));
         }
     };
@@ -552,7 +551,6 @@ fn normalize_route_config(
     }
 
     let compute = match requested_class.as_str() {
-        "edge" => normalize_edge(scanner, raw_compute, span)?,
         "function" => normalize_function(scanner, raw_compute, span)?,
         "dedicated" => normalize_dedicated(scanner, machine.clone(), raw_compute, span)?,
         _ => unreachable!("compute class was validated above"),
@@ -576,55 +574,6 @@ fn normalize_route_config(
         "serverless"
     };
     Ok((effective_kind.to_string(), config))
-}
-
-fn normalize_edge(
-    scanner: &StaticConfigScanner<'_>,
-    mut compute: Map<String, Value>,
-    span: Span,
-) -> anyhow::Result<Map<String, Value>> {
-    let requested_memory = compute
-        .get("memory")
-        .cloned()
-        .unwrap_or_else(|| Value::String(String::from("128mb")));
-    if requested_memory != Value::String(String::from("128mb")) {
-        return Err(scanner.error(
-            span,
-            "route",
-            "Edge requests have fixed memory '128mb'; Function supports 1gb/4gb/6gb/8gb/12gb",
-        ));
-    }
-    if compute.contains_key("cpu") {
-        return Err(scanner.error(
-            span,
-            "route",
-            "Edge requests cannot select CPU; request Function or Dedicated compute instead",
-        ));
-    }
-
-    compute.insert(String::from("class"), Value::String(String::from("edge")));
-    compute.insert(String::from("memory"), Value::String(String::from("128mb")));
-    compute.insert(
-        String::from("effectiveClass"),
-        Value::String(String::from("function")),
-    );
-    compute.insert(
-        String::from("effectiveMemory"),
-        Value::String(String::from("1gb")),
-    );
-    compute.insert(
-        String::from("requestedClass"),
-        Value::String(String::from("edge")),
-    );
-    compute.insert(
-        String::from("requestedMemory"),
-        Value::String(String::from("128mb")),
-    );
-    compute.insert(
-        String::from("edgeEligibility"),
-        Value::String(String::from("pending")),
-    );
-    Ok(compute)
 }
 
 fn normalize_function(
@@ -660,9 +609,52 @@ fn normalize_function(
 fn normalize_dedicated(
     scanner: &StaticConfigScanner<'_>,
     mut machine: Map<String, Value>,
-    compute: Map<String, Value>,
+    mut compute: Map<String, Value>,
     span: Span,
 ) -> anyhow::Result<Map<String, Value>> {
+    let size = match compute.get("size") {
+        None => None,
+        Some(Value::String(value)) => Some(value.clone()),
+        Some(_) => {
+            return Err(scanner.error(
+                span,
+                "route",
+                "Dedicated size must be one of 'nano', 'small', 'medium', 'large', 'xlarge', '2xlarge', or '4xlarge'",
+            ));
+        }
+    };
+    let profile = match size.as_deref() {
+        None => None,
+        Some("nano") => Some(("256mb", 1)),
+        Some("small") => Some(("512mb", 1)),
+        Some("medium") => Some(("1gb", 1)),
+        Some("large") => Some(("2gb", 2)),
+        Some("xlarge") => Some(("4gb", 2)),
+        Some("2xlarge") => Some(("8gb", 4)),
+        Some("4xlarge") => Some(("16gb", 8)),
+        Some(_) => {
+            return Err(scanner.error(
+                span,
+                "route",
+                "Dedicated size must be one of 'nano', 'small', 'medium', 'large', 'xlarge', '2xlarge', or '4xlarge'",
+            ));
+        }
+    };
+    if profile.is_some()
+        && ["memory", "memoryMb", "cpu", "cpus"]
+            .iter()
+            .any(|key| compute.contains_key(*key) || machine.contains_key(*key))
+    {
+        return Err(scanner.error(
+            span,
+            "route",
+            "Dedicated size cannot be combined with custom memory or CPU",
+        ));
+    }
+    if let Some((memory, cpus)) = profile {
+        compute.insert(String::from("memory"), Value::String(String::from(memory)));
+        compute.insert(String::from("cpu"), Value::Number(Number::from(cpus)));
+    }
     let cpu = [
         compute.get("cpu"),
         compute.get("cpus"),

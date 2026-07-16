@@ -108,24 +108,17 @@ export const validRouteConfigFixtures: RouteConfigFixture[] = [
     },
   },
   {
-    name: 'edge source intent remains a pending request on safe function compute',
+    name: 'provider-neutral dedicated size profile expands to concrete capacity',
     source: `
       export const route = {
-        compute: { class: 'edge', memory: '128mb' },
+        compute: { class: 'dedicated', size: 'large' },
       };
       export function GET() {}
     `,
-    expectedKind: 'serverless',
+    expectedKind: 'hot',
     expectedConfig: {
-      compute: {
-        class: 'edge',
-        memory: '128mb',
-        effectiveClass: 'function',
-        effectiveMemory: '1gb',
-        requestedClass: 'edge',
-        requestedMemory: '128mb',
-        edgeEligibility: 'pending',
-      },
+      compute: { class: 'dedicated', size: 'large', memory: '2gb', cpu: 2 },
+      machine: { memoryMb: 2048, cpus: 2 },
     },
   },
   {
@@ -216,9 +209,9 @@ export const invalidRouteConfigFixtures = [
     message: 'Function memory must be one of',
   },
   {
-    name: 'edge cpu selection',
-    source: `export const route = { compute: { class: 'edge', memory: '128mb', cpu: 1 } };`,
-    message: 'Edge requests cannot select CPU',
+    name: 'removed edge compute class',
+    source: `export const route = { compute: { class: 'edge', memory: '128mb' } };`,
+    message: "route.compute.class must be 'function' or 'dedicated'",
   },
   {
     name: 'non-decimal numeric literal',
@@ -238,7 +231,22 @@ export const invalidRouteConfigFixtures = [
   {
     name: 'non-string compute class',
     source: `export const route = { compute: { class: 12 } };`,
-    message: "route.compute.class must be 'edge', 'function', or 'dedicated'",
+    message: "route.compute.class must be 'function' or 'dedicated'",
+  },
+  {
+    name: 'unknown dedicated size profile',
+    source: `export const route = { compute: { class: 'dedicated', size: 'huge' } };`,
+    message: 'Dedicated size must be one of',
+  },
+  {
+    name: 'dedicated size conflicts with custom capacity',
+    source: `export const route = { compute: { class: 'dedicated', size: 'large', memory: '8gb' } };`,
+    message: 'Dedicated size cannot be combined with custom memory or CPU',
+  },
+  {
+    name: 'dedicated size conflicts with legacy machine capacity',
+    source: `export const route = { compute: { class: 'dedicated', size: 'large' }, machine: { memoryMb: 8192 } };`,
+    message: 'Dedicated size cannot be combined with custom memory or CPU',
   },
   {
     name: 'fractional cpu',

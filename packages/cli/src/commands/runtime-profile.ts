@@ -14,11 +14,11 @@ export interface RuntimeRouteInspection {
   hasWebsocket?: boolean;
   effectiveComputeClass?: 'function' | 'dedicated';
   requestedComputeClass?: ComputeClass;
-  edgeEligibility?: 'pending';
   memory?: string | number;
   cpu?: number;
+  size?: string;
   timeout?: number;
-  providerRecommendation?: 'elastic-function-provider' | 'dedicated-fly-machine' | 'cloudflare-workers-for-platforms';
+  providerRecommendation?: 'serverless-function' | 'dedicated-machine';
   confidence?: 'high' | 'medium';
   reasons?: string[];
   warnings: string[];
@@ -68,39 +68,20 @@ function computeForRoute(route: ApiRoute): Record<string, unknown> {
 }
 
 function computeDetails(route: ApiRoute): Pick<RuntimeRouteInspection,
-  'effectiveComputeClass' | 'requestedComputeClass' | 'edgeEligibility' | 'memory' | 'cpu' | 'timeout' |
+  'effectiveComputeClass' | 'requestedComputeClass' | 'memory' | 'cpu' | 'size' | 'timeout' |
   'providerRecommendation' | 'confidence' | 'reasons'> {
   const compute = computeForRoute(route);
   const effectiveComputeClass = compute.effectiveClass === 'dedicated' || compute.class === 'dedicated'
     ? 'dedicated'
     : 'function';
-  const requestedComputeClass = compute.class === 'edge' || compute.requestedClass === 'edge'
-    ? 'edge'
-    : effectiveComputeClass;
-  const effectiveMemory = compute.effectiveMemory ?? compute.memory;
+  const requestedComputeClass = effectiveComputeClass;
+  const effectiveMemory = compute.memory;
   const memory = typeof effectiveMemory === 'string' || typeof effectiveMemory === 'number'
     ? effectiveMemory
     : undefined;
   const cpu = typeof compute.cpu === 'number' ? compute.cpu : undefined;
+  const size = typeof compute.size === 'string' ? compute.size : undefined;
   const timeout = configNumber(route.config, 'timeout');
-  const edgeEligibility = compute.edgeEligibility === 'pending' ? 'pending' : undefined;
-
-  if (requestedComputeClass === 'edge') {
-    return {
-      effectiveComputeClass,
-      requestedComputeClass,
-      edgeEligibility,
-      memory,
-      cpu,
-      timeout,
-      providerRecommendation: 'cloudflare-workers-for-platforms',
-      confidence: 'high',
-      reasons: [
-        'Edge is an optimization request and remains on Function until the platform marks this endpoint eligible from observed memory/runtime telemetry.',
-        'Edge has a fixed 128mb isolate ceiling; the safe fallback is Function at 1gb.',
-      ],
-    };
-  }
 
   if (effectiveComputeClass === 'dedicated') {
     return {
@@ -108,8 +89,9 @@ function computeDetails(route: ApiRoute): Pick<RuntimeRouteInspection,
       requestedComputeClass,
       memory,
       cpu,
+      size,
       timeout,
-      providerRecommendation: 'dedicated-fly-machine',
+      providerRecommendation: 'dedicated-machine',
       confidence: 'high',
       reasons: [route.hasWebsocket
         ? 'WebSocket upgrades require persistent Dedicated compute.'
@@ -122,8 +104,9 @@ function computeDetails(route: ApiRoute): Pick<RuntimeRouteInspection,
     requestedComputeClass,
     memory,
     cpu,
+    size,
     timeout,
-    providerRecommendation: 'elastic-function-provider',
+    providerRecommendation: 'serverless-function',
     confidence: 'medium',
     reasons: ['Stateless endpoints and tasks default to scale-to-zero Function compute at 1gb.'],
   };
@@ -180,10 +163,6 @@ function inspectApiRoute(route: ApiRoute): RuntimeRouteInspection[] {
   }
 
   const details = computeDetails(route);
-  if (details.requestedComputeClass === 'edge' && details.edgeEligibility === 'pending') {
-    warnings.push('Edge request is pending platform eligibility; effective runtime remains Function at 1gb.');
-  }
-
   const base: RuntimeRouteInspection = {
     type: 'api',
     pattern: route.urlPattern,
@@ -283,17 +262,6 @@ export function adviseRuntime(manifest: RouteManifest): RuntimeAdviceResult {
     const schedule = configString(route.config, 'schedule');
     const timeout = configNumber(route.config, 'timeout');
     const details = computeDetails(route);
-
-    if (details.requestedComputeClass === 'edge') {
-      advice.push({
-        pattern: route.urlPattern,
-        type: 'api',
-        currentProfile,
-        recommendation: currentProfile,
-        severity: 'warn',
-        reason: 'Edge request is pending measured platform eligibility; deploys continue on Function at 1gb until approved.',
-      });
-    }
 
     if (route.hasWebsocket) {
       advice.push({

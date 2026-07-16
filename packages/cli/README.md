@@ -6,7 +6,7 @@ CLI for [Vura](https://vura.io) — develop, build, and run tasks for Vura appli
 
 ## What it does
 
-`@celsian/vura-cli` provides the `vura` command for developing, building, inspecting, and deploying Vura projects. It reports effective Function/Dedicated placement and pending Edge requests, including memory, CPU, timeout, provider recommendation, confidence, and reasons. `create-vura` installs the managed deployment adapter, so `vura deploy` works without a follow-up package install. Self-hosted builds can use the Lambda or Cloudflare adapters. The package was historically named `then`/`thenjs`; the only installed bin is `vura`.
+`@celsian/vura-cli` provides the `vura` command for developing, building, inspecting, and deploying Vura projects. It reports effective Function/Dedicated placement, including memory, CPU, timeout, provider-neutral runtime recommendations, confidence, and reasons. Dedicated endpoints can select `nano`, `small`, `medium`, `large`, `xlarge`, `2xlarge`, or `4xlarge` capacity profiles. `create-vura` installs the managed deployment adapter, so `vura deploy` works without a follow-up package install. Self-hosted builds can use the Lambda or Cloudflare adapters. The package was historically named `then`/`thenjs`; the only installed bin is `vura`.
 
 ## Install
 
@@ -44,9 +44,9 @@ vura routes inspect --json
 vura runtime advise --json
 ```
 
-An Edge declaration is a request, not an override. The CLI reports it as
-pending while the route continues on 1 GiB Function compute; only measured
-platform eligibility can promote it to the fixed 128 MiB Edge runtime.
+Managed routes choose between scale-to-zero Function compute and persistent
+Dedicated compute. Function memory defaults to 1 GiB and supports 1, 4, 6, 8,
+and 12 GiB profiles.
 
 (`then` is a shell reserved word — use `vura` in all scripts.)
 
