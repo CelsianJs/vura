@@ -23,7 +23,7 @@
  * serverless/adapter invocation paths.
  */
 
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -311,13 +311,11 @@ async function bundleServerEntry(
  * Generate a self-contained serverless function entry for a single API route.
  * No external dependencies — includes inline req/reply shim.
  */
-export function generateFunctionEntry(route: ApiRoute, projectRoot: string): string {
+export function generateFunctionEntry(route: ApiRoute, projectRoot: string, globalHooksFile?: string | null): string {
   const varName = routeToVarName(route);
-
   return `import * as ${varName} from './route.js';
-
+${globalHooksFile ? "import * as globalHooksMod from './hooks.js';" : 'const globalHooksMod = {};'}
 const handlers = { ${route.methods.map(m => `${m}: ${varName}.${m}`).join(', ')} };
-
 function parseBody(request) {
   const ct = request.headers.get('content-type') || '';
   if (!request.body) return Promise.resolve(null);
@@ -325,6 +323,99 @@ function parseBody(request) {
   if (ct.includes('application/x-www-form-urlencoded')) return request.text().then(t => Object.fromEntries(new URLSearchParams(t)));
   return request.text();
 }
+function routeParams(pathname) {
+  const expected = ${JSON.stringify(route.urlPattern)}.split('/').filter(Boolean);
+  const actual = pathname.split('/').filter(Boolean);
+  const params = {};
+  let cursor = 0;
+  for (const segment of expected) {
+    if (segment === '*') {
+      params.wildcard = decodeURIComponent(actual.slice(cursor).join('/'));
+      cursor = actual.length;
+      break;
+    }
+    const value = actual[cursor];
+    if (value === undefined) return {};
+    if (segment.startsWith(':')) params[segment.slice(1)] = decodeURIComponent(value);
+    else if (segment !== value) return {};
+    cursor += 1;
+  }
+  return cursor === actual.length ? params : {};
+}
+function normalizeHooks(hooks) {
+  if (!hooks) return undefined;
+  const list = (value) => value ? (Array.isArray(value) ? value : [value]) : [];
+  return { onRequest: list(hooks.onRequest), onError: list(hooks.onError), onResponse: list(hooks.onResponse) };
+}
+
+function mergeHooks(globalHooks, routeHooks) {
+  const merged = (name) => [...(globalHooks?.[name] || []), ...(routeHooks?.[name] || [])];
+  return { onRequest: merged('onRequest'), onError: merged('onError'), onResponse: merged('onResponse') };
+}
+
+function validationIssues(target, error) {
+  const issues = error && Array.isArray(error.issues)
+    ? error.issues
+    : [{ path: [], message: error?.message || 'Invalid value' }];
+  return { target, issues: issues.map((issue) => ({
+      path: Array.isArray(issue.path) ? issue.path.join('.') : String(issue.path || ''),
+      message: issue.message || 'Invalid value',
+      ...(issue.code ? { code: issue.code } : {}),
+  })) };
+}
+
+function validateRequest(req, schema) {
+  const errors = [];
+  if (schema.body) {
+    const result = schema.body.safeParse(req.parsedBody);
+    if (!result.success) errors.push(validationIssues('body', result.error));
+    else { req.parsedBody = result.data; req.body = result.data; }
+  }
+  if (schema.query) {
+    const result = schema.query.safeParse(req.query);
+    if (!result.success) errors.push(validationIssues('query', result.error));
+    else req.parsedQuery = result.data;
+  }
+  if (schema.params) {
+    const result = schema.params.safeParse(req.params);
+    if (!result.success) errors.push(validationIssues('params', result.error));
+    else req.params = result.data;
+  }
+  if (errors.length) {
+    const issueCount = errors.reduce((count, error) => count + error.issues.length, 0);
+    const message = 'Validation failed: ' + issueCount + ' issue' + (issueCount > 1 ? 's' : '')
+      + ' in ' + errors.map((error) => error.target).join(', ');
+    return { statusCode: 400, body: { error: message, code: 'VALIDATION_ERROR', details: errors } };
+  }
+  req.validated = {
+    body: req.parsedBody,
+    query: schema.query ? req.parsedQuery : req.query,
+    params: req.params,
+  };
+  return null;
+}
+
+async function runHooks(hooks, ...args) {
+  for (const hook of hooks || []) await hook(...args);
+}
+
+async function runOnError(error, req, reply, hooks) {
+  let handled = false;
+  for (const hook of hooks || []) {
+    try { await hook(error, req, reply); handled = true; }
+    catch (hookError) { error = hookError; }
+  }
+  return { handled, error };
+}
+
+const globalHooks = normalizeHooks(globalHooksMod);
+const routeHooks = normalizeHooks(${varName}.hooks || {
+  onRequest: ${varName}.onRequest,
+  onError: ${varName}.onError,
+  onResponse: ${varName}.onResponse,
+});
+const lifecycleHooks = mergeHooks(globalHooks, routeHooks);
+const routeSchema = ${varName}.schema;
 
 // Worker-compatible fetch handler (Cloudflare Workers, Deno Deploy, etc.)
 export default {
@@ -342,7 +433,7 @@ export default {
       method,
       url: url.pathname,
       headers: Object.fromEntries(request.headers.entries()),
-      params: {},
+      params: routeParams(url.pathname),
       query: Object.fromEntries(url.searchParams.entries()),
       body,
       parsedBody: body,
@@ -359,7 +450,34 @@ export default {
       redirect(url, status) { statusCode = status || 302; responseHeaders['location'] = url; responseBody = 'Redirecting to ' + url; return null; },
     };
 
-    const result = await handlerFn(req, reply);
+    const startedAt = performance.now();
+    let result;
+    let hadError = false;
+    try {
+      await runHooks(lifecycleHooks.onRequest, req, reply);
+      if (routeSchema) {
+        const validationError = validateRequest(req, routeSchema);
+        if (validationError) {
+          statusCode = validationError.statusCode;
+          responseBody = JSON.stringify(validationError.body);
+        }
+      }
+      if (responseBody === null) result = await handlerFn(req, reply);
+    } catch (error) {
+      hadError = true;
+      statusCode = error && error.statusCode ? error.statusCode : 500;
+      const handled = await runOnError(error, req, reply, lifecycleHooks.onError);
+      if (!handled.handled && responseBody === null) {
+        responseBody = JSON.stringify({
+          error: statusCode === 500 ? 'Internal Server Error' : (handled.error?.message || 'Request failed'),
+        });
+      }
+    } finally {
+      const durationMs = Math.round((performance.now() - startedAt) * 100) / 100;
+      try {
+        await runHooks(lifecycleHooks.onResponse, req, reply, { statusCode, durationMs, hadError });
+      } catch {}
+    }
     if (result instanceof Response) return result;
     if (responseBody !== null) return new Response(responseBody, { status: statusCode, headers: responseHeaders });
     if (result && typeof result === 'object') return new Response(JSON.stringify(result), { status: statusCode, headers: responseHeaders });
@@ -527,16 +645,24 @@ export async function build(
   // 2. Generate function entries for serverless routes
   const functions: BuildResult['functions'] = [];
   const serverlessRoutes = manifest.api.filter(r => r.kind === 'serverless');
+  let globalHooksBundle: Buffer | undefined;
+  if (globalHooksFile && serverlessRoutes.length > 0) {
+    const bundledHooksPath = join(functionsDir, '_global-hooks.js');
+    await bundleRouteModule({ filePath: globalHooksFile }, projectRoot, bundledHooksPath, 'neutral');
+    globalHooksBundle = await readFile(bundledHooksPath);
+    await rm(bundledHooksPath, { force: true });
+  }
 
   for (const route of serverlessRoutes) {
     const funcName = route.urlPattern.replace(/[/:*]/g, '_').replace(/^_/, '');
     const funcDir = join(functionsDir, funcName);
     await mkdir(funcDir, { recursive: true });
 
-    const entryCode = generateFunctionEntry(route, projectRoot);
+    const entryCode = generateFunctionEntry(route, projectRoot, globalHooksFile);
     const entryPath = join(funcDir, 'index.js');
     await writeFile(entryPath, entryCode);
     await bundleRouteModule(route, projectRoot, join(funcDir, 'route.js'), 'neutral');
+    if (globalHooksBundle) await writeFile(join(funcDir, 'hooks.js'), globalHooksBundle);
 
     functions.push({ route, entryPath });
   }

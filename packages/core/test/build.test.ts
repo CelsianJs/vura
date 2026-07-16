@@ -306,6 +306,40 @@ describe('generateFunctionEntry', () => {
     expect(entry).toContain('GET:');
     expect(entry).toContain('POST:');
   });
+
+  it('derives dynamic route params inside the self-contained handler', () => {
+    const route: ApiRoute = {
+      filePath: 'src/api/users/[id].ts',
+      urlPattern: '/api/users/:id',
+      methods: ['GET'],
+      kind: 'serverless',
+      config: {},
+    };
+
+    const entry = generateFunctionEntry(route, '/project');
+
+    expect(entry).toContain('function routeParams(pathname)');
+    expect(entry).toContain('"/api/users/:id".split');
+    expect(entry).toContain('params: routeParams(url.pathname)');
+  });
+
+  it('loads global hooks and keeps route validation in the Function lifecycle', () => {
+    const route: ApiRoute = {
+      filePath: 'src/api/echo.ts',
+      urlPattern: '/api/echo',
+      methods: ['POST'],
+      kind: 'serverless',
+      config: {},
+    };
+
+    const entry = generateFunctionEntry(route, '/project', 'src/api/_hooks.ts');
+
+    expect(entry).toContain("import * as globalHooksMod from './hooks.js'");
+    expect(entry).toContain('const routeSchema = route_api_echo.schema');
+    expect(entry).toContain('await runHooks(lifecycleHooks.onRequest');
+    expect(entry).toContain('await runOnError(error, req, reply, lifecycleHooks.onError)');
+    expect(entry).toContain('await runHooks(lifecycleHooks.onResponse');
+  });
 });
 
 // ─── build() bundling error reporting ───

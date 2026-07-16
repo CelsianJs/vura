@@ -57,10 +57,11 @@ async function runFromArchive(buffer: Buffer, script: string): Promise<string> {
  * We script the status endpoint to return `building` once (with two log
  * lines available) and then `ready`.
  */
-function jsonResponse(status: number, body: unknown): Response {
+function jsonResponse(status: number, body: unknown, headers?: Record<string, string>): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
+    headers: new Headers(headers),
     json: async () => body,
   } as unknown as Response;
 }
@@ -131,6 +132,50 @@ describe('deployToVura', () => {
     const joined = printed.join('');
     expect(joined).toContain('Installing deps');
     expect(joined).toContain('Build complete');
+  });
+
+  it('backs off through rate limits and redacts provider internals from streamed logs', async () => {
+    let statusPoll = 0;
+    let logPoll = 0;
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const value = String(url);
+      if (value.endsWith('/v1/projects/proj_123/deployments')) {
+        return jsonResponse(201, { data: { id: 'dep_rate', url: 'app.vura.io', status: 'building' } });
+      }
+      if (value.endsWith('/v1/deployments/dep_rate/logs')) {
+        logPoll++;
+        if (logPoll === 1) return jsonResponse(429, {}, { 'retry-after': '0.001' });
+        return jsonResponse(200, {
+          data: [{
+            sequence: 1,
+            stream: 'stdout',
+            content: '[deploy:hot-image] Hot server image pushed: registry.fly.io/vura-hot-app:deployment-1\n',
+          }],
+        });
+      }
+      if (value.endsWith('/v1/deployments/dep_rate')) {
+        statusPoll++;
+        if (statusPoll === 1) return jsonResponse(429, {}, { 'retry-after': '0.001' });
+        return jsonResponse(200, { data: { status: 'ready' } });
+      }
+      throw new Error(`unexpected fetch: ${value}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const printed: string[] = [];
+    await expect(deployToVura({
+      distDir,
+      apiUrl: 'https://api.test',
+      token: 'tok_abc',
+      projectId: 'proj_123',
+      pollIntervalMs: 1,
+      maxPolls: 3,
+      logger: (line) => printed.push(line),
+    })).resolves.toMatchObject({ status: 'ready' });
+
+    const output = printed.join('');
+    expect(output).toContain('[deploy:runtime-image] runtime image pushed: managed-runtime-image');
+    expect(output).not.toMatch(/fly|hot server image/i);
   });
 
   it('rejects with meta.build_error when the deployment fails', async () => {

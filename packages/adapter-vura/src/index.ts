@@ -94,9 +94,7 @@ export interface DeployToVuraOptions {
   manifest?: unknown;
   /** Git metadata to attach to the upload. */
   gitInfo?: { ref?: string; sha?: string; message?: string };
-  /** Poll interval between status/log fetches, in ms (default: 1000). */
   pollIntervalMs?: number;
-  /** Maximum number of polls before giving up (default: 300). */
   maxPolls?: number;
   /** Receives human-readable progress + log lines (default: stdout). */
   logger?: (line: string) => void;
@@ -426,8 +424,8 @@ export async function deployToVura(options: DeployToVuraOptions): Promise<Deploy
     production = false,
     manifest: suppliedManifest,
     gitInfo = {},
-    pollIntervalMs = 1000,
-    maxPolls = 300,
+    pollIntervalMs = 3000,
+    maxPolls = 400,
     logger = (line: string) => process.stdout.write(line),
   } = options;
 
@@ -508,6 +506,24 @@ interface DeploymentRecord {
   meta?: { build_error?: string };
 }
 
+function retryAfterMs(response: Response): number {
+  const raw = response.headers?.get?.('retry-after');
+  if (!raw) return 0;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const date = Date.parse(raw);
+  return Number.isNaN(date) ? 0 : Math.max(0, date - Date.now());
+}
+
+function presentDeploymentLog(value: string): string {
+  return value
+    .replace(/registry\.fly\.io\/[A-Za-z0-9._/:@-]+/g, 'managed-runtime-image')
+    .replace(/\[deploy:hot-image\]/gi, '[deploy:runtime-image]')
+    .replace(/hot server image/gi, 'runtime image')
+    .replace(/Fly app/gi, 'runtime target')
+    .replace(/Fly Machines/gi, 'runtime provider');
+}
+
 /**
  * Poll deployment status + logs until a terminal state, printing log lines as
  * they arrive. Resolves with `'ready'`; throws on `failed`/`cancelled`/timeout.
@@ -524,6 +540,7 @@ async function pollDeployment(
   let record: DeploymentRecord = { status };
 
   for (let i = 0; i < maxPolls; i++) {
+    let retryDelayMs = 0;
     // Check deployment status
     const statusRes = await fetch(`${apiUrl}/v1/deployments/${deploymentId}`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -533,6 +550,8 @@ async function pollDeployment(
       const data = (await statusRes.json()) as { data: DeploymentRecord };
       record = data.data;
       status = record.status;
+    } else if (statusRes.status === 429) {
+      retryDelayMs = Math.max(retryDelayMs, retryAfterMs(statusRes));
     }
 
     // Fetch new logs
@@ -547,12 +566,14 @@ async function pollDeployment(
       const newLogs = logsData.data.filter((l) => l.sequence > lastSequence);
 
       for (const log of newLogs) {
-        const text = log.content ?? log.message ?? '';
+        const text = presentDeploymentLog(log.content ?? log.message ?? '');
         const prefix = log.stream === 'stderr' ? '\x1b[31m' : '\x1b[90m';
         logger(`${prefix}${text}\x1b[0m`);
         if (!text.endsWith('\n')) logger('\n');
         lastSequence = log.sequence;
       }
+    } else if (logsRes.status === 429) {
+      retryDelayMs = Math.max(retryDelayMs, retryAfterMs(logsRes));
     }
 
     // Check if deployment is done
@@ -564,9 +585,12 @@ async function pollDeployment(
       throw new Error('Deployment was cancelled.');
     }
 
-    // Wait before next poll
-    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    await new Promise((resolve) => setTimeout(resolve, Math.max(pollIntervalMs, retryDelayMs)));
   }
 
-  throw new Error(`Deployment did not reach a terminal state after ${maxPolls} polls.`);
+  const timeoutMinutes = Math.max(1, Math.round((maxPolls * pollIntervalMs) / 60_000));
+  throw new Error(
+    `Deployment is still running after about ${timeoutMinutes} minute(s) ` +
+    `(${maxPolls} checks). Inspect it with vura deployments.`,
+  );
 }

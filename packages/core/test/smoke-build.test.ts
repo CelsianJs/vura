@@ -87,6 +87,18 @@ export async function POST(req: any, reply: any) {
 `,
   );
 
+  const usersDir = join(apiDir, 'users');
+  mkdirSync(usersDir, { recursive: true });
+  writeFileSync(
+    join(usersDir, '[id].ts'),
+    `export const onRequest = (req: any, reply: any) => reply.header('x-vura-route-hook', 'true');
+
+export async function GET(req: any, reply: any) {
+  return reply.json({ id: req.params.id });
+}
+`,
+  );
+
   // src/api/_hooks.ts — global onRequest hook
   writeFileSync(
     join(apiDir, '_hooks.ts'),
@@ -165,6 +177,13 @@ describe('smoke-build: end-to-end build pipeline', () => {
           kind: 'task',
           config: { schedule: '*/5 * * * *' },
         },
+        {
+          filePath: 'src/api/users/[id].ts',
+          urlPattern: '/api/users/:id',
+          methods: ['GET'],
+          kind: 'serverless',
+          config: {},
+        },
       ],
       pages: [
         {
@@ -199,7 +218,7 @@ describe('smoke-build: end-to-end build pipeline', () => {
   });
 
   it('writes function entries for serverless routes', () => {
-    expect(buildResult.functions.length).toBe(2);
+    expect(buildResult.functions.length).toBe(3);
     expect(
       JSON.parse(readFileSync(join(projectRoot, 'dist', 'functions', 'package.json'), 'utf-8')),
     ).toEqual({ type: 'module' });
@@ -235,7 +254,7 @@ console.log(JSON.stringify({ status: response.status, body: await response.json(
     const manifestPath = join(projectRoot, 'dist', 'manifest.json');
     expect(existsSync(manifestPath)).toBe(true);
     const written = JSON.parse(readFileSync(manifestPath, 'utf-8'));
-    expect(written.api).toHaveLength(3);
+    expect(written.api).toHaveLength(4);
     expect(written.pages).toHaveLength(1);
   });
 
@@ -333,9 +352,12 @@ console.log(JSON.stringify({ status: response.status, body: await response.json(
     for (const fn of buildResult.functions) {
       const code = readFileSync(fn.entryPath, 'utf-8');
       const routeCode = readFileSync(join(dirname(fn.entryPath), 'route.js'), 'utf-8');
+      const hooksCode = readFileSync(join(dirname(fn.entryPath), 'hooks.js'), 'utf-8');
       expect(code).toContain("from './route.js'");
+      expect(code).toContain("from './hooks.js'");
       expect(code).not.toMatch(/from ['\"].*\.tsx?['\"]/);
       expect(routeCode).not.toContain('req: any');
+      expect(hooksCode).not.toContain('req: any');
     }
 
     const echo = buildResult.functions.find((fn) => fn.route.urlPattern === '/api/echo')!;
@@ -349,6 +371,33 @@ console.log(JSON.stringify({ status: response.status, body: await response.json(
 `);
     expect(echoResult.status).toBe(200);
     expect(echoResult.body).toEqual({ echo: { text: 'hello' } });
+
+    const invalidEcho = runModuleJson(echo.entryPath, `
+const response = await mod.default.fetch(new Request('https://example.com/api/echo', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ text: 42 }),
+}));
+console.log(JSON.stringify({
+  status: response.status,
+  hook: response.headers.get('x-vura-smoke'),
+  body: await response.json(),
+}));
+`);
+    expect(invalidEcho.status).toBe(400);
+    expect(invalidEcho.hook).toBe('true');
+    expect(invalidEcho.body).toMatchObject({ code: 'VALIDATION_ERROR' });
+
+    const dynamic = buildResult.functions.find((fn) => fn.route.urlPattern === '/api/users/:id')!;
+    const dynamicResult = runModuleJson(dynamic.entryPath, `
+const response = await mod.default.fetch(new Request('https://example.com/api/users/42'));
+console.log(JSON.stringify({
+  status: response.status,
+  hook: response.headers.get('x-vura-route-hook'),
+  body: await response.json(),
+}));
+`);
+    expect(dynamicResult).toEqual({ status: 200, hook: 'true', body: { id: '42' } });
   });
 
   it('task entries bundle route.js + core executor, not raw TypeScript', async () => {
