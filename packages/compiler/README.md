@@ -29,6 +29,16 @@ const result = scanRoute(source, 'ts');
 // result.methods === []  (websocket handler, not HTTP methods)
 ```
 
+Managed compute has two public classes: scale-to-zero `function` endpoints with
+1/4/6/8/12 GB memory, and persistent `dedicated` endpoints. Dedicated routes can
+use provider-neutral capacity profiles:
+
+```ts
+export const route = {
+  compute: { class: 'dedicated', size: 'large' }, // 2 vCPU / 2 GB
+};
+```
+
 ## Documentation
 
 _vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._

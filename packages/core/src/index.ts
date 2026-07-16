@@ -17,7 +17,7 @@ export type {
 
 export type {
   ComputeClass,
-  EdgeEligibility,
+  DedicatedSize,
   FunctionMemory,
   NormalizedRouteCompute,
   RouteComputeRequest,

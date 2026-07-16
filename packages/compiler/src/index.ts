@@ -13,27 +13,22 @@ export interface StaticConfigObject {
 }
 
 export type LegacyRouteKind = 'serverless' | 'hot' | 'task';
-export type ComputeClass = 'edge' | 'function' | 'dedicated';
+export type ComputeClass = 'function' | 'dedicated';
 export type FunctionMemory = '1gb' | '4gb' | '6gb' | '8gb' | '12gb';
-export type EdgeEligibility = 'pending';
+export type DedicatedSize = 'nano' | 'small' | 'medium' | 'large' | 'xlarge' | '2xlarge' | '4xlarge';
 
 export interface RouteComputeRequest {
   class?: ComputeClass;
-  memory?: FunctionMemory | '128mb' | string;
+  memory?: FunctionMemory | string;
   cpu?: number;
+  size?: DedicatedSize;
 }
 
 export interface NormalizedRouteCompute {
-  /** Requested runtime class. Edge remains gated by `edgeEligibility`. */
   class: ComputeClass;
-  memory?: FunctionMemory | '128mb' | string | number;
+  memory?: FunctionMemory | string | number;
   cpu?: number;
-  /** Effective fallback while a requested Edge endpoint is not eligible. */
-  effectiveClass?: 'function' | 'dedicated';
-  effectiveMemory?: FunctionMemory | string | number;
-  requestedClass?: 'edge';
-  requestedMemory?: '128mb';
-  edgeEligibility?: EdgeEligibility;
+  size?: DedicatedSize;
 }
 
 export interface ScanResult {
@@ -68,6 +63,15 @@ export class StaticConfigParseError extends SyntaxError {
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'] as const;
 const FUNCTION_MEMORY = new Set<FunctionMemory>(['1gb', '4gb', '6gb', '8gb', '12gb']);
+const DEDICATED_SIZES: Record<DedicatedSize, { memory: string; cpu: number }> = {
+  nano: { memory: '256mb', cpu: 1 },
+  small: { memory: '512mb', cpu: 1 },
+  medium: { memory: '1gb', cpu: 1 },
+  large: { memory: '2gb', cpu: 2 },
+  xlarge: { memory: '4gb', cpu: 2 },
+  '2xlarge': { memory: '8gb', cpu: 4 },
+  '4xlarge': { memory: '16gb', cpu: 8 },
+};
 const ROUTE_KINDS = new Set<LegacyRouteKind>(['serverless', 'hot', 'task']);
 const PAGE_PRESENTATION_KEYS = new Set(['styles']);
 const OMIT_DYNAMIC_VALUE = Symbol('omit-dynamic-static-config-value');
@@ -542,10 +546,10 @@ export function normalizeRouteConfig(
   const machine = isStaticObject(config.machine) ? config.machine : {};
   const explicitClass = optionalString(rawCompute.class);
   if (rawCompute.class !== undefined && explicitClass === undefined) {
-    validationError(source, 'class', "route.compute.class must be 'edge', 'function', or 'dedicated'");
+    validationError(source, 'class', "route.compute.class must be 'function' or 'dedicated'");
   }
-  if (explicitClass !== undefined && !['edge', 'function', 'dedicated'].includes(explicitClass)) {
-    validationError(source, 'class', "route.compute.class must be 'edge', 'function', or 'dedicated'");
+  if (explicitClass !== undefined && !['function', 'dedicated'].includes(explicitClass)) {
+    validationError(source, 'class', "route.compute.class must be 'function' or 'dedicated'");
   }
 
   const legacyDedicated = kind === 'hot' || config.hot === true ||
@@ -558,25 +562,7 @@ export function normalizeRouteConfig(
   }
 
   let compute: StaticConfigObject;
-  if (requestedClass === 'edge') {
-    const requestedMemory = rawCompute.memory ?? '128mb';
-    if (requestedMemory !== '128mb') {
-      validationError(source, 'memory', "Edge requests have fixed memory '128mb'; Function supports 1gb/4gb/6gb/8gb/12gb");
-    }
-    if (rawCompute.cpu !== undefined) {
-      validationError(source, 'cpu', 'Edge requests cannot select CPU; request Function or Dedicated compute instead');
-    }
-    compute = {
-      ...rawCompute,
-      class: 'edge',
-      memory: '128mb',
-      effectiveClass: 'function',
-      effectiveMemory: '1gb',
-      requestedClass: 'edge',
-      requestedMemory: '128mb',
-      edgeEligibility: 'pending',
-    };
-  } else if (requestedClass === 'function') {
+  if (requestedClass === 'function') {
     const memory = rawCompute.memory ?? '1gb';
     if (typeof memory !== 'string' || !FUNCTION_MEMORY.has(memory as FunctionMemory)) {
       validationError(source, 'memory', "Function memory must be one of '1gb', '4gb', '6gb', '8gb', or '12gb'");
@@ -584,8 +570,30 @@ export function normalizeRouteConfig(
     assertCpu(rawCompute.cpu, source);
     compute = { ...rawCompute, class: 'function', memory };
   } else {
+    const size = optionalString(rawCompute.size);
+    if (rawCompute.size !== undefined && (!size || !(size in DEDICATED_SIZES))) {
+      validationError(source, 'size', "Dedicated size must be one of 'nano', 'small', 'medium', 'large', 'xlarge', '2xlarge', or '4xlarge'");
+    }
+    if (size && [
+      rawCompute.memory,
+      rawCompute.memoryMb,
+      rawCompute.cpu,
+      rawCompute.cpus,
+      machine.memory,
+      machine.memoryMb,
+      machine.cpu,
+      machine.cpus,
+    ].some((value) => value !== undefined)) {
+      validationError(source, 'size', 'Dedicated size cannot be combined with custom memory or CPU');
+    }
+    const profile = size ? DEDICATED_SIZES[size as DedicatedSize] : null;
     assertCpu(rawCompute.cpu ?? rawCompute.cpus ?? machine.cpu ?? machine.cpus, source);
-    compute = { ...machine, ...rawCompute, class: 'dedicated' };
+    compute = {
+      ...machine,
+      ...rawCompute,
+      ...(profile ? { memory: profile.memory, cpu: profile.cpu } : {}),
+      class: 'dedicated',
+    };
   }
 
   config.compute = compute;

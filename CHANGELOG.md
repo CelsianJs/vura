@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.12 - 2026-07-16
+
+### Two-tier managed compute
+
+- Removes the 128 MiB Edge endpoint class from route configuration and runtime guidance; historical Edge manifests safely fall back to a 1 GiB Function.
+- Keeps scale-to-zero Functions at provider-neutral 1/4/6/8/12 GiB profiles and persistent Dedicated compute for WebSockets, stateful work, and latency-sensitive endpoints.
+- Adds provider-neutral Dedicated `nano`, `small`, `medium`, `large`, `xlarge`, `2xlarge`, and `4xlarge` profiles while preserving explicit memory/CPU sizing.
+- Keeps the JavaScript and native Rust scanners aligned on validation and normalization.
+
 ## 0.5.11 - 2026-07-16
 
 ### Function task execution
