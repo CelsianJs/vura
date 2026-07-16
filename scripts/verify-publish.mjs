@@ -100,6 +100,13 @@ async function rewriteScaffoldDeps(scaffoldDir, tarballsByName) {
       packageJson.dependencies[name] = `file:${tarball}`;
     }
   }
+  // Core now consumes the fallback compiler's static parser. Add its local
+  // tarball explicitly so this unpublished canary cannot fall back to the
+  // registry package that shares the current version number.
+  const compilerTarball = tarballsByName.get('@celsian/vura-compiler');
+  if (compilerTarball && packageJson.dependencies?.['@celsian/vura-core']) {
+    packageJson.dependencies['@celsian/vura-compiler'] = `file:${compilerTarball}`;
+  }
   await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
 }
 
@@ -133,6 +140,28 @@ async function assertScaffoldBuildAndBoot(scaffoldDir) {
   }
 }
 
+function assertManagedDeployAdapterLoads(scaffoldDir) {
+  const vuraBin = realpathSync(installedBinPath(scaffoldDir, 'vura'));
+  const result = spawnSync(process.execPath, [
+    vuraBin,
+    'deploy',
+    '--token', 'tarball-smoke-token',
+    '--project-id', 'tarball-smoke-project',
+    '--api-url', 'http://127.0.0.1:1',
+  ], { cwd: scaffoldDir, encoding: 'utf8' });
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  // The intentionally unreachable API is after the dynamic adapter import.
+  // Reaching the network failure therefore proves the packed CLI resolved and
+  // invoked the adapter from the generated app without a follow-up install.
+  if (!output.includes('Deployment failed:')) {
+    throw new Error(`packed vura deploy did not invoke the managed adapter; output=${JSON.stringify(output)}`);
+  }
+  if (output.includes('deploy support is not installed') || output.includes('npm install @celsian/vura-adapter-vura')) {
+    throw new Error(`packed vura deploy could not resolve its managed adapter; output=${JSON.stringify(output)}`);
+  }
+}
+
 const tmp = await mkdtemp(join(tmpdir(), 'vura-publish-verify-'));
 try {
   const tarballs = [];
@@ -159,7 +188,7 @@ try {
   assertHelpCommands(smoke);
 
   const check = `
-    import('@celsian/vura-core').then(() => import('@celsian/vura-compiler')).then(() => import('@celsian/vura-adapter-cloudflare')).then(() => import('@celsian/vura-adapter-lambda')).then(() => import('@celsian/vura-vite-plugin')).then(() => console.log('VURA_PUBLISH_VERIFY_OK'));
+    import('@celsian/vura-core').then(() => import('@celsian/vura-compiler')).then(() => import('@celsian/vura-adapter-cloudflare')).then(() => import('@celsian/vura-adapter-lambda')).then(() => import('@celsian/vura-adapter-vura')).then(() => import('@celsian/vura-vite-plugin')).then(() => console.log('VURA_PUBLISH_VERIFY_OK'));
   `;
   const node = run(process.execPath, ['--input-type=module', '-e', check], { cwd: smoke });
   if (!node.stdout.includes('VURA_PUBLISH_VERIFY_OK')) throw new Error('publish smoke import did not complete');
@@ -175,8 +204,13 @@ try {
 
   const { getFiles } = await import(join(smoke, 'node_modules/create-vura/dist/index.js'));
   const scaffoldPackage = JSON.parse(getFiles('smoke-app')['package.json']);
-  for (const name of ['@celsian/vura-core', '@celsian/vura-cli']) {
-    const expectedVersion = JSON.parse(await readFile(join(root, name === '@celsian/vura-core' ? 'packages/core/package.json' : 'packages/cli/package.json'), 'utf8')).version;
+  const scaffoldPackageDirs = new Map([
+    ['@celsian/vura-core', 'packages/core'],
+    ['@celsian/vura-cli', 'packages/cli'],
+    ['@celsian/vura-adapter-vura', 'packages/adapter-vura'],
+  ]);
+  for (const [name, packageDir] of scaffoldPackageDirs) {
+    const expectedVersion = JSON.parse(await readFile(join(root, packageDir, 'package.json'), 'utf8')).version;
     if (scaffoldPackage.dependencies[name] !== expectedVersion) {
       throw new Error(`create-vura scaffold dependency ${name}=${scaffoldPackage.dependencies[name]} does not match package version ${expectedVersion}`);
     }
@@ -192,12 +226,13 @@ try {
   const scaffoldDir = join(smoke, 'smoke-app');
   await rewriteScaffoldDeps(scaffoldDir, tarballsByName);
   await assertScaffoldBuildAndBoot(scaffoldDir);
+  assertManagedDeployAdapterLoads(scaffoldDir);
 
   if (existsSync(join(root, 'packages/compiler-native/package.json'))) {
     const nativeJson = JSON.parse(await readFile(join(root, 'packages/compiler-native/package.json'), 'utf8'));
     if (!nativeJson.private) throw new Error('@celsian/vura-compiler-native must remain private until native artifacts exist');
   }
-  console.log(`OK: verified ${tarballs.length} tarball(s); no workspace refs; installed CLI bins/direct help; clean npm install/import and real create-vura scaffold build/run smoke passed`);
+  console.log(`OK: verified ${tarballs.length} tarball(s); no workspace refs; installed CLI bins/direct help; clean npm install/import, real create-vura scaffold build/run, and packed vura deploy adapter-load smoke passed`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }

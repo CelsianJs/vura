@@ -518,6 +518,14 @@ export function cloudflareAdapter(options: CloudflareAdapterOptions): ThenAdapte
 
         await mkdir(workerDir, { recursive: true });
 
+        // Wrangler consumes ESM regardless of extension, while Node 20 and
+        // artifact-inspection tools require an explicit module boundary for
+        // entry.js and the bundled route modules.
+        await writeFile(
+          join(workerDir, 'package.json'),
+          JSON.stringify({ type: 'module' }, null, 2) + '\n',
+        );
+
         // Generate wrangler.toml
         const groupOptions: CloudflareAdapterOptions = {
           ...options,

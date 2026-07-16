@@ -64,6 +64,18 @@ export function GET() { return new Response('ok'); }
 `,
   );
   writeFileSync(
+    join(fixtureRoot, 'src', 'api', 'edge-candidate.ts'),
+    `export const route = { compute: { class: 'edge', memory: '128mb' } };
+export function GET() { return new Response('ok'); }
+`,
+  );
+  writeFileSync(
+    join(fixtureRoot, 'src', 'api', 'dedicated.ts'),
+    `export const route = { compute: { class: 'dedicated', memory: '12gb', cpu: 6 }, timeout: 120_000 };
+export function GET() { return new Response('ok'); }
+`,
+  );
+  writeFileSync(
     join(fixtureRoot, 'src', 'api', 'ws.ts'),
     `export const route = { kind: 'hot' };
 export function GET() { return new Response('ok'); }
@@ -105,8 +117,8 @@ describe('vura routes inspect', () => {
 
     expect(parsed.totals).toMatchObject({
       static: 2,
-      cold: 1,
-      hot: 1,
+      cold: 2,
+      hot: 2,
       'streaming-hot': 1,
       'task-cold': 2,
       'task-hot': 1,
@@ -117,6 +129,24 @@ describe('vura routes inspect', () => {
     expect(parsed.routes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ pattern: '/api/hello', effectiveProfile: 'cold', sourceIntent: 'kind:serverless' }),
+        expect.objectContaining({
+          pattern: '/api/edge-candidate',
+          effectiveProfile: 'cold',
+          effectiveComputeClass: 'function',
+          requestedComputeClass: 'edge',
+          edgeEligibility: 'pending',
+          memory: '1gb',
+          providerRecommendation: 'cloudflare-workers-for-platforms',
+        }),
+        expect.objectContaining({
+          pattern: '/api/dedicated',
+          effectiveProfile: 'hot',
+          effectiveComputeClass: 'dedicated',
+          memory: '12gb',
+          cpu: 6,
+          timeout: 120000,
+          providerRecommendation: 'dedicated-fly-machine',
+        }),
         expect.objectContaining({ pattern: '/api/ws', effectiveProfile: 'streaming-hot', hasWebsocket: true }),
         expect.objectContaining({ pattern: '/api/tasks/send', effectiveProfile: 'task-cold' }),
         expect.objectContaining({
@@ -164,6 +194,12 @@ describe('vura runtime advise', () => {
     expect(parsed.advice).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ pattern: '/admin', recommendation: 'hot', severity: 'info' }),
+        expect.objectContaining({
+          pattern: '/api/edge-candidate',
+          recommendation: 'cold',
+          severity: 'warn',
+          reason: expect.stringContaining('pending measured platform eligibility'),
+        }),
         expect.objectContaining({ pattern: '/api/ws', recommendation: 'streaming-hot', severity: 'info' }),
         expect.objectContaining({
           pattern: '/api/tasks/send',

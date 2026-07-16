@@ -54,6 +54,9 @@ export async function POST(req: { body: unknown; parsedBody: unknown }) {
       const bundledRoutePath = join(outDir, 'cloudflare', 'routes', 'src_api_echo.js');
       expect(existsSync(entryPath)).toBe(true);
       expect(existsSync(bundledRoutePath)).toBe(true);
+      expect(
+        JSON.parse(readFileSync(join(outDir, 'cloudflare', 'package.json'), 'utf-8')),
+      ).toEqual({ type: 'module' });
       expect(readFileSync(entryPath, 'utf-8')).toContain("from './routes/src_api_echo.js'");
       const bundledRoute = readFileSync(bundledRoutePath, 'utf-8');
       expect(bundledRoute).not.toContain('req: {');

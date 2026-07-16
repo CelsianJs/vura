@@ -1,6 +1,53 @@
-# Route kinds
+# Route kinds and compute classes
 
-Every file in `src/api/` is one of three kinds. The kind determines where the route runs — which runtime, which lifecycle, and which deploy targets support it.
+Every file in `src/api/` has two independent concerns:
+
+- `kind` describes handler behavior (`task` versus an HTTP endpoint). The legacy `serverless` and `hot` values remain compatible for one migration window.
+- `compute.class` describes execution: `function`, `dedicated`, or an `edge` eligibility request.
+
+New HTTP endpoints and tasks default to `function` with `1gb` of memory.
+
+## Canonical compute contract
+
+```ts
+export const route = {
+  kind: 'task',
+  compute: {
+    class: 'function',
+    memory: '4gb', // 1gb | 4gb | 6gb | 8gb | 12gb
+  },
+  timeout: 60_000,
+};
+```
+
+| Class | Use it for | Memory contract |
+|---|---|---|
+| `function` (default) | Stateless HTTP, SSR, native modules, CPU work, media/doc processing, AI payloads, and ordinary tasks | `1gb` default; `4gb`, `6gb`, `8gb`, or `12gb` selectable |
+| `dedicated` | WebSockets, listening sockets, process-local state, background loops, and always-on work | Machine profile; optional memory/CPU are preserved in the manifest |
+| `edge` request | Small Web-API-only handlers where measured latency justifies the constraints | Fixed `128mb`; no CPU selection |
+
+`edge` in source is deliberately not an activation switch. The manifest keeps
+`class: 'edge'` as the requested placement while recording
+`effectiveClass: 'function'`, `effectiveMemory: '1gb'`, and
+`edgeEligibility: 'pending'`. The managed platform may promote it only after
+observed runtime/memory telemetry marks that endpoint eligible in the UI.
+
+Dedicated manifests also carry the legacy `machine.memoryMb` / `machine.cpus`
+shape so current platform hot-task sizing honors canonical memory and CPU
+requests during the compatibility window.
+
+Use `vura routes inspect --json` or `vura runtime advise --json` to see the
+effective class, request state, memory, CPU, timeout, provider recommendation,
+confidence, and reasons before deployment.
+
+Deployment-relevant route config is a static literal contract. Strings, finite numbers,
+numeric separators, booleans, null, arrays, nested objects, and `as const` are
+supported. Calls, referenced identifiers, spreads, computed properties, and
+template literals are rejected with a line/column error; scanning never imports
+or evaluates application code. Deployment-affecting page fields such as `mode`,
+`revalidate`, and `tags` must use static literals, and modes must be quoted
+strings. Explicit presentation references such as `styles: [baseStyles]` are
+omitted from the manifest and evaluated later by the renderer.
 
 ## Annotation
 
@@ -9,7 +56,12 @@ Every file in `src/api/` is one of three kinds. The kind determines where the ro
 export const kind = 'hot';
 
 // route object — kind + config fields
-export const route = { kind: 'task', retries: 2, timeout: 60_000 };
+export const route = {
+  kind: 'task',
+  compute: { class: 'function', memory: '1gb' },
+  retries: 2,
+  timeout: 60_000,
+};
 ```
 
 When both `kind` and `route` are exported from the same file, **`route` wins**. Use the shorthand when you have no additional config.
@@ -68,7 +120,7 @@ Persistent process. The server holds a WebSocket open for each connection. In-me
 
 | Field | Type | Default | Effect |
 |---|---|---|---|
-| `origins` | `string[]` | unset | Origin allowlist for the WebSocket handshake. When set, upgrade requests whose `Origin` header is not on the list are rejected with `403` before the handshake. Entries are compared as URL origins, case-insensitively (trailing slashes/paths/default ports are normalized away). Requests with **no** `Origin` header always pass — browsers always send one, and non-browser clients can forge any value anyway. **Default is open**: without `origins`, any site can open a WebSocket to this route — set it for any cookie-authenticated app. Entries must be inline string literals inside the `route` export — identifiers, spreads, and template literals are not extracted at build time and leave the route open. Note `origins: []` is also dropped at build time, so it leaves the route **open** rather than denying all browser origins (the runtime treats an empty allowlist as deny-all, but an empty array literal never survives extraction). |
+| `origins` | `string[]` | unset | Origin allowlist for the WebSocket handshake. When set, upgrade requests whose `Origin` header is not on the list are rejected with `403` before the handshake. Entries are compared as URL origins, case-insensitively (trailing slashes/paths/default ports are normalized away). Requests with **no** `Origin` header always pass — browsers always send one, and non-browser clients can forge any value anyway. **Default is open**: without `origins`, any site can open a WebSocket to this route — set it for any cookie-authenticated app. Entries must be inline string literals; unsafe dynamic forms fail the build instead of silently losing the allowlist. `origins: []` is preserved and denies all browser origins. |
 
 ```ts
 export const route = { kind: 'hot', origins: ['https://app.example.com'] };

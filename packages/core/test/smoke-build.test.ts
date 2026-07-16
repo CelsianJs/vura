@@ -200,6 +200,9 @@ describe('smoke-build: end-to-end build pipeline', () => {
 
   it('writes function entries for serverless routes', () => {
     expect(buildResult.functions.length).toBe(2);
+    expect(
+      JSON.parse(readFileSync(join(projectRoot, 'dist', 'functions', 'package.json'), 'utf-8')),
+    ).toEqual({ type: 'module' });
     for (const fn of buildResult.functions) {
       expect(existsSync(fn.entryPath)).toBe(true);
     }

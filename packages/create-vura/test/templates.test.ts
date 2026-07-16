@@ -18,9 +18,17 @@ describe('create-vura templates', () => {
       'what-framework': '^0.11.1',
       '@celsian/vura-core': vuraVersion,
       '@celsian/vura-cli': vuraVersion,
+      '@celsian/vura-adapter-vura': vuraVersion,
       'ws': '^8.18.0',
     });
     expect(JSON.stringify(packageJson.dependencies)).not.toContain('latest');
+  });
+
+  it('includes managed deployment support without a follow-up install', () => {
+    const files = getFiles('demo-app');
+    const packageJson = JSON.parse(files['package.json']);
+
+    expect(packageJson.dependencies['@celsian/vura-adapter-vura']).toBe(vuraVersion);
   });
 
   it('includes ws dependency for hot-route WebSocket support', () => {
@@ -53,7 +61,7 @@ describe('create-vura templates', () => {
 
     expect(files).toHaveProperty('src/api/chat.ts');
     const chatTs = files['src/api/chat.ts'];
-    expect(chatTs).toContain("kind: 'hot'");
+    expect(chatTs).toContain("compute: { class: 'dedicated' }");
     expect(chatTs).toContain('websocket(peer');
     expect(chatTs).toContain('peer.on(\'message\'');
     expect(chatTs).toContain('peer.broadcast(');
@@ -67,8 +75,8 @@ describe('create-vura templates', () => {
 
     expect(files).toHaveProperty('src/api/health.ts');
     const healthTs = files['src/api/health.ts'];
-    expect(healthTs).toContain("export const route = { kind: 'serverless' };");
-    expect(healthTs).not.toContain("export const route = { kind: 'hot' };");
+    expect(healthTs).toContain("compute: { class: 'function', memory: '1gb' }");
+    expect(healthTs).not.toContain("class: 'dedicated'");
   });
 
   it('ships a shared baseline stylesheet wired into every page', () => {
@@ -117,6 +125,7 @@ describe('create-vura templates', () => {
     expect(files).toHaveProperty('src/api/cleanup.ts');
     const cleanupTs = files['src/api/cleanup.ts'];
     expect(cleanupTs).toContain("kind: 'task'");
+    expect(cleanupTs).toContain("compute: { class: 'function', memory: '1gb' }");
     expect(cleanupTs).toContain("export const schedule = '0 3 * * *'");
     expect(cleanupTs).toContain('export async function POST(');
     expect(cleanupTs).toContain('vura tasks run cleanup');

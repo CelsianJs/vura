@@ -218,6 +218,7 @@ describe('generateWorkerEntry', () => {
     try {
       const workerDir = join(tempRoot, 'dist', 'cloudflare');
       mkdirSync(join(workerDir, 'routes'), { recursive: true });
+      writeFileSync(join(workerDir, 'package.json'), '{"type":"module"}\n');
       writeFileSync(
         join(workerDir, 'routes', 'src_api_echo.js'),
         `export async function POST(req) {
@@ -441,6 +442,7 @@ describe('cloudflareAdapter', () => {
     const writeCalls = vi.mocked(writeFile).mock.calls;
 
     const paths = writeCalls.map(([path]) => path as string);
+    expect(paths).toContain(join(ctx.outDir, 'cloudflare', 'package.json'));
     expect(paths).toContain(join(ctx.outDir, 'cloudflare', 'wrangler.toml'));
     expect(paths).toContain(join(ctx.outDir, 'cloudflare', 'entry.js'));
   });

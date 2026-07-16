@@ -63,10 +63,9 @@ describe('manifest websocket detection', () => {
     expect(out.kind).toBe('task');
   });
 
-  it('ignores invalid kind shorthand values', () => {
+  it('rejects invalid kind shorthand values', () => {
     const src = `export const kind = 'banana';\nexport function GET(req) {}`;
-    const out = extractApiExports(src);
-    expect(out.kind).toBe('serverless');
+    expect(() => extractApiExports(src)).toThrow("route.kind must be 'serverless', 'hot', or 'task'");
   });
 
   it('detects const websocket = ... form', () => {

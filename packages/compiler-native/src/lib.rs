@@ -12,13 +12,13 @@ use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 
 #[napi(object)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ScanResult {
     pub methods: Vec<String>,
     pub kind: String,
     pub has_default_export: bool,
     pub has_get_server_data: bool,
-    pub page_mode: Option<String>,
+    pub page_mode: Either<String, Null>,
     pub config: serde_json::Value,
 }
 

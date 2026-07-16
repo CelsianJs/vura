@@ -11,6 +11,11 @@
 
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative, parse as parsePath } from 'node:path';
+import {
+  maskNonCode,
+  readPageConfig,
+  readRouteConfig,
+} from '@celsian/vura-compiler';
 
 // ─── Types ───
 
@@ -83,17 +88,8 @@ const HTTP_METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HE
 
 /**
  * Extract exported HTTP methods, route config, and websocket presence from a
- * source file. Uses regex-based static analysis (no eval, no import).
- *
- * NOTE on comment-stripping: stripping `//`-comment lines before regex scanning
- * would prevent false positives like `// export function websocket(peer, req) {}`.
- * However, the existing balanced-brace extractor and kv-pattern regexes are
- * tuned to the current source format and are not comment-aware in ways that
- * would interact cleanly with a strip pass (e.g. `//`  inside string literals
- * would be incorrectly stripped). Rather than risk regressions in the route/kind
- * detection, we skip automatic comment stripping here.
- * TODO(comment-false-positives): add a safe strip pass once extractApiExports
- * has broader test coverage for edge cases.
+ * source file. Route config uses the compiler's restricted static-literal
+ * parser; application modules are never imported or evaluated during scanning.
  */
 export function extractApiExports(source: string): {
   methods: HttpMethod[];
@@ -101,6 +97,7 @@ export function extractApiExports(source: string): {
   hasWebsocket: boolean;
   config: Record<string, unknown>;
 } {
+  const code = maskNonCode(source);
   const methods: HttpMethod[] = [];
 
   for (const method of HTTP_METHODS) {
@@ -108,70 +105,15 @@ export function extractApiExports(source: string): {
     const pattern = new RegExp(
       `export\\s+(?:async\\s+)?(?:function\\s+${method}|const\\s+${method}\\s*=)`,
     );
-    if (pattern.test(source)) {
+    if (pattern.test(code)) {
       methods.push(method);
     }
   }
 
   // Detect `export function websocket` or `export const websocket = …`
   // Word boundary after `websocket` prevents false matches on `websocketHelper`, etc.
-  const hasWebsocket = /export\s+(?:async\s+)?(?:function\s+websocket\b|const\s+websocket\s*=)/.test(source);
-
-  // Extract route config: export const route = { kind: 'serverless' }
-  let kind: RouteKind = 'serverless'; // default
-  const config: Record<string, unknown> = {};
-
-  const routeBody = extractBalancedBraces(source, /export\s+const\s+route\s*=\s*\{/);
-  if (routeBody) {
-    const body = routeBody;
-
-    // Extract kind
-    const kindMatch = body.match(/kind\s*:\s*['"](\w+)['"]/);
-    if (kindMatch && isRouteKind(kindMatch[1]!)) {
-      kind = kindMatch[1]!;
-    }
-
-    // Extract other simple key-value pairs
-    const kvPattern = /(\w+)\s*:\s*(?:'([^']*)'|"([^"]*)"|(\d+)|(\btrue\b|\bfalse\b))/g;
-    let kv;
-    while ((kv = kvPattern.exec(body)) !== null) {
-      const key = kv[1]!;
-      const value = kv[2] ?? kv[3] ?? (kv[4] ? Number(kv[4]) : kv[5] === 'true');
-      config[key] = value;
-    }
-
-    // Extract array values: key: ['a', 'b'] or key: ["a", "b"]
-    const arrayPattern = /(\w+)\s*:\s*\[([^\]]*)\]/g;
-    let arr;
-    while ((arr = arrayPattern.exec(body)) !== null) {
-      const key = arr[1]!;
-      const rawItems = arr[2]!;
-      // parse items: either 'foo' or "foo"
-      const items = [...rawItems.matchAll(/['"]([^'"]*)['"]/g)].map(m => m[1]!);
-      if (items.length > 0) {
-        config[key] = items;
-      }
-    }
-  }
-
-  // Detect top-level `export const kind = 'hot'` (route-kind shorthand — the
-  // Phase 0 wedge contract). Route-config `kind` takes precedence; this only
-  // applies when no `export const route = { ... }` block set one.
-  if (!routeBody) {
-    const kindShorthand = source.match(/export\s+const\s+kind\s*=\s*['"](\w+)['"]/);
-    if (kindShorthand && isRouteKind(kindShorthand[1]!)) {
-      kind = kindShorthand[1]!;
-    }
-  }
-
-  // Detect top-level `export const schedule = '...'` (task route schedule sugar).
-  // Route-config `schedule` takes precedence; this only fills in when absent.
-  if (!config.schedule) {
-    const scheduleMatch = source.match(/export\s+const\s+schedule\s*=\s*['"]([^'"]+)['"]/);
-    if (scheduleMatch) {
-      config.schedule = scheduleMatch[1];
-    }
-  }
+  const hasWebsocket = /export\s+(?:async\s+)?(?:function\s+websocket\b|const\s+websocket\s*=)/.test(code);
+  const { kind, config } = readRouteConfig(source);
 
   return { methods, kind, hasWebsocket, config };
 }
@@ -185,47 +127,20 @@ export function extractPageConfig(source: string): {
   config: Record<string, unknown>;
 } {
   let mode: PageMode = 'static'; // default: static
-  const config: Record<string, unknown> = {};
-
-  const pageBody = extractBalancedBraces(source, /export\s+const\s+page\s*=\s*\{/);
-  if (pageBody) {
-    const body = pageBody;
-
-    const modeMatch = body.match(/mode\s*:\s*['"](\w+)['"]/);
-    if (modeMatch && isPageMode(modeMatch[1]!)) {
-      mode = modeMatch[1]!;
-    }
-
-    const kvPattern = /(\w+)\s*:\s*(?:'([^']*)'|"([^"]*)"|(\d+)|(\btrue\b|\bfalse\b))/g;
-    let kv;
-    while ((kv = kvPattern.exec(body)) !== null) {
-      const key = kv[1]!;
-      const value = kv[2] ?? kv[3] ?? (kv[4] ? Number(kv[4]) : kv[5] === 'true');
-      config[key] = value;
-    }
-
-    // Extract array values: key: ['a', 'b'] or key: ["a", "b"]
-    const arrayPattern = /(\w+)\s*:\s*\[([^\]]*)\]/g;
-    let arr;
-    while ((arr = arrayPattern.exec(body)) !== null) {
-      const key = arr[1]!;
-      const rawItems = arr[2]!;
-      // parse items: either 'foo' or "foo"
-      const items = [...rawItems.matchAll(/['"]([^'"]*)['"]/g)].map(m => m[1]!);
-      if (items.length > 0) {
-        config[key] = items;
-      }
-    }
+  const config = readPageConfig(source);
+  if (typeof config.mode === 'string' && isPageMode(config.mode)) {
+    mode = config.mode;
   }
 
   // Detect getServerData export
-  const hasGetServerData = /export\s+(?:async\s+)?function\s+getServerData|export\s+(?:const|let)\s+getServerData/.test(source);
+  const code = maskNonCode(source);
+  const hasGetServerData = /export\s+(?:async\s+)?function\s+getServerData|export\s+(?:const|let)\s+getServerData/.test(code);
 
   // Heuristic: if source imports server-side data functions, default to server
   if (mode === 'static') {
     if (hasGetServerData ||
         /import\s+.*from\s+['"]then\/server['"]/.test(source) ||
-        /useSWR|useQuery|useServerData/.test(source)) {
+        /useSWR|useQuery|useServerData/.test(code)) {
       mode = 'server';
     }
   }
@@ -451,31 +366,6 @@ export async function buildManifest(projectRoot: string): Promise<RouteManifest>
     layouts,
     timestamp: new Date().toISOString(),
   };
-}
-
-// ─── Helpers ───
-
-/**
- * Extract content inside balanced braces after a regex match.
- * Handles nested objects: { kind: 'task', retry: { attempts: 3 }, timeout: 30000 }
- */
-function extractBalancedBraces(source: string, startPattern: RegExp): string | null {
-  const match = startPattern.exec(source);
-  if (!match) return null;
-  let depth = 1;
-  let i = match.index + match[0].length;
-  const start = i;
-  while (i < source.length && depth > 0) {
-    if (source[i] === '{') depth++;
-    else if (source[i] === '}') depth--;
-    if (depth > 0) i++;
-  }
-  if (depth !== 0) return null;
-  return source.slice(start, i);
-}
-
-function isRouteKind(s: string): s is RouteKind {
-  return s === 'serverless' || s === 'hot' || s === 'task';
 }
 
 function isPageMode(s: string): s is PageMode {

@@ -86,12 +86,14 @@ function toFileRef(tarball) {
 
 // Build map of package name → tarball path
 const tarballsByName = new Map();
+const packageMetadataByName = new Map();
 for (const pkgRelPath of publishPackages) {
   const pkgJsonPath = join(root, pkgRelPath, 'package.json');
   const pkgJson = JSON.parse(await readFile(pkgJsonPath, 'utf8'));
   if (pkgJson.private) continue;
   const tarball = packPackage(pkgRelPath);
   tarballsByName.set(pkgJson.name, tarball);
+  packageMetadataByName.set(pkgJson.name, pkgJson);
 }
 
 // Rewrite target package.json
@@ -106,6 +108,27 @@ for (const section of ['dependencies', 'devDependencies', 'peerDependencies']) {
       targetPkgJson[section][name] = toFileRef(tarball);
       rewroteCount++;
     }
+  }
+}
+
+// Local tarballs can introduce new internal transitive dependencies that the
+// published package at the same version does not yet declare. Add those as
+// direct file dependencies in the disposable consumer so npm cannot silently
+// satisfy them with a stale registry artifact during pre-publish testing.
+targetPkgJson.dependencies ??= {};
+const localRoots = new Set(
+  Object.keys(targetPkgJson.dependencies).filter((name) => tarballsByName.has(name)),
+);
+const queue = [...localRoots];
+while (queue.length > 0) {
+  const packageName = queue.shift();
+  const metadata = packageMetadataByName.get(packageName);
+  for (const dependencyName of Object.keys(metadata?.dependencies ?? {})) {
+    if (!tarballsByName.has(dependencyName) || localRoots.has(dependencyName)) continue;
+    localRoots.add(dependencyName);
+    queue.push(dependencyName);
+    targetPkgJson.dependencies[dependencyName] = toFileRef(tarballsByName.get(dependencyName));
+    rewroteCount++;
   }
 }
 

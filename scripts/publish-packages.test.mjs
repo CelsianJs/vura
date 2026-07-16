@@ -12,7 +12,7 @@ async function makeFakeNpmBin() {
   const callsPath = join(dir, 'npm-calls.jsonl');
   const npmPath = join(dir, 'npm');
   await writeFile(npmPath, `#!/usr/bin/env node
-import { appendFileSync } from 'node:fs';
+const { appendFileSync } = require('node:fs');
 const callsPath = ${JSON.stringify(callsPath)};
 const args = process.argv.slice(2);
 appendFileSync(callsPath, JSON.stringify(args) + '\\n');
@@ -54,5 +54,5 @@ describe('publish-packages npm scope preflight', () => {
       ['whoami'],
       ['access', 'list', 'packages', '@celsian', '--json'],
     ]);
-  });
+  }, 30_000);
 });

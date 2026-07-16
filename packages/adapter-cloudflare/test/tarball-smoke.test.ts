@@ -32,13 +32,14 @@ describe('cloudflare adapter clean tarball smoke', () => {
     try {
       const tarballs = join(root, 'tarballs');
       mkdirSync(tarballs, { recursive: true });
+      const compilerTgz = packPackage(join(repoRoot, 'packages/compiler'), tarballs);
       const coreTgz = packPackage(join(repoRoot, 'packages/core'), tarballs);
       const adapterTgz = packPackage(join(repoRoot, 'packages/adapter-cloudflare'), tarballs);
 
       const app = join(root, 'app');
       mkdirSync(app, { recursive: true });
       writeFileSync(join(app, 'package.json'), '{"type":"module"}\n');
-      execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', coreTgz, adapterTgz], {
+      execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', compilerTgz, coreTgz, adapterTgz], {
         cwd: app,
         stdio: 'pipe',
       });

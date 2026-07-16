@@ -8,7 +8,7 @@ export interface ScanResult {
   kind: string
   hasDefaultExport: boolean
   hasGetServerData: boolean
-  pageMode?: string
+  pageMode: string | null
   config: any
 }
 export interface TransformResult {
