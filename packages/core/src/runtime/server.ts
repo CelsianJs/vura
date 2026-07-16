@@ -26,11 +26,11 @@ import { createWsUpgradeHandler, createNoServerWebSocketServer } from './ws-upgr
 import { compileRoutes, type CompiledRoute } from '../match.js';
 import {
   runTaskOnce,
+  buildTaskEnvelope,
   createTaskResultStore,
   isTaskAdminAuthorized,
   registerTaskCrons,
   readOptionalJsonBody,
-  type TaskRunResult,
   type TaskRunDefinition,
   type TaskAdminJob,
 } from './tasks.js';
@@ -448,10 +448,6 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
             runInput = validation.value;
           }
 
-          const jobId = taskStore.nextId();
-          const job: TaskAdminJob = { id: jobId, taskName, status: 'running', startedAt: Date.now() };
-          taskStore.add(job);
-
           const def: TaskRunDefinition = {
             name: taskName,
             config: {
@@ -460,19 +456,37 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
             },
             handler,
           };
+          const runOptions = {
+            input: runInput,
+            runId,
+            steps: dispatchSteps,
+            hasPlatform: isPlatformDispatch ? true : undefined,
+            localChildDispatch,
+          };
+
+          // Function runtimes cannot expose the dedicated runtime's in-memory
+          // polling store across invocations. When explicitly enabled, execute
+          // the same task runner inline and return the same terminal envelope as
+          // the generated serverless task entry. Dedicated runtimes keep the
+          // established 202 + job-id contract unless this exact flag is set.
+          if (process.env.VURA_TASK_SYNC === '1') {
+            const runResult = await runTaskOnce(def, runOptions);
+            const envelope = buildTaskEnvelope(taskName, runResult);
+            nodeRes.writeHead(envelope.ok ? 200 : 500, { 'content-type': 'application/json' });
+            nodeRes.end(JSON.stringify(envelope));
+            return;
+          }
+
+          const jobId = taskStore.nextId();
+          const job: TaskAdminJob = { id: jobId, taskName, status: 'running', startedAt: Date.now() };
+          taskStore.add(job);
 
           // Kick off in background; return jobId immediately. Input was validated
           // above (or exempted for cron), so the run uses the resolved value.
           // Phase 2: thread the dispatch runId + persisted steps for durable
           // replay; a platform dispatch implies a durable platform (suspend on
           // waits), otherwise fall back to env detection + local child dispatch.
-          runTaskOnce(def, {
-            input: runInput,
-            runId,
-            steps: dispatchSteps,
-            hasPlatform: isPlatformDispatch ? true : undefined,
-            localChildDispatch,
-          }).then((runResult) => {
+          runTaskOnce(def, runOptions).then((runResult) => {
             job.status = runResult.status;
             job.result = runResult.result;
             job.error = runResult.error;

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.11 - 2026-07-16
+
+### Function task execution
+
+- Adds an opt-in synchronous task-admin mode for scale-to-zero Function runtimes, returning the canonical task result envelope on the invocation request.
+- Preserves Dedicated task execution as an asynchronous `202` job with authenticated status polling.
+- Covers synchronous success and failure plus the unchanged Dedicated contract with runtime integration tests.
+
 ## 0.5.10 - 2026-07-16
 
 ### Managed Dedicated deploys

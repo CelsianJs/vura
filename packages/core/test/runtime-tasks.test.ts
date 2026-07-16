@@ -106,6 +106,113 @@ describe('isTaskAdminAuthorized', () => {
 // ─── Admin lifecycle integration tests ──────────────────────────────────────
 
 describe('task admin lifecycle', () => {
+  describe('VURA_TASK_SYNC function-runtime dispatch', () => {
+    let previousTaskSync: string | undefined;
+    let previousTaskSecret: string | undefined;
+
+    beforeEach(() => {
+      previousTaskSync = process.env.VURA_TASK_SYNC;
+      previousTaskSecret = process.env.THEN_TASK_SECRET;
+      process.env.VURA_TASK_SYNC = '1';
+      process.env.THEN_TASK_SECRET = 'sync-task-secret';
+    });
+
+    afterEach(() => {
+      if (previousTaskSync === undefined) delete process.env.VURA_TASK_SYNC;
+      else process.env.VURA_TASK_SYNC = previousTaskSync;
+      if (previousTaskSecret === undefined) delete process.env.THEN_TASK_SECRET;
+      else process.env.THEN_TASK_SECRET = previousTaskSecret;
+    });
+
+    it('executes a function task synchronously and returns its success envelope', async () => {
+      srv = await startVuraServer({
+        port: 0, pages: [],
+        apiRoutes: [{
+          urlPattern: '/api/sync-success', methods: ['POST'], kind: 'task', filePath: 'src/api/sync-success.ts',
+          config: { retries: 0, timeout: 5000 },
+          module: { POST: ({ input }: { input: unknown }) => ({ echoed: input }) },
+        }],
+      });
+
+      const response = await fetch(`http://127.0.0.1:${srv.port}/__tasks/sync-success`, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer sync-task-secret',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ message: 'hello' }),
+      });
+
+      expect(response.status).toBe(200);
+      const envelope = await response.json() as Record<string, unknown>;
+      expect(envelope).toMatchObject({
+        ok: true,
+        taskName: 'sync-success',
+        result: { echoed: { message: 'hello' } },
+      });
+      expect(envelope).not.toHaveProperty('id');
+      expect(envelope.attempts).toEqual([
+        expect.objectContaining({ index: 1 }),
+      ]);
+    });
+
+    it('executes a function task synchronously and returns its failure envelope', async () => {
+      srv = await startVuraServer({
+        port: 0, pages: [],
+        apiRoutes: [{
+          urlPattern: '/api/sync-failure', methods: ['POST'], kind: 'task', filePath: 'src/api/sync-failure.ts',
+          config: { retries: 0, timeout: 5000 },
+          module: { POST: () => { throw new Error('sync task failed'); } },
+        }],
+      });
+
+      const response = await fetch(`http://127.0.0.1:${srv.port}/__tasks/sync-failure`, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer sync-task-secret',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
+
+      expect(response.status).toBe(500);
+      const envelope = await response.json() as Record<string, unknown>;
+      expect(envelope).toMatchObject({
+        ok: false,
+        taskName: 'sync-failure',
+        error: 'sync task failed',
+      });
+      expect(envelope).not.toHaveProperty('id');
+      expect(envelope.attempts).toEqual([
+        expect.objectContaining({ index: 1, error: 'sync task failed' }),
+      ]);
+    });
+
+    it('keeps the dedicated runtime on 202 + polling when sync mode is not enabled', async () => {
+      delete process.env.VURA_TASK_SYNC;
+      srv = await startVuraServer({
+        port: 0, pages: [],
+        apiRoutes: [{
+          urlPattern: '/api/dedicated', methods: ['POST'], kind: 'task', filePath: 'src/api/dedicated.ts',
+          config: { retries: 0, timeout: 5000 },
+          module: { POST: () => ({ done: true }) },
+        }],
+      });
+
+      const response = await fetch(`http://127.0.0.1:${srv.port}/__tasks/dedicated`, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer sync-task-secret',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
+
+      expect(response.status).toBe(202);
+      expect(await response.json()).toEqual({ id: expect.any(String), status: 'running' });
+    });
+  });
+
   it('POST /__tasks/:name → 202 + id; poll GET /__tasks/:id → completed with result', async () => {
     srv = await startVuraServer({
       port: 0, pages: [],
