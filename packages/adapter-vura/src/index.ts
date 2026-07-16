@@ -90,7 +90,10 @@ export interface DeployToVuraOptions {
   projectId: string;
   /** Deploy to production rather than a preview (default: false). */
   production?: boolean;
-  /** Build manifest to attach to the upload. */
+  /**
+   * @deprecated The validated dist/manifest.json is authoritative. This field
+   * remains accepted for source compatibility but cannot replace the artifact.
+   */
   manifest?: unknown;
   /** Git metadata to attach to the upload. */
   gitInfo?: { ref?: string; sha?: string; message?: string };
@@ -358,22 +361,111 @@ async function createProjectContextTarball(projectRoot: string, outputPath: stri
 }
 
 type DeployManifest = {
-  api?: Array<{ kind?: string }>;
-  pages?: Array<{ mode?: string }>;
+  api: Array<{
+    kind: 'serverless' | 'hot' | 'task';
+    hasWebsocket?: boolean;
+    config?: {
+      compute?: { class?: 'function' | 'dedicated' };
+      hot?: boolean;
+      runtime?: string;
+      placement?: string;
+      target?: string;
+    };
+  }>;
+  pages: Array<{ mode: 'static' | 'server' | 'client' | 'hybrid' }>;
 };
 
-function manifestRequiresProjectContext(manifest: unknown): boolean {
-  const typed = manifest as DeployManifest | null | undefined;
-  return (typed?.api || []).some((route) => route.kind === 'hot')
-    || (typed?.pages || []).some((page) => page.mode === 'server' || page.mode === 'hybrid');
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-async function readBuiltManifest(distDir: string, supplied: unknown): Promise<unknown> {
-  try {
-    return JSON.parse(await readFile(join(distDir, 'manifest.json'), 'utf8'));
-  } catch {
-    return supplied;
+function invalidManifest(manifestPath: string, detail: string): Error {
+  return new Error(
+    `Build manifest at ${manifestPath} is invalid (${detail}). ` +
+    'Run `vura build` again before deploying.',
+  );
+}
+
+function assertDeployManifest(
+  value: unknown,
+  manifestPath = 'dist/manifest.json',
+): asserts value is DeployManifest {
+  if (!isRecord(value)) throw invalidManifest(manifestPath, 'expected a JSON object');
+  if (!Array.isArray(value.api)) throw invalidManifest(manifestPath, 'api must be an array');
+  if (!Array.isArray(value.pages)) throw invalidManifest(manifestPath, 'pages must be an array');
+
+  for (const [index, route] of value.api.entries()) {
+    if (!isRecord(route)) throw invalidManifest(manifestPath, `api[${index}] must be an object`);
+    if (!['serverless', 'hot', 'task'].includes(String(route.kind))) {
+      throw invalidManifest(manifestPath, `api[${index}].kind is missing or unsupported`);
+    }
+    if (route.hasWebsocket !== undefined && typeof route.hasWebsocket !== 'boolean') {
+      throw invalidManifest(manifestPath, `api[${index}].hasWebsocket must be a boolean`);
+    }
+    if (route.config !== undefined && !isRecord(route.config)) {
+      throw invalidManifest(manifestPath, `api[${index}].config must be an object`);
+    }
+    const compute = isRecord(route.config) ? route.config.compute : undefined;
+    if (compute !== undefined && !isRecord(compute)) {
+      throw invalidManifest(manifestPath, `api[${index}].config.compute must be an object`);
+    }
+    if (
+      isRecord(compute)
+      && compute.class !== undefined
+      && compute.class !== 'function'
+      && compute.class !== 'dedicated'
+    ) {
+      throw invalidManifest(
+        manifestPath,
+        `api[${index}].config.compute.class must be function or dedicated`,
+      );
+    }
   }
+
+  for (const [index, page] of value.pages.entries()) {
+    if (!isRecord(page)) throw invalidManifest(manifestPath, `pages[${index}] must be an object`);
+    if (!['static', 'server', 'client', 'hybrid'].includes(String(page.mode))) {
+      throw invalidManifest(manifestPath, `pages[${index}].mode is missing or unsupported`);
+    }
+  }
+}
+
+function routeRequiresProjectContext(route: DeployManifest['api'][number]): boolean {
+  const config = route.config;
+  return route.kind === 'hot'
+    || route.hasWebsocket === true
+    || config?.compute?.class === 'dedicated'
+    || config?.hot === true
+    || config?.runtime === 'hot'
+    || config?.placement === 'hot'
+    || config?.target === 'hot';
+}
+
+function manifestRequiresProjectContext(manifest: DeployManifest): boolean {
+  return manifest.api.some(routeRequiresProjectContext)
+    || manifest.pages.some((page) => page.mode === 'server' || page.mode === 'hybrid');
+}
+
+async function readBuiltManifest(distDir: string): Promise<DeployManifest> {
+  const manifestPath = join(distDir, 'manifest.json');
+  let raw: string;
+  try {
+    raw = await readFile(manifestPath, 'utf8');
+  } catch {
+    throw new Error(
+      `Build manifest is missing at ${manifestPath}. ` +
+      'Run `vura build` again before deploying.',
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw invalidManifest(manifestPath, 'malformed JSON');
+  }
+  assertDeployManifest(parsed, manifestPath);
+  return parsed;
 }
 
 async function assertProjectContext(projectRoot: string, distDir: string): Promise<void> {
@@ -422,14 +514,15 @@ export async function deployToVura(options: DeployToVuraOptions): Promise<Deploy
     token,
     projectId,
     production = false,
-    manifest: suppliedManifest,
     gitInfo = {},
     pollIntervalMs = 3000,
     maxPolls = 400,
     logger = (line: string) => process.stdout.write(line),
   } = options;
 
-  const manifest = await readBuiltManifest(distDir, suppliedManifest);
+  // The on-disk artifact is authoritative. Never fall back to a supplied
+  // in-memory manifest: a missing or stale build cannot be classified safely.
+  const manifest = await readBuiltManifest(distDir);
   const requiresProjectContext = manifestRequiresProjectContext(manifest);
 
   // 1. Create a lean dist-only archive for ordinary deployments. Dedicated
@@ -464,7 +557,7 @@ export async function deployToVura(options: DeployToVuraOptions): Promise<Deploy
     const tarballBuffer = await readFile(tarballPath);
     const blob = new Blob([tarballBuffer], { type: 'application/gzip' });
     formData.append('artifact', blob, 'dist.tar.gz');
-    if (manifest !== undefined) formData.append('manifest', JSON.stringify(manifest));
+    formData.append('manifest', JSON.stringify(manifest));
     if (gitInfo.ref) formData.append('gitRef', gitInfo.ref);
     if (gitInfo.sha) formData.append('gitSha', gitInfo.sha);
     if (gitInfo.message) formData.append('commitMessage', gitInfo.message);
@@ -478,7 +571,8 @@ export async function deployToVura(options: DeployToVuraOptions): Promise<Deploy
 
     if (!createRes.ok) {
       const err = await createRes.json().catch(() => ({ error: { message: 'Upload failed' } }));
-      throw new Error((err as any).error?.message || 'Upload failed');
+      const message = (err as any).error?.message || 'Upload failed';
+      throw new Error(presentDeploymentLog(String(message)));
     }
 
     const created = (await createRes.json()) as { data: { id: string; url: string; status: string } };
@@ -517,11 +611,17 @@ function retryAfterMs(response: Response): number {
 
 function presentDeploymentLog(value: string): string {
   return value
-    .replace(/registry\.fly\.io\/[A-Za-z0-9._/:@-]+/g, 'managed-runtime-image')
+    .replace(/registry\.fly\.io\/[A-Za-z0-9._/:@-]+/gi, 'managed-runtime-image')
+    .replace(/(?:[A-Za-z0-9-]+\.)*fly\.dev\b/gi, 'managed-runtime-domain')
+    .replace(/(?:[A-Za-z0-9-]+\.)*fly\.io\b/gi, 'runtime-provider')
+    .replace(/\bflyctl\b/gi, 'runtime-cli')
+    .replace(/\bfly(?:\.[A-Za-z0-9_-]+)?\.toml\b/gi, 'runtime-config')
+    .replace(/\bFLY(?:CTL)?_[A-Z0-9_]+\b/gi, 'RUNTIME_PROVIDER_SETTING')
     .replace(/\[deploy:hot-image\]/gi, '[deploy:runtime-image]')
     .replace(/hot server image/gi, 'runtime image')
     .replace(/Fly app/gi, 'runtime target')
-    .replace(/Fly Machines/gi, 'runtime provider');
+    .replace(/Fly Machines/gi, 'runtime provider')
+    .replace(/\bFly\b/gi, 'runtime provider');
 }
 
 /**
@@ -579,7 +679,7 @@ async function pollDeployment(
     // Check if deployment is done
     if (status === 'ready') return status;
     if (status === 'failed') {
-      throw new Error(record.meta?.build_error || 'Deployment failed.');
+      throw new Error(presentDeploymentLog(record.meta?.build_error || 'Deployment failed.'));
     }
     if (status === 'cancelled') {
       throw new Error('Deployment was cancelled.');

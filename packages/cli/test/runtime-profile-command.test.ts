@@ -64,6 +64,12 @@ export function GET() { return new Response('ok'); }
 `,
   );
   writeFileSync(
+    join(fixtureRoot, 'src', 'api', 'heavy.ts'),
+    `export const route = { compute: { class: 'function', memory: '4gb' } };
+export function GET() { return new Response('ok'); }
+`,
+  );
+  writeFileSync(
     join(fixtureRoot, 'src', 'api', 'dedicated.ts'),
     `export const route = { compute: { class: 'dedicated', memory: '12gb', cpu: 6 }, timeout: 120_000 };
 export function GET() { return new Response('ok'); }
@@ -111,7 +117,7 @@ describe('vura routes inspect', () => {
 
     expect(parsed.totals).toMatchObject({
       static: 2,
-      cold: 1,
+      cold: 2,
       hot: 2,
       'streaming-hot': 1,
       'task-cold': 2,
@@ -123,6 +129,12 @@ describe('vura routes inspect', () => {
     expect(parsed.routes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ pattern: '/api/hello', effectiveProfile: 'cold', sourceIntent: 'kind:serverless' }),
+        expect.objectContaining({
+          pattern: '/api/heavy',
+          effectiveProfile: 'cold',
+          memory: '4gb',
+          reasons: ['The route explicitly selects 4gb of scale-to-zero Function memory.'],
+        }),
         expect.objectContaining({
           pattern: '/api/dedicated',
           effectiveProfile: 'hot',

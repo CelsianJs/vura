@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deployToVura } from '../src/index.js';
+import { buildManifest } from '@celsian/vura-core';
 
 const execFileAsync = promisify(execFile);
 
@@ -149,7 +150,11 @@ describe('deployToVura', () => {
           data: [{
             sequence: 1,
             stream: 'stdout',
-            content: '[deploy:hot-image] Hot server image pushed: registry.fly.io/vura-hot-app:deployment-1\n',
+            content: [
+              '[deploy:hot-image] Hot server image pushed: registry.fly.io/vura-hot-app:deployment-1',
+              'flyctl deploy --config fly.production.toml to vura-hot-app.fly.dev via api.fly.io',
+              'FLY_API_TOKEN, fly_region, and FLYCTL_INSTALL are available to Fly Machines',
+            ].join('\n') + '\n',
           }],
         });
       }
@@ -175,7 +180,33 @@ describe('deployToVura', () => {
 
     const output = printed.join('');
     expect(output).toContain('[deploy:runtime-image] runtime image pushed: managed-runtime-image');
-    expect(output).not.toMatch(/fly|hot server image/i);
+    expect(output).toContain('runtime-cli deploy --config runtime-config');
+    expect(output).toContain('managed-runtime-domain');
+    expect(output).toContain('runtime-provider');
+    expect(output).toContain('RUNTIME_PROVIDER_SETTING');
+    expect(output).not.toMatch(/fly|hot server image|registry\./i);
+  });
+
+  it.each([
+    { label: 'missing', write: async (path: string) => rm(path, { force: true }) },
+    { label: 'malformed', write: async (path: string) => writeFile(path, '{"api": [}') },
+    { label: 'missing required arrays', write: async (path: string) => writeFile(path, JSON.stringify({ api: {} })) },
+  ])('fails closed when the built manifest is $label before any network call', async ({ write }) => {
+    const manifestPath = join(distDir, 'manifest.json');
+    await write(manifestPath);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(deployToVura({
+      distDir,
+      apiUrl: 'https://api.test',
+      token: 'tok_abc',
+      projectId: 'proj_123',
+      // A supplied manifest must never make an invalid built artifact deployable.
+      manifest: { api: [], pages: [] },
+      logger: () => {},
+    })).rejects.toThrow(/manifest.*vura build/i);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('rejects with meta.build_error when the deployment fails', async () => {
@@ -189,7 +220,13 @@ describe('deployToVura', () => {
       }
       if (u.endsWith('/v1/deployments/dep_2')) {
         return jsonResponse(200, {
-          data: { id: 'dep_2', status: 'failed', meta: { build_error: 'esbuild exited 1' } },
+          data: {
+            id: 'dep_2',
+            status: 'failed',
+            meta: {
+              build_error: 'esbuild exited 1 after flyctl targeted broken.fly.dev with FLY_API_TOKEN',
+            },
+          },
         });
       }
       throw new Error(`unexpected fetch: ${u}`);
@@ -205,16 +242,42 @@ describe('deployToVura', () => {
         pollIntervalMs: 1,
         logger: () => {},
       }),
-    ).rejects.toThrow('esbuild exited 1');
+    ).rejects.toThrow(
+      'esbuild exited 1 after runtime-cli targeted managed-runtime-domain with RUNTIME_PROVIDER_SETTING',
+    );
+  });
+
+  it('redacts provider internals from deployment-create API errors', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(400, {
+      error: {
+        message: 'flyctl rejected fly.production.toml for broken.fly.dev in registry.fly.io/private/app',
+      },
+    })));
+
+    const error = await deployToVura({
+      distDir,
+      apiUrl: 'https://api.test',
+      token: 'tok_abc',
+      projectId: 'proj_123',
+      logger: () => {},
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain(
+      'runtime-cli rejected runtime-config for managed-runtime-domain in managed-runtime-image',
+    );
+    expect((error as Error).message).not.toMatch(/fly|registry\./i);
   });
 
   it('uploads a portable project-root context for Dedicated routes with pnpm-style dependency links', async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), 'vura-deploy-hot-'));
     const hotDist = join(projectRoot, 'dist');
     let uploaded: Buffer | undefined;
+    let uploadedManifest: unknown;
 
     try {
       await mkdir(join(hotDist, 'server'), { recursive: true });
+      await mkdir(join(projectRoot, 'src', 'api', 'tasks'), { recursive: true });
       const virtualStore = join(projectRoot, 'node_modules', '.pnpm');
       const pkg = join(virtualStore, 'pkg@1.0.0', 'node_modules', 'pkg');
       const dep = join(virtualStore, 'dep@1.0.0', 'node_modules', 'dep');
@@ -229,20 +292,41 @@ describe('deployToVura', () => {
       await symlink('../../../../pkg@1.0.0/node_modules/pkg', join(dep, 'node_modules', 'pkg'), 'dir');
       await symlink('.pnpm/pkg@1.0.0/node_modules/pkg', join(projectRoot, 'node_modules', 'pkg'), 'dir');
       await writeFile(join(hotDist, 'server', 'entry.js'), 'console.log("hot")');
+      await writeFile(
+        join(projectRoot, 'src', 'api', 'dedicated.ts'),
+        "export const route = { compute: { class: 'dedicated', size: 'medium' } }; export function GET() {}",
+      );
+      await writeFile(
+        join(projectRoot, 'src', 'api', 'tasks', 'cleanup.ts'),
+        "export const route = { kind: 'task', compute: { class: 'dedicated', size: 'large' } }; export function POST() {}",
+      );
 
-      const manifest = {
-        api: [{ urlPattern: '/api/hot', kind: 'hot' }],
-        pages: [],
-        timestamp: 't',
-      };
+      const manifest = await buildManifest(projectRoot);
+      expect(manifest.api).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          urlPattern: '/api/dedicated',
+          kind: 'hot',
+          config: expect.objectContaining({ compute: expect.objectContaining({ class: 'dedicated' }) }),
+        }),
+        expect.objectContaining({
+          urlPattern: '/api/tasks/cleanup',
+          kind: 'task',
+          config: expect.objectContaining({
+            hot: true,
+            compute: expect.objectContaining({ class: 'dedicated' }),
+          }),
+        }),
+      ]));
       await writeFile(join(hotDist, 'manifest.json'), JSON.stringify(manifest));
 
       const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
         const u = String(url);
         if (u.endsWith('/v1/projects/proj_hot/deployments')) {
-          const artifact = (init?.body as FormData).get('artifact');
+          const form = init?.body as FormData;
+          const artifact = form.get('artifact');
           expect(artifact).toBeInstanceOf(Blob);
           uploaded = Buffer.from(await (artifact as Blob).arrayBuffer());
+          uploadedManifest = JSON.parse(String(form.get('manifest')));
           return jsonResponse(201, { data: { id: 'dep_hot', url: 'hot.vura.test', status: 'building' } });
         }
         if (u.endsWith('/v1/deployments/dep_hot/logs')) return jsonResponse(200, { data: [] });
@@ -263,6 +347,7 @@ describe('deployToVura', () => {
       });
 
       expect(uploaded).toBeDefined();
+      expect(uploadedManifest).toEqual(manifest);
       const entries = await listArchive(uploaded!);
       expect(entries).toContain('dist/manifest.json');
       expect(entries).toContain('dist/server/entry.js');
@@ -273,6 +358,60 @@ describe('deployToVura', () => {
       expect(await listArchiveVerbose(uploaded!)).not.toContain(' -> ');
       expect(await runFromArchive(uploaded!, "import('pkg').then((mod) => console.log(mod.default))"))
         .toBe('3');
+    } finally {
+      await rm(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('uploads project context for a canonical Dedicated task with no Dedicated HTTP route', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'vura-deploy-dedicated-task-'));
+    const taskDist = join(projectRoot, 'dist');
+    let uploaded: Buffer | undefined;
+
+    try {
+      await mkdir(join(taskDist, 'tasks', 'cleanup'), { recursive: true });
+      await mkdir(join(projectRoot, 'node_modules'), { recursive: true });
+      await writeFile(join(projectRoot, 'package.json'), JSON.stringify({ type: 'module' }));
+      await writeFile(join(taskDist, 'tasks', 'cleanup', 'index.js'), 'export async function POST() {}');
+      const manifest = {
+        api: [{
+          kind: 'task',
+          filePath: 'src/api/tasks/cleanup.ts',
+          urlPattern: '/api/tasks/cleanup',
+          methods: ['POST'],
+          config: { compute: { class: 'dedicated', size: 'medium' } },
+        }],
+        pages: [],
+      };
+      await writeFile(join(taskDist, 'manifest.json'), JSON.stringify(manifest));
+
+      vi.stubGlobal('fetch', vi.fn(async (url: string | URL, init?: RequestInit) => {
+        const value = String(url);
+        if (value.endsWith('/v1/projects/proj_task/deployments')) {
+          const artifact = (init?.body as FormData).get('artifact') as Blob;
+          uploaded = Buffer.from(await artifact.arrayBuffer());
+          return jsonResponse(201, { data: { id: 'dep_task', url: 'task.vura.test', status: 'building' } });
+        }
+        if (value.endsWith('/v1/deployments/dep_task/logs')) return jsonResponse(200, { data: [] });
+        if (value.endsWith('/v1/deployments/dep_task')) return jsonResponse(200, { data: { status: 'ready' } });
+        throw new Error(`unexpected fetch: ${value}`);
+      }));
+
+      await expect(deployToVura({
+        distDir: taskDist,
+        projectRoot,
+        apiUrl: 'https://api.test',
+        token: 'tok_abc',
+        projectId: 'proj_task',
+        pollIntervalMs: 1,
+        logger: () => {},
+      })).resolves.toMatchObject({ status: 'ready' });
+
+      const entries = await listArchive(uploaded!);
+      expect(entries).toContain('dist/manifest.json');
+      expect(entries).toContain('dist/tasks/cleanup/index.js');
+      expect(entries).toContain('package.json');
+      expect(entries).toContain('node_modules');
     } finally {
       await rm(projectRoot, { recursive: true, force: true });
     }
@@ -341,26 +480,48 @@ describe('deployToVura', () => {
     const projectRoot = await mkdtemp(join(tmpdir(), 'vura-deploy-function-'));
     const functionDist = join(projectRoot, 'dist');
     let uploaded: Buffer | undefined;
+    let uploadedManifest: unknown;
 
     try {
       await mkdir(join(projectRoot, 'node_modules', 'pkg'), { recursive: true });
       await mkdir(join(functionDist, 'functions', 'api_hello'), { recursive: true });
+      await mkdir(join(functionDist, 'functions', 'api_heavy'), { recursive: true });
+      await mkdir(join(projectRoot, 'src', 'api'), { recursive: true });
       await writeFile(join(projectRoot, 'package.json'), JSON.stringify({ type: 'module' }));
       await writeFile(join(projectRoot, 'node_modules', 'pkg', 'large.js'), 'not needed');
       await writeFile(join(functionDist, 'functions', 'api_hello', 'index.js'), 'export default {}');
+      await writeFile(join(functionDist, 'functions', 'api_heavy', 'index.js'), 'export default {}');
+      await writeFile(
+        join(projectRoot, 'src', 'api', 'hello.ts'),
+        "export const route = { compute: { class: 'function', memory: '1gb' } }; export function GET() {}",
+      );
+      await writeFile(
+        join(projectRoot, 'src', 'api', 'heavy.ts'),
+        "export const route = { compute: { class: 'function', memory: '12gb' } }; export function GET() {}",
+      );
 
-      const manifest = {
-        api: [{ urlPattern: '/api/hello', kind: 'serverless' }],
-        pages: [],
-        timestamp: 't',
-      };
+      const manifest = await buildManifest(projectRoot);
+      expect(manifest.api).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          urlPattern: '/api/hello',
+          kind: 'serverless',
+          config: expect.objectContaining({ compute: { class: 'function', memory: '1gb' } }),
+        }),
+        expect.objectContaining({
+          urlPattern: '/api/heavy',
+          kind: 'serverless',
+          config: expect.objectContaining({ compute: { class: 'function', memory: '12gb' } }),
+        }),
+      ]));
       await writeFile(join(functionDist, 'manifest.json'), JSON.stringify(manifest));
 
       const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
         const u = String(url);
         if (u.endsWith('/v1/projects/proj_function/deployments')) {
-          const artifact = (init?.body as FormData).get('artifact') as Blob;
+          const form = init?.body as FormData;
+          const artifact = form.get('artifact') as Blob;
           uploaded = Buffer.from(await artifact.arrayBuffer());
+          uploadedManifest = JSON.parse(String(form.get('manifest')));
           return jsonResponse(201, { data: { id: 'dep_function', url: 'function.vura.test', status: 'building' } });
         }
         if (u.endsWith('/v1/deployments/dep_function/logs')) return jsonResponse(200, { data: [] });
@@ -381,9 +542,11 @@ describe('deployToVura', () => {
       });
 
       expect(uploaded).toBeDefined();
+      expect(uploadedManifest).toEqual(manifest);
       const entries = await listArchive(uploaded!);
       expect(entries).toContain('manifest.json');
       expect(entries).toContain('functions/api_hello/index.js');
+      expect(entries).toContain('functions/api_heavy/index.js');
       expect(entries).not.toContain('dist/manifest.json');
       expect(entries).not.toContain('package.json');
       expect(entries.some((entry) => entry.startsWith('node_modules'))).toBe(false);
@@ -394,6 +557,12 @@ describe('deployToVura', () => {
 
   it.each([
     { label: 'Dedicated API route', manifest: { api: [{ kind: 'hot' }], pages: [] } },
+    { label: 'canonical Dedicated task', manifest: { api: [{ kind: 'task', config: { compute: { class: 'dedicated' } } }], pages: [] } },
+    { label: 'legacy hot task', manifest: { api: [{ kind: 'task', config: { hot: true } }], pages: [] } },
+    { label: 'legacy runtime-hot task', manifest: { api: [{ kind: 'task', config: { runtime: 'hot' } }], pages: [] } },
+    { label: 'legacy placement-hot task', manifest: { api: [{ kind: 'task', config: { placement: 'hot' } }], pages: [] } },
+    { label: 'legacy target-hot task', manifest: { api: [{ kind: 'task', config: { target: 'hot' } }], pages: [] } },
+    { label: 'WebSocket API route', manifest: { api: [{ kind: 'serverless', hasWebsocket: true }], pages: [] } },
     { label: 'server page', manifest: { api: [], pages: [{ mode: 'server' }] } },
     { label: 'hybrid page', manifest: { api: [], pages: [{ mode: 'hybrid' }] } },
   ])('fails before upload when a $label lacks project context', async ({ manifest }) => {

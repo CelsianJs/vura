@@ -83,6 +83,30 @@ describe('CLI deploy command', () => {
     expect(messages).toMatch(/vura build/);
   });
 
+  it.each([
+    { label: 'malformed JSON', contents: '{"api": [}' },
+    { label: 'missing required arrays', contents: JSON.stringify({ api: {} }) },
+  ])('fails closed for a manifest with $label before calling the deploy flow', async ({ contents }) => {
+    process.env.VURA_TOKEN = 'tok_abc';
+    writeProjectLink('proj_1');
+    mkdirSync(join(root, 'dist'), { recursive: true });
+    writeFileSync(join(root, 'dist', 'manifest.json'), contents);
+
+    const restore = withSilencedConsole();
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await deployCommand([]);
+    } finally {
+      restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(vi.mocked(deployToVura)).not.toHaveBeenCalled();
+    const messages = errSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(messages).toMatch(/manifest.*invalid/i);
+    expect(messages).toContain('vura build');
+  });
+
   it('resolves the token from VURA_TOKEN and deploys to production with --prod', async () => {
     process.env.VURA_TOKEN = 'tok_abc';
     process.env.VURA_API_URL = 'https://api.test';
@@ -106,6 +130,7 @@ describe('CLI deploy command', () => {
       production: true,
       distDir: join(root, 'dist'),
       projectRoot: root,
+      manifest: { api: [], pages: [] },
     });
   });
 

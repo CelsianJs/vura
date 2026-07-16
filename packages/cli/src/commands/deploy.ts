@@ -14,8 +14,8 @@
  *   --project-id <id>     Project id (else VURA_PROJECT_ID, else .vura/project.json)
  */
 
-import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { resolveApiUrl, resolveProjectId, resolveToken } from '../vura-client.js';
 
@@ -24,6 +24,41 @@ interface DeployFlags {
   token?: string;
   apiUrl?: string;
   projectId?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function invalidManifest(manifestPath: string, detail: string): Error {
+  return new Error(
+    `Build manifest at ${manifestPath} is invalid (${detail}). ` +
+    'Run `vura build` again before deploying.',
+  );
+}
+
+async function readDeployManifest(manifestPath: string): Promise<unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(manifestPath, 'utf8'));
+  } catch {
+    throw invalidManifest(manifestPath, 'malformed JSON');
+  }
+
+  if (!isRecord(parsed)) throw invalidManifest(manifestPath, 'expected a JSON object');
+  if (!Array.isArray(parsed.api)) throw invalidManifest(manifestPath, 'api must be an array');
+  if (!Array.isArray(parsed.pages)) throw invalidManifest(manifestPath, 'pages must be an array');
+  for (const [index, route] of parsed.api.entries()) {
+    if (!isRecord(route) || !['serverless', 'hot', 'task'].includes(String(route.kind))) {
+      throw invalidManifest(manifestPath, `api[${index}] must have a supported kind`);
+    }
+  }
+  for (const [index, page] of parsed.pages.entries()) {
+    if (!isRecord(page) || !['static', 'server', 'client', 'hybrid'].includes(String(page.mode))) {
+      throw invalidManifest(manifestPath, `pages[${index}] must have a supported mode`);
+    }
+  }
+  return parsed;
 }
 
 function parseFlags(args: string[]): DeployFlags {
@@ -86,16 +121,18 @@ export async function deployCommand(args: string[]): Promise<void> {
 
   const apiUrl = resolveApiUrl(flags.apiUrl);
 
-  // Attach the built manifest so the platform can classify routes without
-  // re-scanning the artifact.
+  // 4. Refuse stale/corrupt build output before loading or calling the adapter.
   let manifest: unknown;
   try {
-    manifest = JSON.parse(await readFile(manifestPath, 'utf-8'));
-  } catch {
-    manifest = undefined;
+    manifest = await readDeployManifest(manifestPath);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`  ${message}`);
+    process.exitCode = 1;
+    return;
   }
 
-  // 4. Deploy via the shared adapter flow.
+  // 5. Deploy via the adapter's independently validated shared flow.
   let deployToVura: typeof import('@celsian/vura-adapter-vura').deployToVura;
   try {
     ({ deployToVura } = await import('@celsian/vura-adapter-vura'));

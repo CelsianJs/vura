@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.14 - 2026-07-16
+
+- Fail closed before upload when `dist/manifest.json` is missing, malformed, or structurally invalid.
+- Package full project context for canonical Dedicated routes and tasks, WebSockets, and legacy persistent-runtime markers while keeping 1–12 GB Function deploys lean.
+- Keep managed-provider implementation details out of streamed logs, upload failures, and terminal deployment errors.
+- Report explicitly selected Function memory accurately in `vura routes inspect` and document that managed server/hybrid pages use Dedicated compute.
+- Raise the managed adapter tarball ceiling from 12 KB to 15 KB for the new fail-closed validation and redaction paths.
+
 ## 0.5.13 - 2026-07-16
 
 - Preserve dynamic route parameters in generated Function bundles.
