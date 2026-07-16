@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.13 - 2026-07-16
+
+- Preserve dynamic route parameters in generated Function bundles.
+- Keep schema validation plus global and route lifecycle hooks on Function compute.
+- Make subcommand help side-effect free, including `vura deploy --help`.
+- Extend deploy monitoring to about 20 minutes, honor API retry windows, and keep provider internals out of streamed logs.
+
 ## 0.5.12 - 2026-07-16
 
 ### Two-tier managed compute

@@ -46,6 +46,11 @@ export async function run(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  if (args.slice(1).some((arg) => arg === '--help' || arg === '-h')) {
+    printHelp();
+    return;
+  }
+
   await handler(args.slice(1));
 }
 
