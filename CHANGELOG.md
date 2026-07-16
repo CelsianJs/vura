@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.10 - 2026-07-16
+
+### Managed Dedicated deploys
+
+- Packages `dist/`, `package.json`, and `node_modules/` as the managed runtime context when a manifest contains Dedicated API routes or server/hybrid pages.
+- Keeps static and Function-only deploy artifacts dist-only, avoiding unnecessary dependency uploads.
+- Adds CLI preflight errors for missing project context or dependencies, materializes safe in-project dependency links for npm/pnpm/Yarn portability, and rejects links outside the project.
+
 ## 0.5.9 - 2026-07-16
 
 ### Release reliability

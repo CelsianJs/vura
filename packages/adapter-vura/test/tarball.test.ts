@@ -33,4 +33,17 @@ describe('adapter-vura tarball packaging', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('rejects option-like and escaping entry names', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vura-tarball-entries-'));
+    const outputPath = join(root, 'artifact.tar.gz');
+    try {
+      await expect(createTarball(root, outputPath, ['--checkpoint-action=exec=touch marker']))
+        .rejects.toThrow(/unsafe tar entry/);
+      await expect(createTarball(root, outputPath, ['../outside']))
+        .rejects.toThrow(/unsafe tar entry/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

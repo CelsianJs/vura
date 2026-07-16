@@ -4,7 +4,7 @@
  * Adapts Vura build output for deployment on Vura.io.
  *
  * This adapter runs after `then build` and:
- *   1. Packages the dist/ directory into a tarball
+ *   1. Packages the build output (plus runtime dependencies when required)
  *   2. Uploads it to the Vura API
  *   3. Streams deployment logs back to the terminal
  *
@@ -19,9 +19,21 @@
  * ```
  */
 
-import { mkdtemp, readFile, rename, rm, stat } from 'node:fs/promises';
+import {
+  chmod,
+  copyFile,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  stat,
+} from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
-import { basename, dirname, join, relative } from 'node:path';
+import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { homedir, tmpdir } from 'node:os';
@@ -65,6 +77,11 @@ interface VuraProjectLink {
 export interface DeployToVuraOptions {
   /** Directory containing the built artifacts (the `dist/` output). */
   distDir: string;
+  /**
+   * Project root containing dist/, package.json, and node_modules/. Required
+   * when the manifest includes Dedicated API routes or server/hybrid pages.
+   */
+  projectRoot?: string;
   /** Vura API base URL (e.g. https://api.vura.io). */
   apiUrl: string;
   /** Bearer token for the Vura API. */
@@ -125,6 +142,7 @@ export function vuraAdapter(options: VuraAdapterOptions = {}): ThenAdapter {
       try {
         result = await deployToVura({
           distDir: ctx.outDir,
+          projectRoot: ctx.projectRoot,
           apiUrl,
           token,
           projectId,
@@ -203,7 +221,23 @@ async function getGitInfo(projectRoot: string): Promise<{ ref?: string; sha?: st
   }
 }
 
-export async function createTarball(sourceDir: string, outputPath: string): Promise<void> {
+export async function createTarball(
+  sourceDir: string,
+  outputPath: string,
+  entries: string[] = ['.'],
+): Promise<void> {
+  for (const entry of entries) {
+    const normalized = normalize(entry);
+    if (
+      entry.startsWith('-')
+      || isAbsolute(entry)
+      || normalized === '..'
+      || normalized.startsWith(`..${sep}`)
+    ) {
+      throw new Error(`Refusing unsafe tar entry: ${entry}`);
+    }
+  }
+
   // Use the system tar command for reliability. Write outside sourceDir first so
   // GNU tar on Linux does not warn/fail when the destination path is inside the
   // directory being archived.
@@ -215,11 +249,158 @@ export async function createTarball(sourceDir: string, outputPath: string): Prom
       tempOutputPath,
       '-C',
       sourceDir,
-      '.',
+      '--',
+      ...entries,
     ]);
     await rename(tempOutputPath, outputPath);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+function assertInsideBoundary(boundary: string, candidate: string, label: string): void {
+  const rel = relative(boundary, candidate);
+  if (rel !== '' && (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel))) {
+    throw new Error(
+      `Refusing to package ${label} symlink outside its allowed deploy tree: ${candidate}`,
+    );
+  }
+}
+
+async function copyPortableEntry(
+  source: string,
+  destination: string,
+  boundary: string,
+  label: string,
+  ancestry: Set<string>,
+): Promise<void> {
+  const entry = await lstat(source);
+  if (entry.isSymbolicLink()) {
+    const target = await realpath(source);
+    assertInsideBoundary(boundary, target, label);
+    await copyPortableEntry(target, destination, boundary, label, ancestry);
+    return;
+  }
+
+  const resolvedSource = await realpath(source);
+  assertInsideBoundary(boundary, resolvedSource, label);
+
+  if (entry.isDirectory()) {
+    // Dependency graphs can contain cycles (A -> B -> A). Omitting the nested
+    // duplicate lets Node continue resolution at an ancestor node_modules
+    // while keeping the staged tree finite.
+    if (ancestry.has(resolvedSource)) return;
+    ancestry.add(resolvedSource);
+    try {
+      await mkdir(destination, { recursive: true });
+      for (const child of await readdir(source)) {
+        await copyPortableEntry(
+          join(source, child),
+          join(destination, child),
+          boundary,
+          label,
+          ancestry,
+        );
+      }
+      await chmod(destination, entry.mode & 0o777);
+    } finally {
+      ancestry.delete(resolvedSource);
+    }
+    return;
+  }
+
+  if (entry.isFile()) {
+    await mkdir(dirname(destination), { recursive: true });
+    await copyFile(source, destination);
+    await chmod(destination, entry.mode & 0o777);
+    return;
+  }
+
+  throw new Error(`Refusing unsupported dependency entry: ${source}`);
+}
+
+async function createProjectContextTarball(projectRoot: string, outputPath: string): Promise<void> {
+  const root = await realpath(projectRoot);
+  const distRoot = await realpath(join(root, 'dist'));
+  const modulesRoot = await realpath(join(root, 'node_modules'));
+  assertInsideBoundary(root, distRoot, 'dist');
+  assertInsideBoundary(root, modulesRoot, 'node_modules');
+
+  const packageJsonPath = join(root, 'package.json');
+  const packageJson = await lstat(packageJsonPath);
+  if (!packageJson.isFile()) {
+    throw new Error('Refusing to package package.json unless it is an ordinary file.');
+  }
+
+  const stagingRoot = await mkdtemp(join(tmpdir(), 'vura-portable-context-'));
+  try {
+    await copyPortableEntry(distRoot, join(stagingRoot, 'dist'), distRoot, 'dist', new Set());
+    await copyFile(packageJsonPath, join(stagingRoot, 'package.json'));
+    await chmod(join(stagingRoot, 'package.json'), packageJson.mode & 0o777);
+
+    const stagedModules = join(stagingRoot, 'node_modules');
+    await mkdir(stagedModules, { recursive: true });
+    for (const child of await readdir(modulesRoot)) {
+      // pnpm's virtual store is an implementation detail. Package links that
+      // point into it are materialized at their Node-visible locations below.
+      if (child === '.pnpm' || child === '.package-lock.json') continue;
+      await copyPortableEntry(
+        join(modulesRoot, child),
+        join(stagedModules, child),
+        modulesRoot,
+        'dependency',
+        new Set(),
+      );
+    }
+
+    await createTarball(stagingRoot, outputPath, ['dist', 'package.json', 'node_modules']);
+  } finally {
+    await rm(stagingRoot, { recursive: true, force: true });
+  }
+}
+
+type DeployManifest = {
+  api?: Array<{ kind?: string }>;
+  pages?: Array<{ mode?: string }>;
+};
+
+function manifestRequiresProjectContext(manifest: unknown): boolean {
+  const typed = manifest as DeployManifest | null | undefined;
+  return (typed?.api || []).some((route) => route.kind === 'hot')
+    || (typed?.pages || []).some((page) => page.mode === 'server' || page.mode === 'hybrid');
+}
+
+async function readBuiltManifest(distDir: string, supplied: unknown): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(join(distDir, 'manifest.json'), 'utf8'));
+  } catch {
+    return supplied;
+  }
+}
+
+async function assertProjectContext(projectRoot: string, distDir: string): Promise<void> {
+  const root = resolve(projectRoot);
+  const built = resolve(distDir);
+  if (relative(root, built) !== 'dist') {
+    throw new Error(
+      'Dedicated routes and server-rendered pages require dist/ directly under the project root. ' +
+      `Received build output at ${distDir}.`,
+    );
+  }
+
+  const packageJson = await stat(join(root, 'package.json')).catch(() => null);
+  if (!packageJson?.isFile()) {
+    throw new Error(
+      'Dedicated routes and server-rendered pages require package.json in the project root.',
+    );
+  }
+
+  const nodeModules = await stat(join(root, 'node_modules')).catch(() => null);
+  if (!nodeModules?.isDirectory()) {
+    throw new Error(
+      'Dedicated routes and server-rendered pages require node_modules in the project root. ' +
+      'Run your package manager install command before deploying.',
+    );
   }
 }
 
@@ -238,23 +419,42 @@ export async function createTarball(sourceDir: string, outputPath: string): Prom
 export async function deployToVura(options: DeployToVuraOptions): Promise<DeployToVuraResult> {
   const {
     distDir,
+    projectRoot,
     apiUrl,
     token,
     projectId,
     production = false,
-    manifest,
+    manifest: suppliedManifest,
     gitInfo = {},
     pollIntervalMs = 1000,
     maxPolls = 300,
     logger = (line: string) => process.stdout.write(line),
   } = options;
 
-  // 1. Create tarball of the build output.
+  const manifest = await readBuiltManifest(distDir, suppliedManifest);
+  const requiresProjectContext = manifestRequiresProjectContext(manifest);
+
+  // 1. Create a lean dist-only archive for ordinary deployments. Dedicated
+  // and server-rendered deployments need the runtime dependency tree as a
+  // Docker context. Tar intentionally does not receive -h/--dereference:
+  // arbitrary dependency symlinks must never cause files outside the project
+  // to be copied into the upload.
   logger('\x1b[36m[vura]\x1b[0m Packaging build artifacts...\n');
   const tempDir = await mkdtemp(join(tmpdir(), 'vura-deploy-artifact-'));
   const tarballPath = join(tempDir, 'vura-deploy.tar.gz');
   try {
-    await createTarball(distDir, tarballPath);
+    if (requiresProjectContext) {
+      if (!projectRoot) {
+        throw new Error(
+          'Dedicated routes and server-rendered pages require a projectRoot deploy context. ' +
+          'Upgrade the Vura CLI or adapter and deploy again.',
+        );
+      }
+      await assertProjectContext(projectRoot, distDir);
+      await createProjectContextTarball(resolve(projectRoot), tarballPath);
+    } else {
+      await createTarball(distDir, tarballPath);
+    }
 
     const tarballStat = await stat(tarballPath);
     const sizeMB = (tarballStat.size / 1024 / 1024).toFixed(2);
