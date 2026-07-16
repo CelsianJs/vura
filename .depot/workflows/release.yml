@@ -38,7 +38,10 @@ jobs:
       - run: pnpm lint
       - run: pnpm build
       - run: pnpm test
+      # The npm registry retired the legacy audit endpoint used by pnpm 10.
+      # audit:all intentionally uses pnpm 11, whose runtime floor is Node 22.
       - run: pnpm audit:all
+        if: matrix.node-version == 22
       - run: pnpm verify:publish
       - run: pnpm package:size
       - uses: actions/upload-artifact@v7
