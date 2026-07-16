@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.9 - 2026-07-16
+
+### Release reliability
+
+- Ships the 0.5.8 compute-placement and compiler-safety release after making the HTTP middleware regression suite independent of Fetch's forbidden-port policy.
+- Keeps Node 20 and Node 22 package verification deterministic when the OS assigns any available loopback port.
+
 ## 0.5.8 - 2026-07-16
 
 ### Compute placement and compiler safety

@@ -13,7 +13,7 @@
  *       the handler and can mutate a shared side-effect array.
  */
 
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from 'node:http';
 import { describe, it, expect, vi } from 'vitest';
 import {
   createApiApp,
@@ -66,6 +66,36 @@ function makeTestServer(handler: (req: IncomingMessage, res: ServerResponse) => 
   });
 }
 
+function requestTestServer(
+  port: number,
+  path: string,
+  options: { method?: string; headers?: Record<string, string>; body?: string } = {},
+): Promise<{ status: number; json: () => Promise<unknown> }> {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest({
+      hostname: '127.0.0.1',
+      port,
+      path,
+      method: options.method ?? 'GET',
+      headers: options.headers,
+    }, (response) => {
+      let responseBody = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => {
+        responseBody += chunk;
+      });
+      response.on('end', () => {
+        resolve({
+          status: response.statusCode ?? 0,
+          json: async () => JSON.parse(responseBody) as unknown,
+        });
+      });
+    });
+    request.on('error', reject);
+    request.end(options.body);
+  });
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('dev API middleware — CelsianApp.handle path', () => {
@@ -87,7 +117,7 @@ describe('dev API middleware — CelsianApp.handle path', () => {
     });
 
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/api/echo`, {
+      const res = await requestTestServer(port, '/api/echo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ hello: 'world' }),
@@ -126,7 +156,7 @@ describe('dev API middleware — CelsianApp.handle path', () => {
     });
 
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/api/echo`, {
+      const res = await requestTestServer(port, '/api/echo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ping: true }),
@@ -158,7 +188,7 @@ describe('dev API middleware — CelsianApp.handle path', () => {
     });
 
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/api/unknown`, {
+      const res = await requestTestServer(port, '/api/unknown', {
         method: 'GET',
       });
       const json = await res.json();
@@ -205,7 +235,7 @@ describe('dev API middleware — CelsianApp.handle path', () => {
     });
 
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/api/boom`);
+      const res = await requestTestServer(port, '/api/boom');
       expect(res.status).toBe(500);
       // onError hook must have fired with the thrown error message
       expect(errorSpy).toHaveBeenCalledOnce();
@@ -250,14 +280,14 @@ describe('dev API middleware — CelsianApp.handle path', () => {
     });
 
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/api/gone`);
+      const res = await requestTestServer(port, '/api/gone');
       // Must get the handler's intentional 404 with its custom body
       expect(res.status).toBe(404);
       const json = await res.json();
       expect(json).toEqual({ error: 'custom' });
 
       // Verify an unmatched path still falls through to next()
-      const res2 = await fetch(`http://127.0.0.1:${port}/api/other`);
+      const res2 = await requestTestServer(port, '/api/other');
       const json2 = await res2.json();
       expect(json2).toEqual({ passedThrough: true });
     } finally {
