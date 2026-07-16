@@ -36,7 +36,7 @@ jobs:
       - run: pnpm build
       - run: pnpm test
       - run: pnpm verify:publish
-      - run: pnpm audit
+      - run: pnpm audit:all
   # Self-host audit runs as a separate job parallel to verify.
   # Rationale: scaffoldAndBuild() packs all workspace packages, runs npm install
   # inside a tmpdir, and runs vura build — roughly 2–4 min on a cold runner.

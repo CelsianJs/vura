@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.8 - 2026-07-16
+
+### Compute placement and compiler safety
+
+- **Explicit Function and Dedicated intent.** Route manifests preserve the requested compute class and memory profile so the platform can route stateless endpoints to 1–12 GB Function compute and persistent/WebSocket endpoints to Dedicated machines.
+- **Fail-closed route configuration.** Identifier-valued `mode`, `revalidate`, and `tags`, bare modes, regex lookalikes, unknown route kinds/classes, and invalid CPU values are rejected instead of being guessed into a deployable manifest.
+- **JavaScript/native parity.** Shared hostile fixtures keep the TypeScript and Rust scanners aligned on accepted and rejected syntax.
+- **CLI placement guidance.** Runtime inspection explains Function, Dedicated, and Edge-request intent before deployment, including why Edge remains a platform-reviewed admission request.
+
+### Verified
+
+- Node 20 and 22: 782 tests plus packed package/scaffold/CLI/adapter smokes.
+- Native packed smoke on Node 20 and 22, strict Clippy, docs build, lint, size gates, and publish verification.
+
 ## 0.5.7 - 2026-07-11
 
 ### Fixes

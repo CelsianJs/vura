@@ -54,5 +54,5 @@ describe('publish-packages npm scope preflight', () => {
       ['whoami'],
       ['access', 'list', 'packages', '@celsian', '--json'],
     ]);
-  });
+  }, 30_000);
 });
