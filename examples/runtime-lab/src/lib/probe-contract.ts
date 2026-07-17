@@ -9,6 +9,7 @@ export interface ProbePayload {
   route: string;
   method: string;
   correlationId: string;
+  requestId: string;
   bootId: string;
   bootAgeMs: number;
   requestOrdinal: number;
@@ -29,6 +30,7 @@ export function handleProbe(req: ThenRequest, runtimeIntent: ProbeRuntimeIntent)
   const handlerStartedAt = Date.now();
   const url = new URL(req.url);
   const correlationId = req.headers.get('x-lab-correlation-id') || createId();
+  const requestId = req.headers.get('x-vura-request-id') || correlationId;
   const shouldFail = url.searchParams.get('fail') === '1';
   requestOrdinal += 1;
 
@@ -39,6 +41,7 @@ export function handleProbe(req: ThenRequest, runtimeIntent: ProbeRuntimeIntent)
     route: url.pathname,
     method: req.method,
     correlationId,
+    requestId,
     bootId,
     bootAgeMs: Date.now() - startedAtMs,
     requestOrdinal,
@@ -64,6 +67,7 @@ export function handleProbe(req: ThenRequest, runtimeIntent: ProbeRuntimeIntent)
       'content-type': 'application/json; charset=utf-8',
       'server-timing': `handler;dur=${payload.handlerMs}`,
       'x-lab-correlation-id': correlationId,
+      'x-vura-request-id': requestId,
       'x-lab-handler-version': '1',
     },
   });

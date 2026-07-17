@@ -11,6 +11,7 @@ const sample = (totalMs: number, overrides: Partial<TimingSample> = {}): TimingS
   requestOrdinal: 2,
   status: 200,
   correlationId: `sample-${totalMs}`,
+  requestId: `request-${totalMs}`,
   timestamp: '2026-07-16T00:00:00.000Z',
   ...overrides,
 });
@@ -34,6 +35,7 @@ describe('runtime lab metrics', () => {
 
   it('classifies cold function evidence from wake telemetry or a fresh boot', () => {
     expect(isColdFunction(sample(500, { wakeMs: 420 }))).toBe(true);
+    expect(isColdFunction(sample(20, { wakeMs: 0 }))).toBe(false);
     expect(isColdFunction(sample(500, { requestOrdinal: 1, bootAgeMs: 4_000 }))).toBe(true);
     expect(isColdFunction(sample(20))).toBe(false);
     expect(isColdFunction(sample(20, { route: '/api/hot', wakeMs: 1 }))).toBe(false);

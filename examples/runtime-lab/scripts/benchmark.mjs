@@ -54,6 +54,7 @@ async function measure(source, count) {
       wakeMs: wakeHeader == null ? null : Number(wakeHeader),
       observedRuntime: response.headers.get('x-vura-route-kind') || response.headers.get('x-vura-runtime') || body.runtimeIntent || 'unknown',
       correlationId: body.correlationId || correlationId,
+      requestId: response.headers.get('x-vura-request-id') || body.requestId || null,
       bootId: body.bootId,
       bootAgeMs: body.bootAgeMs,
       requestOrdinal: body.requestOrdinal,

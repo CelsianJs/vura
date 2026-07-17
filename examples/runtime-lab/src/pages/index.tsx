@@ -44,7 +44,7 @@ const visibleSamples = computed(() => samples().filter((sample) => {
   return (sourceFilter() === 'all' || sample.source === sourceFilter())
     && (levelFilter() === 'all' || sample.level === levelFilter())
     && (routeFilter() === 'all' || sample.route === routeFilter())
-    && (!query || `${sample.message} ${sample.correlationId} ${sample.observedRuntime}`.toLowerCase().includes(query));
+    && (!query || `${sample.message} ${sample.correlationId} ${sample.requestId} ${sample.observedRuntime}`.toLowerCase().includes(query));
 }).slice().reverse());
 
 const portableSegments = computed(() => {
@@ -102,6 +102,7 @@ async function runProbe(source: RouteName, fail = false, record = true): Promise
     requestOrdinal: payload.requestOrdinal,
     status: response.status,
     correlationId: payload.correlationId || correlationId,
+    requestId: response.headers.get('x-vura-request-id') || payload.requestId || correlationId,
     timestamp: payload.completedAt || new Date().toISOString(),
     handlerMs: payload.handlerMs,
   };
@@ -210,6 +211,7 @@ function LatestRequest() {
               <div class="datum"><dt>TTFB</dt><dd>{Math.round(sample.ttfbMs)} ms</dd></div>
               <div class="datum"><dt>Total</dt><dd>{Math.round(sample.totalMs)} ms</dd></div>
               <div class="datum"><dt>Handler</dt><dd>{sample.handlerMs} ms</dd></div>
+              <div class="datum correlation"><dt>Request ID</dt><dd title={sample.requestId}>{sample.requestId}</dd></div>
               <div class="datum correlation"><dt>Correlation ID</dt><dd title={sample.correlationId}>{sample.correlationId}</dd></div>
             </dl>
           );
@@ -233,13 +235,13 @@ function ProbeStream() {
         <select class="filter" aria-label="Route" value={routeFilter()} onChange={(event: Event) => routeFilter.set((event.target as HTMLSelectElement).value)}>
           <option value="all">Route: All</option><option value="/api/function">/api/function</option><option value="/api/hot">/api/hot</option><option value="/api/portable">/api/portable</option>
         </select>
-        <input class="filter search" aria-label="Correlation or search" placeholder="Correlation ID / search…" value={searchFilter()} onInput={(event: Event) => searchFilter.set((event.target as HTMLInputElement).value)} />
+        <input class="filter search" aria-label="Request ID, correlation, or search" placeholder="Request ID / correlation / search…" value={searchFilter()} onInput={(event: Event) => searchFilter.set((event.target as HTMLInputElement).value)} />
         <span class="event-count">{() => visibleSamples().length} rows</span>
       </div>
       <table class="log-table">
-        <thead><tr><th style="width:12%">Time (UTC)</th><th style="width:12%">Source</th><th style="width:9%">Level</th><th style="width:14%">Route</th><th style="width:24%">Message</th><th>Correlation ID</th></tr></thead>
+        <thead><tr><th style="width:11%">Time (UTC)</th><th style="width:10%">Source</th><th style="width:8%">Level</th><th style="width:12%">Route</th><th style="width:20%">Message</th><th>Request ID</th><th>Correlation ID</th></tr></thead>
         <tbody>
-          <Show when={() => visibleSamples().length > 0} fallback={<tr><td class="empty-row" colSpan={6}>No matching probe events.</td></tr>}>
+          <Show when={() => visibleSamples().length > 0} fallback={<tr><td class="empty-row" colSpan={7}>No matching probe events.</td></tr>}>
             <For each={() => visibleSamples()}>{(sample: LabSample) => (
               <tr>
                 <td>{new Date(sample.timestamp).toISOString().slice(11, 23)}</td>
@@ -247,6 +249,7 @@ function ProbeStream() {
                 <td><span class={`log-level ${sample.level}`}>{sample.level.toUpperCase()}</span></td>
                 <td>{sample.route}</td>
                 <td>{sample.message}</td>
+                <td title={sample.requestId}>{sample.requestId}</td>
                 <td title={sample.correlationId}>{sample.correlationId}</td>
               </tr>
             )}</For>
