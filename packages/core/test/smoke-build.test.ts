@@ -67,7 +67,13 @@ function createTestProject(): string {
 
 export async function GET(req: any, reply: any) {
   const marker = new HttpError(418, 'INTERNAL_ERROR', 'teapot');
-  return reply.json({ message: 'hello', marker: marker.name, scope: process.env.VURA_ENV_SCOPE || 'unset' });
+  return reply.json({
+    message: 'hello',
+    marker: marker.name,
+    scope: process.env.VURA_ENV_SCOPE || 'unset',
+    pathname: new URL(req.url).pathname,
+    probe: req.headers.get('x-vura-probe'),
+  });
 }
 `,
   );
@@ -235,11 +241,19 @@ describe('smoke-build: end-to-end build pipeline', () => {
     expect(routeArtifact).not.toContain("from '@celsian/vura-core'");
     expect(routeArtifact).not.toContain('from "@celsian/vura-core"');
     const result = runModuleJson(helloFunction!.entryPath, `
-const response = await mod.default.fetch(new Request('https://example.com/api/hello'));
+const response = await mod.default.fetch(new Request('https://example.com/api/hello', {
+  headers: { 'x-vura-probe': 'request-compatible' },
+}));
 console.log(JSON.stringify({ status: response.status, body: await response.json() }));
 `);
     expect(result.status).toBe(200);
-    expect(result.body).toEqual({ message: 'hello', marker: 'HttpError', scope: 'unset' });
+    expect(result.body).toEqual({
+      message: 'hello',
+      marker: 'HttpError',
+      scope: 'unset',
+      pathname: '/api/hello',
+      probe: 'request-compatible',
+    });
   });
 
   it('writes task entries for task routes', () => {

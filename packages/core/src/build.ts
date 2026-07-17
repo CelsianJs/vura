@@ -429,15 +429,13 @@ export default {
     }
 
     const body = await parseBody(request);
-    const req = {
-      method,
-      url: url.pathname,
-      headers: Object.fromEntries(request.headers.entries()),
-      params: routeParams(url.pathname),
-      query: Object.fromEntries(url.searchParams.entries()),
-      body,
-      parsedBody: body,
-    };
+    const req = request;
+    Object.defineProperties(req, {
+      params: { value: routeParams(url.pathname), writable: true, configurable: true, enumerable: true },
+      query: { value: Object.fromEntries(url.searchParams.entries()), writable: true, configurable: true, enumerable: true },
+      parsedBody: { value: body, writable: true, configurable: true, enumerable: true },
+      body: { get() { return req.parsedBody; }, set(value) { req.parsedBody = value; }, configurable: true },
+    });
 
     let statusCode = 200;
     const responseHeaders = { 'content-type': 'application/json' };

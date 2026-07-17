@@ -320,7 +320,8 @@ describe('generateFunctionEntry', () => {
 
     expect(entry).toContain('function routeParams(pathname)');
     expect(entry).toContain('"/api/users/:id".split');
-    expect(entry).toContain('params: routeParams(url.pathname)');
+    expect(entry).toContain('params: { value: routeParams(url.pathname)');
+    expect(entry).toContain('const req = request');
   });
 
   it('loads global hooks and keeps route validation in the Function lifecycle', () => {
