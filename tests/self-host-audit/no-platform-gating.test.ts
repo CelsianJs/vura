@@ -313,10 +313,11 @@ describe('hybrid runtime serving — static/client/hybrid pages from one entry',
     expect(shell.headers.get('content-type')).toContain('text/html');
 
     const html = await shell.text();
-    expect(html).toMatch(/<script[^>]*\bsrc="\/_then\/pages\/widget\.js"/);
+    const widgetScript = html.match(/<script[^>]*\bsrc="(\/_then\/pages\/widget\.[a-f0-9]{12}\.js)"/)?.[1];
+    expect(widgetScript).toBeTruthy();
 
-    // Bundle: dist/static/_then/pages/widget.js, served with a JS MIME type.
-    const js = await fetch(`http://localhost:${server.port}/_then/pages/widget.js`);
+    // Content-fingerprinted bundle, served with a JS MIME type.
+    const js = await fetch(`http://localhost:${server.port}${widgetScript!}`);
     expect(js.status).toBe(200);
     expect(js.headers.get('content-type')).toContain('javascript');
     // The bundle is the generated client entry — it must actually boot the page
@@ -332,7 +333,7 @@ describe('hybrid runtime serving — static/client/hybrid pages from one entry',
     // SSR-visible markup, present before any JS executes
     expect(html).toContain('vura-audit-hybrid-ssr');
     // Hydration entry (generateClientPageEntry calls hydrate(), not mount())
-    expect(html).toMatch(/<script[^>]*\bsrc="\/_then\/pages\/mixed\.js"/);
+    expect(html).toMatch(/<script[^>]*\bsrc="\/_then\/pages\/mixed\.[a-f0-9]{12}\.js"/);
 
     // ── Layer attribution (observed behavior) ──
     // /mixed is served by the dist/static layer (the build-time prerendered

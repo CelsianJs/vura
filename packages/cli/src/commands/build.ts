@@ -136,8 +136,9 @@ export async function buildCommand(_args: string[]): Promise<void> {
   // Shared esbuild helpers
   const { build: esbuild } = await import('esbuild');
   const { join, resolve } = await import('node:path');
-  const { mkdir } = await import('node:fs/promises');
+  const { mkdir, readFile, rename } = await import('node:fs/promises');
   const { existsSync } = await import('node:fs');
+  const { createHash } = await import('node:crypto');
 
   const cliRequire = createRequire(import.meta.url);
   const projectRequire = createRequire(join(root, 'package.json'));
@@ -321,7 +322,14 @@ export async function buildCommand(_args: string[]): Promise<void> {
         external: [],
       });
 
-      const scriptPath = `/_then/pages/${outFile.replace(/\\/g, '/')}`;
+      const bundleHash = createHash('sha256')
+        .update(await readFile(outPath))
+        .digest('hex')
+        .slice(0, 12);
+      const hashedOutFile = outFile.replace(/\.js$/, `.${bundleHash}.js`);
+      await rename(outPath, join(clientPagesDir, hashedOutFile));
+
+      const scriptPath = `/_then/pages/${hashedOutFile.replace(/\\/g, '/')}`;
       clientScripts[page.filePath] = scriptPath;
       console.log(`    ◇ ${page.urlPattern} → dist/static${scriptPath}`);
     }

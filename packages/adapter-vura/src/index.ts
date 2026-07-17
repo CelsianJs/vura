@@ -320,6 +320,49 @@ async function copyPortableEntry(
   throw new Error(`Refusing unsupported dependency entry: ${source}`);
 }
 
+type PackageDependencyMetadata = {
+  dependencies?: Record<string, unknown>;
+  devDependencies?: Record<string, unknown>;
+  optionalDependencies?: Record<string, unknown>;
+  peerDependencies?: Record<string, unknown>;
+};
+
+function dependencyNames(
+  metadata: PackageDependencyMetadata,
+  fields: Array<keyof PackageDependencyMetadata>,
+): Set<string> {
+  return new Set(fields.flatMap((field) => Object.keys(metadata[field] ?? {})));
+}
+
+async function readPackageMetadata(path: string): Promise<PackageDependencyMetadata> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(path, 'utf8'));
+  } catch (error) {
+    throw new Error(`Unable to read deploy package metadata at ${path}`, { cause: error });
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`Deploy package metadata must be a JSON object: ${path}`);
+  }
+  return parsed as PackageDependencyMetadata;
+}
+
+async function copyVisibleDependency(
+  modulesRoot: string,
+  stagedModules: string,
+  dependencyName: string,
+  devOnlyDependencies: Set<string>,
+): Promise<void> {
+  if (devOnlyDependencies.has(dependencyName)) return;
+  await copyPortableEntry(
+    join(modulesRoot, ...dependencyName.split('/')),
+    join(stagedModules, ...dependencyName.split('/')),
+    modulesRoot,
+    'dependency',
+    new Set(),
+  );
+}
+
 async function createProjectContextTarball(projectRoot: string, outputPath: string): Promise<void> {
   const root = await realpath(projectRoot);
   const distRoot = await realpath(join(root, 'dist'));
@@ -333,24 +376,58 @@ async function createProjectContextTarball(projectRoot: string, outputPath: stri
     throw new Error('Refusing to package package.json unless it is an ordinary file.');
   }
 
+  const rootMetadata = await readPackageMetadata(packageJsonPath);
+
   const stagingRoot = await mkdtemp(join(tmpdir(), 'vura-portable-context-'));
   try {
     await copyPortableEntry(distRoot, join(stagingRoot, 'dist'), distRoot, 'dist', new Set());
     await copyFile(packageJsonPath, join(stagingRoot, 'package.json'));
     await chmod(join(stagingRoot, 'package.json'), packageJson.mode & 0o777);
 
+    const stagedDistPackageJson = join(stagingRoot, 'dist', 'package.json');
+    let distMetadata: PackageDependencyMetadata = {};
+    try {
+      const distPackageJson = await lstat(stagedDistPackageJson);
+      if (!distPackageJson.isFile()) {
+        throw new Error('Refusing deploy dist/package.json unless it is an ordinary file.');
+      }
+      distMetadata = await readPackageMetadata(stagedDistPackageJson);
+    } catch (error: any) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+
+    const runtimeDependencies = new Set([
+      ...dependencyNames(rootMetadata, ['dependencies', 'optionalDependencies', 'peerDependencies']),
+      ...dependencyNames(distMetadata, ['dependencies', 'optionalDependencies', 'peerDependencies']),
+    ]);
+    const devOnlyDependencies = new Set(
+      [...dependencyNames(rootMetadata, ['devDependencies'])]
+        .filter((name) => !runtimeDependencies.has(name)),
+    );
+
     const stagedModules = join(stagingRoot, 'node_modules');
     await mkdir(stagedModules, { recursive: true });
     for (const child of await readdir(modulesRoot)) {
-      // pnpm's virtual store is an implementation detail. Package links that
-      // point into it are materialized at their Node-visible locations below.
-      if (child === '.pnpm' || child === '.package-lock.json') continue;
-      await copyPortableEntry(
-        join(modulesRoot, child),
-        join(stagedModules, child),
+      // Package-manager stores, bins, and caches are implementation details.
+      if (child.startsWith('.')) continue;
+
+      if (child.startsWith('@')) {
+        for (const scopedChild of await readdir(join(modulesRoot, child))) {
+          await copyVisibleDependency(
+            modulesRoot,
+            stagedModules,
+            `${child}/${scopedChild}`,
+            devOnlyDependencies,
+          );
+        }
+        continue;
+      }
+
+      await copyVisibleDependency(
         modulesRoot,
-        'dependency',
-        new Set(),
+        stagedModules,
+        child,
+        devOnlyDependencies,
       );
     }
 

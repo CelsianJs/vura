@@ -281,16 +281,34 @@ describe('deployToVura', () => {
       const virtualStore = join(projectRoot, 'node_modules', '.pnpm');
       const pkg = join(virtualStore, 'pkg@1.0.0', 'node_modules', 'pkg');
       const dep = join(virtualStore, 'dep@1.0.0', 'node_modules', 'dep');
+      const workspaceCli = join(projectRoot, 'packages', 'cli');
+      const workspaceFramework = join(projectRoot, 'packages', 'what-framework');
       await mkdir(join(pkg, 'node_modules'), { recursive: true });
       await mkdir(join(dep, 'node_modules'), { recursive: true });
-      await writeFile(join(projectRoot, 'package.json'), JSON.stringify({ type: 'module' }));
+      await mkdir(workspaceCli, { recursive: true });
+      await mkdir(workspaceFramework, { recursive: true });
+      await mkdir(join(projectRoot, 'node_modules', '@celsian'), { recursive: true });
+      await mkdir(join(projectRoot, 'node_modules', '.bin'), { recursive: true });
+      await writeFile(join(projectRoot, 'package.json'), JSON.stringify({
+        type: 'module',
+        dependencies: { pkg: '1.0.0' },
+        devDependencies: {
+          '@celsian/vura-cli': 'workspace:*',
+          'what-framework': 'workspace:*',
+        },
+      }));
       await writeFile(join(pkg, 'package.json'), JSON.stringify({ name: 'pkg', type: 'module', main: 'index.js' }));
       await writeFile(join(pkg, 'index.js'), "import dep from 'dep'; export default dep + 1");
       await writeFile(join(dep, 'package.json'), JSON.stringify({ name: 'dep', type: 'module', main: 'index.js' }));
       await writeFile(join(dep, 'index.js'), 'export default 2');
+      await writeFile(join(workspaceCli, 'index.js'), 'throw new Error("dev-only CLI was packaged")');
+      await writeFile(join(workspaceFramework, 'index.js'), 'throw new Error("dev-only framework was packaged")');
+      await writeFile(join(projectRoot, 'node_modules', '.bin', 'vura'), 'dev-only executable');
       await symlink('../../../../dep@1.0.0/node_modules/dep', join(pkg, 'node_modules', 'dep'), 'dir');
       await symlink('../../../../pkg@1.0.0/node_modules/pkg', join(dep, 'node_modules', 'pkg'), 'dir');
       await symlink('.pnpm/pkg@1.0.0/node_modules/pkg', join(projectRoot, 'node_modules', 'pkg'), 'dir');
+      await symlink('../../packages/cli', join(projectRoot, 'node_modules', '@celsian', 'vura-cli'), 'dir');
+      await symlink('../packages/what-framework', join(projectRoot, 'node_modules', 'what-framework'), 'dir');
       await writeFile(join(hotDist, 'server', 'entry.js'), 'console.log("hot")');
       await writeFile(
         join(projectRoot, 'src', 'api', 'dedicated.ts'),
@@ -355,6 +373,9 @@ describe('deployToVura', () => {
       expect(entries).toContain('node_modules/pkg/index.js');
       expect(entries).toContain('node_modules/pkg/node_modules/dep/index.js');
       expect(entries.some((entry) => entry.startsWith('node_modules/.pnpm'))).toBe(false);
+      expect(entries.some((entry) => entry.startsWith('node_modules/.bin'))).toBe(false);
+      expect(entries.some((entry) => entry.startsWith('node_modules/@celsian'))).toBe(false);
+      expect(entries.some((entry) => entry.startsWith('node_modules/what-framework'))).toBe(false);
       expect(await listArchiveVerbose(uploaded!)).not.toContain(' -> ');
       expect(await runFromArchive(uploaded!, "import('pkg').then((mod) => console.log(mod.default))"))
         .toBe('3');
