@@ -1,0 +1,16 @@
+{
+  "name": "vura-runtime-routing-lab",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vura dev",
+    "build": "vura build",
+    "test": "vitest run src/**/*.test.ts",
+    "benchmark": "node scripts/benchmark.mjs"
+  },
+  "devDependencies": {
+    "@celsian/vura-cli": "workspace:*",
+    "@celsian/vura-core": "workspace:*",
+    "what-framework": "^0.11.1"
+  }
+}
