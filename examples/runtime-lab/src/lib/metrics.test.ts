@@ -33,12 +33,13 @@ describe('runtime lab metrics', () => {
     });
   });
 
-  it('classifies cold function evidence from wake telemetry or a fresh boot', () => {
-    expect(isColdFunction(sample(500, { wakeMs: 420 }))).toBe(true);
+  it('classifies cold functions only when the external proof contract succeeded', () => {
+    expect(isColdFunction(sample(500, { coldProof: true, wakeMs: 420, requestOrdinal: 1, bootAgeMs: 4_000 }))).toBe(true);
+    expect(isColdFunction(sample(500, { wakeMs: 420, requestOrdinal: 1, bootAgeMs: 4_000 }))).toBe(false);
     expect(isColdFunction(sample(20, { wakeMs: 0 }))).toBe(false);
-    expect(isColdFunction(sample(500, { requestOrdinal: 1, bootAgeMs: 4_000 }))).toBe(true);
+    expect(isColdFunction(sample(500, { coldProof: true, requestOrdinal: 1, bootAgeMs: 4_000 }))).toBe(false);
     expect(isColdFunction(sample(20))).toBe(false);
-    expect(isColdFunction(sample(20, { route: '/api/hot', wakeMs: 1 }))).toBe(false);
+    expect(isColdFunction(sample(20, { coldProof: true, route: '/api/hot', wakeMs: 1 }))).toBe(false);
   });
 
   it('normalizes public runtime vocabulary', () => {

@@ -10,6 +10,8 @@ export interface TimingSample {
   correlationId: string;
   requestId: string;
   timestamp: string;
+  /** Set only by a harness that completed the authenticated cold-proof contract. */
+  coldProof?: boolean;
 }
 
 export interface TimingSummary {
@@ -38,7 +40,12 @@ export function summarize(samples: TimingSample[]): TimingSummary {
 
 export function isColdFunction(sample: TimingSample): boolean {
   return sample.route === '/api/function'
-    && ((sample.wakeMs ?? 0) > 0 || (sample.requestOrdinal === 1 && sample.bootAgeMs < 30_000));
+    && sample.observedRuntime === 'function'
+    && sample.status === 200
+    && sample.coldProof === true
+    && (sample.wakeMs ?? 0) > 0
+    && sample.requestOrdinal === 1
+    && sample.bootAgeMs < 30_000;
 }
 
 export function normalizeRuntime(value: string | null | undefined): string {

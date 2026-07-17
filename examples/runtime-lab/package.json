@@ -6,7 +6,7 @@
     "dev": "vura dev",
     "build": "vura build",
     "test": "vitest run src/**/*.test.ts",
-    "benchmark": "node scripts/benchmark.mjs"
+    "benchmark": "node scripts/benchmark.mjs --json"
   },
   "devDependencies": {
     "@celsian/vura-cli": "workspace:*",
