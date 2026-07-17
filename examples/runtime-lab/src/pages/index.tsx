@@ -220,9 +220,8 @@ function LatencyPanel() {
       <div class="latency-plot">
         <div class="plot-grid">
           <div class="plot-y-axis"><span>{() => `${plotMax()} ms`}</span><span>{() => `${Math.round(plotMax() / 2)} ms`}</span><span>0 ms</span></div>
-          <Show when={() => plotSamples().length > 0} fallback={<div class="plot-empty">Run the benchmark to capture live timings.</div>}>
-            <div class="plot-bars">
-              <For each={() => plotSamples()}>{(sample: LabSample) => (
+          <div class="plot-bars">
+              <For each={() => plotSamples()} fallback={<div class="plot-empty">Run the benchmark to capture live timings.</div>}>{(sample: LabSample) => (
                 <button
                   key={sample.requestId}
                   class="plot-bar"
@@ -232,8 +231,7 @@ function LatencyPanel() {
                   onClick={() => { routeFilter.set(sample.route); searchFilter.set(sample.requestId); }}
                 />
               )}</For>
-            </div>
-          </Show>
+          </div>
         </div>
         <div class="plot-legend">
           <span><i style="background:#d9583b" />Function cold</span>
@@ -252,14 +250,12 @@ function PlacementPanel() {
       <div class="panel-header"><div><span class="eyebrow">Control-plane evidence</span><h2>Portable route placement</h2></div><code>/api/portable</code></div>
       <div class="placement">
         <div class="placement-track">
-          <Show when={() => portableSegments().length > 0} fallback={<div class="placement-empty">No placement observations yet.</div>}>
-            <For each={() => portableSegments()}>{(segment: { runtime: string; first: string; last: string; count: number }) => (
+          <For each={() => portableSegments()} fallback={<div class="placement-empty">No placement observations yet.</div>}>{(segment: { runtime: string; first: string; last: string; count: number }) => (
               <div key={`${segment.runtime}:${segment.first}`} class={`placement-segment ${segment.runtime}`} style={`--count:${segment.count}`}>
                 <span class="segment-knot" />
                 <div><strong>{segment.runtime === 'hot' ? 'Dedicated' : 'Function'}</strong><span>{new Date(segment.first).toLocaleTimeString()} · {segment.count} sample{segment.count === 1 ? '' : 's'}</span></div>
               </div>
             )}</For>
-          </Show>
         </div>
         <p class="placement-caption">The ribbon reports observed request placement. It does not imply a transition unless samples change runtime.</p>
       </div>
@@ -327,8 +323,7 @@ function ProbeStream() {
       <table class="log-table">
         <thead><tr><th>Time (UTC)</th><th>Source</th><th>Level</th><th>Route</th><th>Evidence</th></tr></thead>
         <tbody>
-          <Show when={() => visibleSamples().length > 0} fallback={<tr><td class="empty-row" colSpan={5}>No matching probe events.</td></tr>}>
-            <For each={() => visibleSamples()}>{(sample: LabSample) => (
+          <For each={() => visibleSamples()} fallback={<tr><td class="empty-row" colSpan={5}>No matching probe events.</td></tr>}>{(sample: LabSample) => (
               <tr key={sample.requestId}>
                 <td data-label="Time">{new Date(sample.timestamp).toISOString().slice(11, 23)}</td>
                 <td data-label="Source">{routeLabel[sample.source]}</td>
@@ -347,7 +342,6 @@ function ProbeStream() {
                 </td>
               </tr>
             )}</For>
-          </Show>
         </tbody>
       </table>
     </section>
