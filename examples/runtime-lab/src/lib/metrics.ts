@@ -8,6 +8,7 @@ export interface TimingSample {
   requestOrdinal: number;
   status: number;
   correlationId: string;
+  requestId: string;
   timestamp: string;
 }
 
@@ -37,7 +38,7 @@ export function summarize(samples: TimingSample[]): TimingSummary {
 
 export function isColdFunction(sample: TimingSample): boolean {
   return sample.route === '/api/function'
-    && (sample.wakeMs != null || (sample.requestOrdinal === 1 && sample.bootAgeMs < 30_000));
+    && ((sample.wakeMs ?? 0) > 0 || (sample.requestOrdinal === 1 && sample.bootAgeMs < 30_000));
 }
 
 export function normalizeRuntime(value: string | null | undefined): string {
