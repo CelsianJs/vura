@@ -224,6 +224,7 @@ function LatencyPanel() {
             <div class="plot-bars">
               <For each={() => plotSamples()}>{(sample: LabSample) => (
                 <button
+                  key={sample.requestId}
                   class="plot-bar"
                   aria-label={`${routeLabel[sample.source]} ${Math.round(sample.totalMs)} milliseconds, ${sample.observedRuntime} runtime`}
                   title={`${routeLabel[sample.source]} · ${Math.round(sample.totalMs)} ms · ${sample.observedRuntime}`}
@@ -253,7 +254,7 @@ function PlacementPanel() {
         <div class="placement-track">
           <Show when={() => portableSegments().length > 0} fallback={<div class="placement-empty">No placement observations yet.</div>}>
             <For each={() => portableSegments()}>{(segment: { runtime: string; first: string; last: string; count: number }) => (
-              <div class={`placement-segment ${segment.runtime}`} style={`--count:${segment.count}`}>
+              <div key={`${segment.runtime}:${segment.first}`} class={`placement-segment ${segment.runtime}`} style={`--count:${segment.count}`}>
                 <span class="segment-knot" />
                 <div><strong>{segment.runtime === 'hot' ? 'Dedicated' : 'Function'}</strong><span>{new Date(segment.first).toLocaleTimeString()} · {segment.count} sample{segment.count === 1 ? '' : 's'}</span></div>
               </div>
@@ -328,7 +329,7 @@ function ProbeStream() {
         <tbody>
           <Show when={() => visibleSamples().length > 0} fallback={<tr><td class="empty-row" colSpan={5}>No matching probe events.</td></tr>}>
             <For each={() => visibleSamples()}>{(sample: LabSample) => (
-              <tr>
+              <tr key={sample.requestId}>
                 <td data-label="Time">{new Date(sample.timestamp).toISOString().slice(11, 23)}</td>
                 <td data-label="Source">{routeLabel[sample.source]}</td>
                 <td data-label="Level"><span class={`log-level ${sample.level}`}>{sample.level}</span></td>
