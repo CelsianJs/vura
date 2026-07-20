@@ -34,7 +34,7 @@ jobs:
         with:
           version: 10.11.0
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -100,7 +100,7 @@ jobs:
           name: scaffold-app
           path: app
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -241,7 +241,7 @@ jobs:
           name: scaffold-app
           path: app
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -286,7 +286,7 @@ jobs:
           name: scaffold-app
           path: app
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
