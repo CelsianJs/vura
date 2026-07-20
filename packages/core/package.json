@@ -29,7 +29,7 @@
     "prepack": "pnpm run build"
   },
   "dependencies": {
-    "@celsian/core": "^0.5.2",
+    "@celsian/core": "^0.5.5",
     "@celsian/jwt": "^0.5.2",
     "@celsian/vura-compiler": "workspace:0.5.14",
     "esbuild": "^0.28.1",
