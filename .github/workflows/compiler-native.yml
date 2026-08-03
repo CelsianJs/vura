@@ -52,7 +52,7 @@ jobs:
 
       - name: Setup pnpm
         if: matrix.target == 'x86_64-unknown-linux-gnu'
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@v6.0.9
         with:
           version: 10.11.0
 
