@@ -23,12 +23,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: github/codeql-action/init@v4
+      - uses: github/codeql-action/init@v4.37.4
         with:
           languages: javascript-typescript
       # CodeQL upload requires GitHub Advanced Security on this repository. Keep
       # this non-blocking until GHAS/code scanning is enabled.
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@v4.37.4
         continue-on-error: true
 
   secrets:
