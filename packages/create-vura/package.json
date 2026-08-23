@@ -37,7 +37,7 @@
   },
   "vuraScaffold": {
     "dependencies": {
-      "what-framework": "^0.11.1"
+      "what-framework": "^0.11.7"
     },
     "vuraPackages": [
       "@celsian/vura-core",
