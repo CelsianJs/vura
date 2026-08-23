@@ -1,9 +1,19 @@
 # RFC 0001 — Server-side data fetching for pages
 
-- **Status:** DRAFT — awaiting Kirby's decision on the API shape. Design only; nothing here is implemented.
+- **Status:** **APPROVED** 2026-08-23 by Kirby — accepted as written. Not yet implemented.
 - **Author:** wave-2 worker
-- **Date:** 2026-07-03
-- **Decision needed:** approve the recommended API shape (route-level loaders), or send it back.
+- **Date:** 2026-07-03 (approved 2026-08-23)
+- **Decision:** the recommended API shape is approved: route-level `loader` exports plus a typed `useLoaderData<typeof loader>()`, layered along the existing layout chain, with loader data serialized into the HTML for hydration. `getServerData` is retained as a deprecated alias. Streaming ships as an additive follow-up, not as part of phase 1. The refusal of component-level async "server components" stands, for the reason given below: What Framework's `renderToString` is synchronous, and awaiting inside the component tree would require forking What's renderer.
+
+### Implementation order
+
+1. `loader` export + `LoaderContext` (`params`, `url`, `query`, `request`, `notFound()`, `redirect()`), running before the synchronous render.
+2. `useLoaderData<typeof loader>()` reading from context, no prop drilling.
+3. Layered loaders across the matched layout chain, run in parallel via `Promise.all`.
+4. Serialization into `<script id="__VURA_LOADER__" type="application/json">` so `hybrid` islands hydrate without re-fetching.
+5. `getServerData` mapped onto the same machinery as a deprecated alias, spread-into-props behaviour preserved.
+6. Docs: make `/reference/data-fetching` name this as the server-side answer, and drop its "not available yet" forward reference.
+7. Later, additive: streaming via What's existing `renderToStream`, surfaced as per-segment boundaries.
 
 ---
 
