@@ -6,6 +6,7 @@ settings:
 
 overrides:
   '@types/node': 26.1.0
+  js-yaml: ^4.3.1
 
 importers:
 
@@ -136,7 +137,7 @@ importers:
   packages/compiler-native:
     devDependencies:
       '@napi-rs/cli':
-        specifier: ^3.8.6
+        specifier: ^3.7.2
         version: 3.8.6(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@26.1.0)(emnapi@1.11.2)
 
   packages/core:
