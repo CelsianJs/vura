@@ -45,7 +45,7 @@
     }
   },
   "dependencies": {
-    "what-core": "^0.11.7",
+    "what-core": "^0.12.4",
     "what-framework": "^0.11.7"
   },
   "license": "MIT",
