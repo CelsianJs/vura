@@ -9,19 +9,37 @@ const vuraVersion = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 ).version as string;
 
+// The scaffold's what-framework range must equal the repo root's. Hardcoding it
+// here is what let the two drift to ^0.11.1 vs ^0.11.7 and kept `verify:publish`
+// (and therefore CI) red on main from 2026-07-17. Derive it from the root so the
+// test asserts the invariant that actually matters instead of a literal that
+// goes stale on every What Framework bump.
+const rootWhatFramework = JSON.parse(
+  readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
+).dependencies['what-framework'] as string;
+
 describe('create-vura templates', () => {
   it('pins generated dependencies instead of mixing latest ranges', () => {
     const files = getFiles('demo-app');
     const packageJson = JSON.parse(files['package.json']);
 
     expect(packageJson.dependencies).toEqual({
-      'what-framework': '^0.11.1',
+      'what-framework': rootWhatFramework,
       '@celsian/vura-core': vuraVersion,
       '@celsian/vura-cli': vuraVersion,
       '@celsian/vura-adapter-vura': vuraVersion,
       'ws': '^8.18.0',
     });
     expect(JSON.stringify(packageJson.dependencies)).not.toContain('latest');
+  });
+
+  it('scaffolds the same what-framework range the repo itself builds against', () => {
+    // The guard `verify:publish` enforces at release time, asserted here so it
+    // fails in the ordinary test run instead of only in the publish gate.
+    const files = getFiles('demo-app');
+    const packageJson = JSON.parse(files['package.json']);
+
+    expect(packageJson.dependencies['what-framework']).toBe(rootWhatFramework);
   });
 
   it('includes managed deployment support without a follow-up install', () => {

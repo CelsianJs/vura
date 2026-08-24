@@ -92,6 +92,28 @@ async function waitForText(url, text, timeoutMs = 15000) {
   throw lastError ?? new Error(`${url} did not become ready`);
 }
 
+// Like waitForText, but for content whose exact form is not knowable up front
+// (a content-fingerprinted asset URL). Returns the first match.
+async function waitForMatch(url, pattern, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(url);
+      const body = await res.text();
+      if (res.ok) {
+        const match = body.match(pattern);
+        if (match) return match[0];
+      }
+      lastError = new Error(`${url} returned ${res.status} without anything matching ${pattern}`);
+    } catch (err) {
+      lastError = err;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw lastError ?? new Error(`${url} did not become ready`);
+}
+
 async function rewriteScaffoldDeps(scaffoldDir, tarballsByName) {
   const packageJsonPath = join(scaffoldDir, 'package.json');
   const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
@@ -130,8 +152,15 @@ async function assertScaffoldBuildAndBoot(scaffoldDir) {
     // Client-mode page: the shell must reference the browser bundle, and the
     // bundle must actually boot the page (mount call) — a raw page-module
     // bundle leaves /dashboard at "Loading..." forever.
-    await waitForText(`http://127.0.0.1:${port}/dashboard`, '/_then/pages/dashboard.js');
-    await waitForText(`http://127.0.0.1:${port}/_then/pages/dashboard.js`, 'mount(');
+    //
+    // Client bundles are content-fingerprinted (`dashboard.<hash>.js`), so the
+    // filename cannot be hard-coded. Read the URL the shell actually emits and
+    // follow it, which also proves the emitted URL resolves.
+    const bundleUrl = await waitForMatch(
+      `http://127.0.0.1:${port}/dashboard`,
+      /\/_then\/pages\/dashboard(?:\.[0-9a-f]+)?\.js/,
+    );
+    await waitForText(`http://127.0.0.1:${port}${bundleUrl}`, 'mount(');
   } catch (err) {
     throw new Error(`scaffold boot smoke failed: ${err instanceof Error ? err.message : String(err)}\n${output}`);
   } finally {
