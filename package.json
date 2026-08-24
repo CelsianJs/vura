@@ -21,7 +21,8 @@
     "release:check": "node scripts/release-check.mjs",
     "package:size": "node scripts/check-package-size.mjs",
     "docs:build": "npm --prefix docs-site run build",
-    "test:selfhost-audit": "vitest run tests/self-host-audit"
+    "test:selfhost-audit": "vitest run tests/self-host-audit",
+    "benchmark:build-matrix": "node benchmarks/build-matrix/run.mjs --json"
   },
   "devDependencies": {
     "@types/node": ">=20 <27",
