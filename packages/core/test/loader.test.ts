@@ -190,3 +190,31 @@ describe('LoaderContext', () => {
     expect(c.redirect('/login', 301).status).toBe(301);
   });
 });
+
+describe('one loader context per process, not per module copy', () => {
+  // `vura build` bundles every page and every layout separately, and each
+  // bundle inlines its own copy of this module; the server entry then inlines
+  // all of them. A module-scoped `createContext()` therefore hands the page
+  // runtime one context object and a layout component a different one, and
+  // `useLoaderData()` inside that layout reports "found no loader data" even
+  // though the loader ran. Importing the same file twice under different
+  // specifiers reproduces exactly that, cheaply, without a build.
+  it('a second copy of the module adopts the first copy\'s context', async () => {
+    const first = await import('../src/runtime/loader.js');
+    const second = await import('../src/runtime/loader.js?copy=2');
+
+    // Genuinely two module instances...
+    expect(second).not.toBe(first);
+    // ...sharing one provider, because the context lives on globalThis.
+    expect(second.LoaderDataProvider).toBe(first.LoaderDataProvider);
+  });
+
+  it('registers the context under a stable global key', async () => {
+    const mod = await import('../src/runtime/loader.js');
+    const stored = (globalThis as Record<symbol, unknown>)[Symbol.for('vura.loaderDataContext')] as
+      | { Provider: unknown }
+      | undefined;
+    expect(stored, 'the loader context should be published on globalThis').toBeTruthy();
+    expect(stored!.Provider).toBe(mod.LoaderDataProvider);
+  });
+});

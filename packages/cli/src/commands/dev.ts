@@ -36,6 +36,7 @@ import {
   nodeToWebRequest,
   writeWebResponse,
   generateClientPageEntry,
+  vuraBrowserResolvePlugin,
 } from '@celsian/vura-core';
 import type {
   PageRoute,
@@ -354,6 +355,9 @@ export async function startStandaloneServer(
       outfile: 'page.js',
       jsx: 'automatic',
       jsxImportSource,
+      // Same redirect the production build applies: `@celsian/vura-core` in a
+      // browser bundle resolves to the pure client module.
+      plugins: [vuraBrowserResolvePlugin()],
       nodePaths: [join(opts.projectRoot, 'node_modules')],
     });
 
