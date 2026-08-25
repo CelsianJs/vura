@@ -22,7 +22,7 @@
   "dependencies": {
     "@celsian/vura-core": "workspace:0.5.14",
     "esbuild": "^0.28.1",
-    "what-framework": "^0.11.7"
+    "what-framework": "^0.13.2"
   },
   "peerDependencies": {
     "@celsian/vura-adapter-vura": "0.5.14",

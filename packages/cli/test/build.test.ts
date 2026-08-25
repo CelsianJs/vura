@@ -22,13 +22,13 @@ describe('CLI build page-mode outputs', () => {
     writeFileSync(join(root, 'src', 'pages', 'dashboard.ts'), `
 export const page = { mode: 'client', title: 'Dashboard' };
 export default function Dashboard() {
-  return { type: 'main', props: {}, children: ['Dashboard app'] };
+  return { tag: 'main', props: {}, children: ['Dashboard app'], key: null, _vnode: true };
 }
 `);
     writeFileSync(join(root, 'src', 'pages', 'blog.ts'), `
 export const page = { mode: 'hybrid', title: 'Blog' };
 export default function Blog() {
-  return { type: 'article', props: {}, children: ['Hybrid blog'] };
+  return { tag: 'article', props: {}, children: ['Hybrid blog'], key: null, _vnode: true };
 }
 `);
 
@@ -53,7 +53,10 @@ export default function Blog() {
     expect(existsSync(join(root, 'dist', 'static', dashboardScript!.slice(1)))).toBe(true);
 
     expect(blogHtml).toContain('<title>Blog</title>');
-    expect(blogHtml).toContain('Hybrid blog');
+    // `toContain('Hybrid blog')` alone passed for years while the page actually
+    // rendered `<undefined>Hybrid blog</undefined>`, because the fixture used a
+    // `type` key and What's vnode is keyed by `tag`. Assert the element too.
+    expect(blogHtml).toContain('<article>Hybrid blog</article>');
     const blogScript = blogHtml.match(/\/_then\/pages\/blog\.([a-f0-9]{12})\.js/)?.[0];
     expect(blogScript).toBeTruthy();
     expect(existsSync(join(root, 'dist', 'static', blogScript!.slice(1)))).toBe(true);

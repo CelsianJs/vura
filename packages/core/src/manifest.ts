@@ -57,7 +57,9 @@ export interface PageRoute {
    * The page's content is wrapped by these layouts in order.
    */
   layouts?: string[];
-  /** Whether the page exports getServerData() */
+  /** Whether the page exports a `loader` (RFC 0001 server-side data fetching) */
+  hasLoader: boolean;
+  /** @deprecated Whether the page exports the superseded getServerData() */
   hasGetServerData: boolean;
   /** Raw page config from the file */
   config: Record<string, unknown>;
@@ -123,29 +125,38 @@ export function extractApiExports(source: string): {
  */
 export function extractPageConfig(source: string): {
   mode: PageMode;
+  hasLoader: boolean;
   hasGetServerData: boolean;
   config: Record<string, unknown>;
 } {
   let mode: PageMode = 'static'; // default: static
   const config = readPageConfig(source);
-  if (typeof config.mode === 'string' && isPageMode(config.mode)) {
-    mode = config.mode;
+  const modeWasDeclared = typeof config.mode === 'string' && isPageMode(config.mode);
+  if (modeWasDeclared) {
+    mode = config.mode as PageMode;
   }
 
-  // Detect getServerData export
+  // Detect the server-data exports. `loader` is the current one; getServerData
+  // is its deprecated predecessor and infers the same mode.
   const code = maskNonCode(source);
+  const hasLoader = /export\s+(?:async\s+)?function\s+loader\b|export\s+(?:const|let)\s+loader\b/.test(code);
   const hasGetServerData = /export\s+(?:async\s+)?function\s+getServerData|export\s+(?:const|let)\s+getServerData/.test(code);
 
-  // Heuristic: if source imports server-side data functions, default to server
-  if (mode === 'static') {
-    if (hasGetServerData ||
+  // Inference only fills in a mode nobody declared. It used to run whenever the
+  // mode was `static`, which cannot tell "defaulted to static" from "the author
+  // wrote mode: 'static'" — so a deliberately static page with a loader was
+  // silently promoted to server rendering and lost its prerendered HTML. A
+  // static page's loader is legitimate: it runs at build time (RFC 0001).
+  if (!modeWasDeclared) {
+    if (hasLoader ||
+        hasGetServerData ||
         /import\s+.*from\s+['"]then\/server['"]/.test(source) ||
         /useSWR|useQuery|useServerData/.test(code)) {
       mode = 'server';
     }
   }
 
-  return { mode, hasGetServerData, config };
+  return { mode, hasLoader, hasGetServerData, config };
 }
 
 // ─── File Scanner ───
@@ -342,7 +353,7 @@ export async function buildManifest(projectRoot: string): Promise<RouteManifest>
 
     const source = await readFile(file, 'utf-8');
     const relPath = relative(pagesDir, file);
-    const { mode, hasGetServerData, config } = extractPageConfig(source);
+    const { mode, hasLoader, hasGetServerData, config } = extractPageConfig(source);
 
     // Build the layout chain for this page
     const layoutChain = buildLayoutChain(relPath, layouts);
@@ -354,6 +365,7 @@ export async function buildManifest(projectRoot: string): Promise<RouteManifest>
         '',
       ),
       mode,
+      hasLoader,
       hasGetServerData,
       ...(layoutChain.length > 0 ? { layouts: layoutChain } : {}),
       config,

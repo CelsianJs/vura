@@ -278,10 +278,16 @@ console.log(JSON.stringify({ status: response.status, body: await response.json(
     // The bundled entry is fully self-contained ESM.
     // Strip ESM-only syntax and wrap in async function for new Function() parse check
     // (new Function() does not support top-level await directly).
+    // `import.meta` in every form, not just `import.meta.<name>`. what-core's
+    // __DEV__ resolution reads `(import.meta && import.meta.env)`, and the bare
+    // occurrence is ESM-only syntax that `new Function()` rejects — so a check
+    // meant to catch real syntax errors was failing on legal, working code.
+    // Substituting an object expression keeps every member access downstream
+    // (`import.meta.env.DEV`) parseable.
     const stripped = serverCode
       .replace(/^import\s.*$/gm, '// [import stripped]')
       .replace(/^export\s.*$/gm, '// [export stripped]')
-      .replace(/import\.meta\.\w+/g, '"__stripped__"');
+      .replace(/import\.meta/g, '({ env: {} })');
     const wrapped = `return (async function _vuraEntryCheck() {\n${stripped}\n})`;
 
     let parseError: Error | null = null;

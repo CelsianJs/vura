@@ -335,3 +335,26 @@ export {
 export type {
   CookieSessionOpts,
 } from './auth.js';
+
+// ─── Server-side data fetching (RFC 0001) ───
+
+export {
+  useLoaderData,
+  createLoaderContext,
+  runLoaderChain,
+  serializeLoaderPayload,
+  readLoaderPayload,
+  isLoaderNotFound,
+  isLoaderRedirect,
+  LoaderNotFoundError,
+  LoaderRedirectError,
+  LOADER_PAYLOAD_ID,
+} from './runtime/loader.js';
+
+export type {
+  Loader,
+  LoaderContext,
+  LoaderData,
+  LoaderSegment,
+  LoaderChainResult,
+} from './runtime/loader.js';

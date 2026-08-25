@@ -45,8 +45,8 @@
     }
   },
   "dependencies": {
-    "what-core": "^0.11.7",
-    "what-framework": "^0.11.7"
+    "what-core": "^0.13.2",
+    "what-framework": "^0.13.2"
   },
   "license": "MIT",
   "packageManager": "pnpm@10.11.0",

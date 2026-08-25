@@ -13,7 +13,7 @@ function locOf(dir: string): number {
 }
 
 describe('A1.4 success metric', () => {
-  it('vura-core src LOC is below the post-Task-2 ceiling of 7350', () => {
+  it('vura-core src LOC is below its documented ceiling', () => {
     // v0.2.0 baseline (commit 19d9442) was 5001 LOC.
     // Task 9 (hot routes A2.5): +~335 → ~5336; quality pass → ~5478.
     // Task 11 (A2.6): deleted old tasks.ts (-402), added runtime/tasks.ts
@@ -79,6 +79,20 @@ describe('A1.4 success metric', () => {
     //   serverless). generateTaskEntry template grew (header protocol + envelope
     //   + docs) + bundleTaskEntry helper in build.ts, envelope `error` field in
     //   runtime/tasks.ts. +~101 → actual 7401. Ceiling 7450 leaves ~49 headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(7450);
+    // What 0.13 upgrade (2026-08-25): jsx-runtime.ts stopped hand-rolling a
+    //   vnode and now re-exports What's runtime (the hand-rolled one emitted
+    //   `type` where What reads `tag`, so every hybrid page server-rendered
+    //   `<undefined>`); the replacement is mostly the comment explaining that.
+    //   Plus `absWorkingDir: projectRoot` on the three esbuild calls in build.ts
+    //   so a programmatic buildProject() no longer resolves against the caller's
+    //   cwd. +~61 → actual 7462. Ceiling 7500 leaves ~38 headroom.
+    // RFC 0001 loaders (2026-08-25): server-side data fetching for pages. New
+    //   runtime/loader.ts (LoaderContext, notFound/redirect control-flow errors
+    //   with structural type guards, useLoaderData over What's tree-scoped
+    //   context, parallel runLoaderChain, payload serialize/read — over half
+    //   JSDoc) plus the loader phase and redirect channel in runtime/pages.ts,
+    //   build-time loaders in static-render.ts, and `loader` detection in
+    //   manifest.ts. +~459 → actual 7921. Ceiling 7970 leaves ~49 headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(7970);
   });
 });
