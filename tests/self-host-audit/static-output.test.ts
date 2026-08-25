@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { scaffoldAndBuild } from './helpers.js';
 
@@ -61,5 +61,41 @@ describe('S1: static pages ship zero framework JavaScript', () => {
     // pass for the wrong reason.
     expect(staticPage('widget', 'index.html')).toContain('_then/');
     expect(staticPage('mixed', 'index.html')).toContain('_then/');
+  });
+});
+
+describe('S2: the build ships only the bundles it emitted', () => {
+  it('every file under _then/pages is referenced by a page', () => {
+    // Bundle names carry a content hash, so editing a page emits a new name
+    // and orphans the old one. Nothing removed those, so `dist/` grew with
+    // every incremental build and the dead copies shipped to whatever the
+    // project deployed to.
+    const root = join(app.dir, 'dist', 'static', '_then', 'pages');
+    const walk = (d: string): string[] =>
+      readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)],
+      );
+    const bundles = walk(root).map((f) => f.slice(root.length + 1).replace(/\\/g, '/'));
+    expect(bundles.length).toBeGreaterThan(0);
+
+    // Collect every /_then/pages/... reference across the built HTML.
+    const htmlRoot = join(app.dir, 'dist', 'static');
+    const walkHtml = (d: string): string[] =>
+      readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory()
+          ? (e.name === '_then' ? [] : walkHtml(join(d, e.name)))
+          : e.name.endsWith('.html')
+            ? [join(d, e.name)]
+            : [],
+      );
+    const referenced = new Set<string>();
+    for (const f of walkHtml(htmlRoot)) {
+      for (const m of readFileSync(f, 'utf8').matchAll(/\/_then\/pages\/([^"']+)/g)) {
+        referenced.add(m[1]);
+      }
+    }
+
+    const orphans = bundles.filter((b) => !referenced.has(b));
+    expect(orphans, `orphaned bundles left in dist: ${orphans.join(', ')}`).toEqual([]);
   });
 });

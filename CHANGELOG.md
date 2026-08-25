@@ -40,7 +40,37 @@
   0.13.4 fixes a resolve-pass bug that could render one `<Suspense>` boundary's
   data inside another, which streaming depends on.
 
+- **Server pages and layouts are bundled once instead of twice.** The CLI
+  bundled every `server` and `hybrid` page and every layout into
+  `dist/server/pages/`, and then core's builder ran over the same inputs and
+  overwrote every one of those files. The output was byte-identical, so the
+  CLI's copy bought nothing but a second esbuild pass per page and per layout on
+  every build, and a second copy of the resolve configuration to keep in sync
+  with core's. The `useSignal` bug in 0.7.0 shipped through exactly that kind of
+  duplicate: one copy was fixed and the other was not.
+
 ### Fixed
+
+- **`vura build` shipped every bundle it had ever built.** Client and hybrid
+  page bundles carry a content hash in the filename, so editing a page emits a
+  new name and orphans the old one. Nothing removed the orphans, so
+  `dist/static/_then/pages` grew with every incremental build and the dead
+  copies were deployed along with the live ones. The build now prunes bundles it
+  did not emit, after writing the new ones so a failed build still leaves the
+  previous ones intact.
+
+- **`vura admin --port 0` refused every request it served.** The dashboard's
+  same-origin allowlist was built from the *requested* port, so it held
+  `localhost:0` while the browser sent the port the server had actually bound.
+  Every API call came back 403 with a valid token in hand, which made the whole
+  dashboard non-functional on an OS-assigned port. The allowlist now uses the
+  bound port. The origin and token checks themselves are unchanged: a request
+  with no token, or with a spoofed `Host`, is still refused.
+
+- **The `vura admin` banner box never lined up.** Its four content lines were
+  padded to four different widths inside a 41-wide box, so it only looked square
+  when the port happened to be four digits. Every line is now padded to one
+  width, and the URL reports the bound port rather than the requested one.
 
 - **`vura dev --port 0` printed a URL nobody could open.** The startup banner
   echoed the requested port rather than the one the server actually bound, so

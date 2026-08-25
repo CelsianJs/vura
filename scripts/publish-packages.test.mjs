@@ -54,5 +54,10 @@ describe('publish-packages npm scope preflight', () => {
       ['whoami'],
       ['access', 'list', 'packages', '@celsian', '--json'],
     ]);
-  }, 30_000);
+    // Generous, because this spawns a Node subprocess that itself spawns two
+    // more, and it runs alongside the self-host audit's real `npm install` and
+    // `vura build`. The work is well under a second when the machine is idle;
+    // under that load it has been measured between 5s and past the old 30s
+    // ceiling, which turned a passing assertion into a red CI run.
+  }, 120_000);
 });

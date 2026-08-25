@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeAll, afterAll } from 'vitest';
+import { request as httpRequest } from 'node:http';
 import {
   ADMIN_ENV_MAX_BODY_BYTES,
   adminApiHeaders,
@@ -7,6 +8,7 @@ import {
   isLocalAdminHost,
   parseAdminOptions,
   renderDashboardHtml,
+  startAdminServer,
 } from '../src/commands/admin.js';
 import { deployCommand } from '../src/commands/deploy.js';
 
@@ -132,4 +134,69 @@ describe('CLI deploy command', () => {
       if (savedUserProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = savedUserProfile;
     }
   });
+});
+
+describe('CLI admin server on an OS-assigned port', () => {
+  // `isAllowedAdminRequest` is unit-tested above and was always correct. The
+  // bug was in its caller: `vura admin --port 0` built the allowlist from the
+  // *requested* port, so it held `localhost:0` while the browser sent the real
+  // one, and every API request was refused as cross-origin even with a valid
+  // token. Only a real server can catch that, so this boots one.
+  let admin: Awaited<ReturnType<typeof startAdminServer>>;
+
+  beforeAll(async () => {
+    admin = await startAdminServer({
+      port: 0,
+      host: '127.0.0.1',
+      projectRoot: process.cwd(),
+    } as any);
+  }, 30_000);
+
+  afterAll(async () => {
+    await admin?.close();
+  });
+
+  // Raw http, not fetch: `Host` is a forbidden header name, so undici silently
+  // replaces whatever you pass with the real authority. A fetch-based version
+  // of the spoofed-Host case below returned 200 and proved nothing.
+  const api = (headers: Record<string, string>): Promise<{ status: number; body: string }> =>
+    new Promise((resolve, reject) => {
+      const req = httpRequest(
+        { host: '127.0.0.1', port: admin.port, path: '/__admin/api/manifest', method: 'GET', headers },
+        (res) => {
+          let body = '';
+          res.setEncoding('utf8');
+          res.on('data', (c) => { body += c; });
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+        },
+      );
+      req.on('error', reject);
+      req.end();
+    });
+
+  it('binds a real port rather than reporting the requested 0', () => {
+    expect(admin.port).toBeGreaterThan(0);
+  });
+
+  it('serves the admin API to a same-origin request carrying the token', async () => {
+    const res = await api({
+      host: `localhost:${admin.port}`,
+      'x-then-admin-token': admin.token,
+    });
+    expect(res.status).toBe(200);
+    expect(() => JSON.parse(res.body)).not.toThrow();
+  }, 30_000);
+
+  it('still refuses a request with no token', async () => {
+    const res = await api({ host: `localhost:${admin.port}` });
+    expect(res.status).toBe(403);
+  }, 30_000);
+
+  it('still refuses a spoofed Host header', async () => {
+    const res = await api({
+      host: `evil.example:${admin.port}`,
+      'x-then-admin-token': admin.token,
+    });
+    expect(res.status).toBe(403);
+  }, 30_000);
 });
