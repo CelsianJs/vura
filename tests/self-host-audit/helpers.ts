@@ -31,6 +31,16 @@ import * as net from 'node:net';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const LINK_LOCAL_SCRIPT = join(REPO_ROOT, 'scripts', 'link-local-packages.mjs');
 
+/** The what-framework range @celsian/vura-core itself declares. */
+function whatFrameworkRange(): string {
+  const corePkg = JSON.parse(readFileSync(join(REPO_ROOT, 'packages', 'core', 'package.json'), 'utf8'));
+  const range = corePkg.dependencies?.['what-framework'] ?? corePkg.peerDependencies?.['what-framework'];
+  if (typeof range !== 'string') {
+    throw new Error('packages/core/package.json declares no what-framework dependency — the audit cannot pick a version.');
+  }
+  return range;
+}
+
 // ─── Cache ────────────────────────────────────────────────────────────────────
 
 let _cached: Awaited<ReturnType<typeof _scaffoldAndBuild>> | null = null;
@@ -280,7 +290,12 @@ async function _scaffoldAndBuild(): Promise<{
     dependencies: {
       '@celsian/vura-core': '0.4.0',
       '@celsian/vura-cli': '0.4.0',
-      'what-framework': '^0.11.1',
+      // Read from packages/core rather than hardcoded. A pinned literal here
+      // drifts: the audit spent the 0.12 and 0.13 cycles proving Vura works on
+      // What 0.11, which is a version Vura had stopped shipping against, so a
+      // framework fix Vura depended on could not be seen by the audit that
+      // exists to catch exactly that.
+      'what-framework': whatFrameworkRange(),
       'ws': '^8.18.0',
     },
   };
