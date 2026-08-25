@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.6.0 - 2026-08-25
+
+### Added
+
+- **Server-side data fetching for pages: `loader` + `useLoaderData` (RFC 0001).** A page or layout exports a `loader`; it runs on the server before the component renders, and the component reads the result with `useLoaderData<typeof loader>()`. The data is already in the HTML the browser receives, so there is no loading state, no request waterfall, and no client round trip. This closes Vura's top gap against Next.js.
+
+  ```tsx
+  export const page = { mode: 'server' };
+
+  export async function loader(ctx: LoaderContext) {
+    const post = await db.post.find(ctx.params.id);
+    if (!post) throw ctx.notFound();
+    return { post };
+  }
+
+  export default function Post() {
+    const { post } = useLoaderData<typeof loader>();
+    return <article><h1>{post.title}</h1></article>;
+  }
+  ```
+
+  - **Layered loaders.** Every segment of the matched layout chain can have its own loader, and each component reads its own segment's data with nothing prop-drilled. Loaders in a chain run in parallel, so nesting costs no latency.
+  - **`ctx.notFound()` and `ctx.redirect()`** return the error for you to throw, so the throw is visible at the call site. A 404 or a redirect is control flow and never looks like a 500.
+  - **The result is serialized** into `<script id="__VURA_LOADER__" type="application/json">`, written outside `<div id="app">` so it never participates in hydration. A hybrid page's islands start from the server's data instead of re-fetching it.
+  - **Build-time loaders** for `static` and `hybrid` pages: same code, resolved once during `vura build`. `ctx.request` is absent there.
+
+  Loaders are route-level rather than component-level because What's `renderToString` is synchronous: there is nowhere inside the component tree to await. Streaming is the RFC's phase 2 and is not in this release.
+
+### Changed
+
+- **`getServerData` is deprecated in favour of `loader`.** It keeps working, still spreads its result into the component's props, and is now an alias for the same machinery, so its data is also readable through `useLoaderData()`. A page can migrate one line at a time. When a page exports both, `loader` wins. `getServerData` will start printing a deprecation notice in a later minor and will not be removed before the next major.
+- **Requires what-framework 0.13.2 or newer.** 0.13.2 fixed a revalidation registry that was not process-wide, which made every ISR purge from an API route a silent no-op in a Vura build.
+
+### Fixed
+
+- **Page components were invoked outside a component context.** `mod.default(props)` was called directly, so every What hook inside a Vura page had nothing to read. Components now go through `h()`.
+- **Vura's JSX runtime built vnodes What could not read.** It emitted `{ type, ... }` where What's vnode is `{ tag, ... }`, so every page built through it server-rendered `<undefined>…</undefined>` with no error and no warning. It now re-exports What's runtime, with a parity test asserting node-for-node equality.
+- **`dist/package.json` was only written for projects with hot routes.** Route bundles keep `what-framework` external, so a serverless-or-static project produced a container image that started and died on the first API request with `ERR_MODULE_NOT_FOUND`. It is now written on every build, with `what-framework` pinned to the version the project resolved rather than a range.
+- **Page mode inference overrode an explicit `mode: 'static'`.** It could not tell "defaulted to static" from "the author wrote static", so a deliberately static page with a server-data export was silently promoted to server rendering and lost its prerendered HTML.
+- **`buildProject()` resolved paths against the caller's cwd.** The three esbuild invocations now anchor to `projectRoot`, which is the whole reason the function takes it.
+
+### Internal
+
+- `@celsian/vura-core`'s tracked tarball limit moves from 138 KB to 150 KB. The loader runtime is about 8 KB packed, and the gate exists to catch drift, not to block a feature that is the reason for the release.
+- The self-host audit scaffold pinned `what-framework: ^0.11.1` as a literal, so it spent the 0.12 and 0.13 cycles proving Vura works on a version Vura had stopped shipping against. It now reads the range `@celsian/vura-core` declares.
+
 ## 0.5.14 - 2026-07-16
 
 - Fail closed before upload when `dist/manifest.json` is missing, malformed, or structurally invalid.
