@@ -17,6 +17,7 @@ import {
   readPageConfig,
   readRouteConfig,
 } from '@celsian/vura-compiler';
+import { ACTIONS_DIR, actionModuleId, extractActionExports } from './actions-build.js';
 
 // ─── Types ───
 
@@ -77,6 +78,19 @@ export interface LayoutRoute {
   dirPattern: string;
 }
 
+/**
+ * A file under `src/actions/`. Every function it exports is callable from the
+ * browser through `POST /__vura/action`.
+ */
+export interface ActionModule {
+  /** File path relative to project root */
+  filePath: string;
+  /** Stable id derived from the path, e.g. "todos" or "admin/users" */
+  moduleId: string;
+  /** Exported function names, in source order */
+  exports: string[];
+}
+
 export interface RouteManifest {
   api: ApiRoute[];
   pages: PageRoute[];
@@ -87,6 +101,14 @@ export interface RouteManifest {
    * project root. Absent when the project has none, which is the common case.
    */
   middleware?: string;
+  /**
+   * Server actions discovered under `src/actions/`.
+   *
+   * Optional so that adding it in 0.7 does not break the exported type for
+   * anyone constructing a manifest. `buildManifest` always sets it, to `[]`
+   * when the project has none.
+   */
+  actions?: ActionModule[];
   timestamp: string;
 }
 
@@ -379,14 +401,39 @@ export async function buildManifest(projectRoot: string): Promise<RouteManifest>
   }
 
   const middleware = await findMiddlewareFile(projectRoot);
+  const actions = await scanActions(projectRoot);
 
   return {
     api,
     pages,
     layouts,
     ...(middleware ? { middleware } : {}),
+    actions,
     timestamp: new Date().toISOString(),
   };
+}
+
+/**
+ * Scan `src/actions/` for server actions.
+ *
+ * A file that exports no functions is skipped rather than reported: a module of
+ * shared constants living beside the actions is a reasonable thing to write,
+ * and it has no endpoints to mount.
+ */
+async function scanActions(projectRoot: string): Promise<ActionModule[]> {
+  const actionsDir = join(projectRoot, ACTIONS_DIR);
+  const files = await scanDir(actionsDir, ['.ts', '.tsx', '.js', '.mjs']);
+  const actions: ActionModule[] = [];
+
+  for (const file of files) {
+    const source = await readFile(file, 'utf-8');
+    const exports = extractActionExports(maskNonCode(source));
+    if (exports.length === 0) continue;
+    const filePath = relative(projectRoot, file);
+    actions.push({ filePath, moduleId: actionModuleId(filePath), exports });
+  }
+
+  return actions.sort((a, b) => a.moduleId.localeCompare(b.moduleId));
 }
 
 /**

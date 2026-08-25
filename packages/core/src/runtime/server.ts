@@ -24,6 +24,7 @@ import { createReadStream, realpathSync, statSync } from 'node:fs';
 import { extname, normalize, resolve, sep } from 'node:path';
 import { nodeToWebRequest, writeWebResponse } from '@celsian/core';
 import { createApiApp, type RuntimeApiRoute, type GlobalHooks } from './api-app.js';
+import { registerActionModules } from './actions.js';
 import { buildWhatRoutes, createPagesHandler, type RuntimePage } from './pages.js';
 import { createVuraCache, type VuraCacheConfig } from './cache.js';
 import { createWsUpgradeHandler, createNoServerWebSocketServer } from './ws-upgrade.js';
@@ -220,6 +221,17 @@ export interface VuraServerOptions {
    */
   middleware?: MiddlewareModule | null;
   /**
+   * The project's `src/actions/` modules, keyed by module id (`'todos'`,
+   * `'admin/users'`). Passed as loaded modules rather than paths for the same
+   * reason middleware is: the server entry is a bundle, with nothing to import
+   * from at runtime.
+   *
+   * Registering them here is what makes them callable. An action module the
+   * entry never imports is not reachable, which is the correct default: a file
+   * dropped in `src/actions/` and never built is not a live endpoint.
+   */
+  actions?: Record<string, Record<string, unknown>> | null;
+  /**
    * Whether to install SIGTERM/SIGINT handlers that call process.exit().
    *
    * Default: true when NODE_ENV !== 'test', false otherwise.
@@ -281,10 +293,18 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
   const { engine, webhook } = createVuraCache(opts.cache ?? {});
 
   // ── Celsian API app ──
+  // ── Server actions ──
+  // Registered before the app is built so a startup-time caller cannot observe
+  // a half-populated registry.
+  const actionModules = opts.actions ?? {};
+  const hasActions = Object.keys(actionModules).length > 0;
+  if (hasActions) registerActionModules(actionModules);
+
   const app = createApiApp({
     routes: opts.apiRoutes,
     globalHooks: opts.globalHooks,
     revalidateWebhook: webhook,
+    enableActions: hasActions,
   });
 
   // ── Task cron + admin store ──

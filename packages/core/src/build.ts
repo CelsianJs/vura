@@ -175,6 +175,20 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
     lines.push("import * as _middlewareMod from './middleware.js';");
   }
 
+  // Import server-action modules (convention: src/actions/*).
+  // Bundled to dist/server/actions/ alongside the entry. Importing them here is
+  // what puts them in the registry: an action nobody imported cannot be called.
+  const actionModules = manifest.actions ?? [];
+  const actionVarNames = new Map<string, string>();
+  actionModules.forEach((mod, index) => {
+    const varName = `_action${index}`;
+    actionVarNames.set(mod.moduleId, varName);
+    const outRel = mod.filePath
+      .replace(/^src\/actions\//, '')
+      .replace(/\.([mc])?[tj]sx?$/, '.js');
+    lines.push(`import * as ${varName} from './actions/${outRel}';`);
+  });
+
   // Import global hooks file if present (convention: src/api/_hooks.ts or src/hooks.ts)
   if (globalHooksFile) {
     const hooksImportPath = `./${relative('dist/server', join('dist/server/api', globalHooksFile.replace(/^src\/api\//, '').replace(/^src\//, '')))}`.replace(/\.([mc])?tsx?$/, '.$1js').replace(/\\/g, '/');
@@ -275,6 +289,15 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
   // middleware
   if (manifest.middleware) {
     lines.push('  middleware: _middlewareMod,');
+  }
+
+  // server actions, keyed by module id
+  if (actionModules.length > 0) {
+    lines.push('  actions: {');
+    for (const mod of actionModules) {
+      lines.push(`    ${JSON.stringify(mod.moduleId)}: ${actionVarNames.get(mod.moduleId)!},`);
+    }
+    lines.push('  },');
   }
 
   lines.push('  staticDirs: [_publicDir, _staticDir],');
@@ -637,6 +660,10 @@ export async function build(
   // that imports it.
   await bundleMiddlewareModule(manifest, projectRoot, serverDir);
 
+  // Bundle server actions (dist/server/actions/**/*.js), next to the entry that
+  // imports them.
+  await bundleServerActionModules(manifest, projectRoot, serverDir);
+
   // Generated route/page artifacts use ESM .js output. Make the dist/server
   // subtree self-describing so Node treats those files as modules even when
   // the source project has no package.json or defaults to CommonJS.
@@ -854,6 +881,39 @@ async function bundleMiddlewareModule(
     'node',
     true,
   );
+}
+
+/**
+ * Bundle every `src/actions/*` module to `dist/server/actions/`.
+ *
+ * Same externals as a page or middleware module: what-framework stays external
+ * so it is not double-bundled, and `@celsian/vura-core` resolves through the
+ * runtime shim. The stub plugin is deliberately absent — this is the server
+ * side, where the real implementation is the point.
+ */
+async function bundleServerActionModules(
+  manifest: RouteManifest,
+  projectRoot: string,
+  serverDir: string,
+): Promise<void> {
+  const actions = manifest.actions ?? [];
+  if (actions.length === 0) return;
+
+  const actionsOutDir = join(serverDir, 'actions');
+  await mkdir(actionsOutDir, { recursive: true });
+
+  for (const mod of actions) {
+    const absPath = join(projectRoot, mod.filePath);
+    if (!existsSync(absPath)) continue;
+
+    const outFile = mod.filePath
+      .replace(/^src\/actions\//, '')
+      .replace(/\.([mc])?[tj]sx?$/, '.js');
+    const outPath = join(actionsOutDir, outFile);
+    await mkdir(dirname(outPath), { recursive: true });
+
+    await bundleRouteModule({ filePath: mod.filePath }, projectRoot, outPath, 'node', true);
+  }
 }
 
 async function bundleServerPageModules(

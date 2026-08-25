@@ -12,7 +12,7 @@
  * 9. Emit hot deploy templates (Dockerfile, fly.toml, package.json) when hot routes present
  */
 
-import { buildManifest, build, renderStaticPages, generateClientPageEntry, vuraBrowserResolvePlugin } from '@celsian/vura-core';
+import { buildManifest, build, renderStaticPages, generateClientPageEntry, vuraBrowserResolvePlugin, vuraActionsStubPlugin } from '@celsian/vura-core';
 import { createRequire } from 'node:module';
 import { existsSync, readFileSync } from 'node:fs';
 import { join as pathJoin, resolve as pathResolve, relative } from 'node:path';
@@ -412,7 +412,15 @@ export async function buildCommand(_args: string[]): Promise<void> {
         // Browser-resolve first: a page that imports `@celsian/vura-core` for
         // useLoaderData must get the pure client module here, not the package
         // root, which reaches node:fs and cannot be bundled for a browser.
-        plugins: [vuraBrowserResolvePlugin(), esmResolvePlugin],
+        //
+        // The actions stub plugin is the security boundary for `src/actions/`:
+        // it answers onResolve, so esbuild never opens an action file for this
+        // bundle and nothing inside one can reach the browser.
+        plugins: [
+          vuraBrowserResolvePlugin(),
+          vuraActionsStubPlugin({ projectRoot: root }),
+          esmResolvePlugin,
+        ],
         external: [],
       });
 

@@ -11,6 +11,7 @@
  */
 
 import { createApp, type CelsianApp, type CelsianRequest, type CelsianReply } from '@celsian/core';
+import { dispatchAction, issueActionToken, type ActionRequestLike } from './actions.js';
 import { applyThenCompat } from '../compat.js';
 import type { ApiRoute, HttpMethod } from '../manifest.js';
 
@@ -41,6 +42,30 @@ export interface ApiAppOptions {
    * requires the *option* type to be no stricter than the callee's param type.
    */
   revalidateWebhook?: (reqLike: { headers?: Record<string, string>; body?: any }) => Promise<{ status: number; body?: unknown }>;
+  /**
+   * Mount `GET/POST /__vura/action` when the project has server actions.
+   * Off by default: a project with no `src/actions/` should not expose the
+   * endpoint at all, so a probe for it gets a 404 rather than a 403.
+   */
+  enableActions?: boolean;
+}
+
+/** Flatten a Web `Headers` into the lower-cased record the action layer reads. */
+function headerRecord(headers: Headers): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  headers.forEach((value: string, key: string) => {
+    out[key.toLowerCase()] = value;
+  });
+  return out;
+}
+
+function toActionRequest(req: CelsianRequest): ActionRequestLike {
+  return {
+    method: req.method,
+    headers: headerRecord(req.headers),
+    body: req.parsedBody,
+    url: req.url,
+  };
 }
 
 // Map Vura HttpMethod → CelsianApp method registrar name
@@ -156,6 +181,29 @@ export function createApiApp(opts: ApiAppOptions): CelsianApp {
       req.headers.forEach((v: string, k: string) => { headers[k.toLowerCase()] = v; });
       const out = await webhook({ headers, body: req.parsedBody });
       return reply.status(out.status).json(out.body);
+    });
+  }
+
+  // ─── Server actions ───
+  if (opts.enableActions) {
+    // GET hands out a CSRF token and sets the matching HttpOnly cookie. A
+    // cross-origin page cannot read the body (no CORS headers are sent), so the
+    // token stays same-origin even though the endpoint is unauthenticated.
+    app.get('/__vura/action', async (req: CelsianRequest, reply: CelsianReply) => {
+      const outcome = issueActionToken(toActionRequest(req));
+      if (outcome.setCookie) reply.header('set-cookie', outcome.setCookie);
+      return reply
+        .header('cache-control', 'no-store')
+        .status(outcome.status)
+        .json(outcome.body);
+    });
+
+    app.post('/__vura/action', async (req: CelsianRequest, reply: CelsianReply) => {
+      const outcome = await dispatchAction(toActionRequest(req));
+      return reply
+        .header('cache-control', 'no-store')
+        .status(outcome.status)
+        .json(outcome.body);
     });
   }
 

@@ -38,6 +38,9 @@ import {
   writeWebResponse,
   generateClientPageEntry,
   vuraBrowserResolvePlugin,
+  vuraActionsStubPlugin,
+  registerActionModules,
+  ACTION_ENDPOINT,
   createMiddlewareRunner,
   createVuraRenderRoute,
 } from '@celsian/vura-core';
@@ -202,6 +205,15 @@ function printRouteTable(manifest: Awaited<ReturnType<typeof buildManifest>>): v
       console.log(`    ${icon} ${page.mode.padEnd(18)} ${page.urlPattern}`);
     }
   }
+  const actions = manifest.actions ?? [];
+  if (actions.length > 0) {
+    console.log('  Actions:');
+    for (const mod of actions) {
+      for (const name of mod.exports) {
+        console.log(`    ⚡ ${'server action'.padEnd(18)} ${mod.moduleId}#${name}`);
+      }
+    }
+  }
   console.log();
 }
 
@@ -249,11 +261,24 @@ export async function startStandaloneServer(
 
   const logger = getLogger();
 
-  // A hybrid page's browser bundle lives at a dev-server path that does not
-  // exist at build time, so it is injected here rather than read off the page.
-  const devRenderRoute = createVuraRenderRoute({
-    extraScripts: (page) => (page.mode === 'hybrid' ? [browserScriptPath(page as PageRoute)] : []),
-  });
+  /**
+   * The render callback for one page request.
+   *
+   * A hybrid page's browser bundle lives at a dev-server path that does not
+   * exist at build time, so it is injected here rather than read off the page.
+   *
+   * Built per request, closing over the matched page, because the RuntimePage
+   * handed to the renderer has its `mode` forced to `'server'` (dev SSRs every
+   * non-client page per request, with no build output and no ISR in front of
+   * it). A predicate reading the mode off *that* object can never see
+   * `'hybrid'`, so it silently stopped injecting the bundle and every hybrid
+   * page in dev rendered its markup and then never hydrated. The real mode
+   * lives on the matched page, so that is what decides.
+   */
+  const devRenderRouteFor = (page: PageRoute) =>
+    createVuraRenderRoute({
+      extraScripts: () => (page.mode === 'hybrid' ? [browserScriptPath(page)] : []),
+    });
 
   const { existsSync } = await import('node:fs');
 
@@ -296,6 +321,13 @@ export async function startStandaloneServer(
   async function buildStandaloneApiApp(forManifest: RouteManifest): Promise<{
     app: ReturnType<typeof createApiApp>;
     compiledApiRoutes: ReturnType<typeof compileRoutes>;
+    /**
+     * Framework-owned paths under `/__vura/` that the app serves but that no
+     * manifest route describes. The dispatch pre-check below matches against
+     * the manifest, so without this list an internal endpoint is registered on
+     * the app and then never reached.
+     */
+    internalPaths: string[];
   }> {
     const routes: RuntimeApiRoute[] = [];
     for (const route of forManifest.api) {
@@ -335,14 +367,31 @@ export async function startStandaloneServer(
       onResponse: globalHooks?.onResponse ?? [],
     };
 
+    // Server actions. Loaded and registered on every rebuild, so editing an
+    // action file takes effect on the next request the way editing a route
+    // does. Registration is keyed by id, so a re-register replaces rather than
+    // duplicates; an action deleted from a file stops being callable only once
+    // the process restarts, which is the same limitation dev has for a deleted
+    // route module and is not worth a registry generation counter.
+    const actionModules: Record<string, Record<string, unknown>> = {};
+    for (const mod of forManifest.actions ?? []) {
+      actionModules[mod.moduleId] = await loadHandler(mod.filePath);
+    }
+    const hasActions = Object.keys(actionModules).length > 0;
+    if (hasActions) registerActionModules(actionModules);
+
     // Compile route regexes for the path-existence pre-check (method-agnostic).
     const compiledApiRoutes = compileRoutes(routes);
 
-    return { app: createApiApp({ routes, globalHooks: mergedHooks }), compiledApiRoutes };
+    return {
+      app: createApiApp({ routes, globalHooks: mergedHooks, enableActions: hasActions }),
+      compiledApiRoutes,
+      internalPaths: hasActions ? [ACTION_ENDPOINT] : [],
+    };
   }
 
   // Build initial CelsianApp and page route table
-  let { app: apiApp, compiledApiRoutes } = await buildStandaloneApiApp(manifest);
+  let { app: apiApp, compiledApiRoutes, internalPaths } = await buildStandaloneApiApp(manifest);
   // In dev mode, compile ALL page routes — not just server/hybrid.
   // Static and server pages are SSR'd on the fly; client pages are served as
   // a shell + on-demand browser bundle (SSR'ing them would run hooks like
@@ -393,7 +442,11 @@ export async function startStandaloneServer(
       jsxImportSource,
       // Same redirect the production build applies: `@celsian/vura-core` in a
       // browser bundle resolves to the pure client module.
-      plugins: [vuraBrowserResolvePlugin()],
+      // The actions stub plugin is what keeps `src/actions/` source out of a
+      // browser bundle in dev as well as in a build. Without it `vura dev`
+      // would happily bundle a database client into the page and only the
+      // production build would catch it.
+      plugins: [vuraBrowserResolvePlugin(), vuraActionsStubPlugin({ projectRoot: opts.projectRoot })],
       nodePaths: [join(opts.projectRoot, 'node_modules')],
     });
 
@@ -638,7 +691,7 @@ export async function startStandaloneServer(
       // pattern matches this pathname, skip celsian entirely and fall through to
       // pages/404. This also correctly passes through intentional handler 404s —
       // if the route exists but returns 404, that response is delivered as-is.
-      if (matchApiPath(compiledApiRoutes, url.pathname)) {
+      if (matchApiPath(compiledApiRoutes, url.pathname) || internalPaths.includes(url.pathname)) {
         try {
           const webReq = nodeToWebRequest(req, url);
           const webRes = await apiApp.handle(webReq);
@@ -735,7 +788,7 @@ export async function startStandaloneServer(
               headers: req.headers as Record<string, string>,
             });
 
-            const result = await devRenderRoute({
+            const result = await devRenderRouteFor(pageMatch.page)({
               path: url.pathname,
               query: Object.fromEntries(url.searchParams.entries()),
               config: { mode: 'server' as const },
@@ -809,7 +862,8 @@ export async function startStandaloneServer(
   // Watch for file changes and re-scan manifest
   const apiDir = join(opts.projectRoot, 'src', 'api');
   const pagesDir = join(opts.projectRoot, 'src', 'pages');
-  const watchDirs = [apiDir, pagesDir];
+  const actionsDir = join(opts.projectRoot, 'src', 'actions');
+  const watchDirs = [apiDir, pagesDir, actionsDir];
   const watchers: import('node:fs').FSWatcher[] = [];
   for (const dir of watchDirs) {
     try {
@@ -834,7 +888,7 @@ export async function startStandaloneServer(
             // Rebuild against the FRESH manifest (nextManifest) — `manifest`
             // is only swapped after success, so building from the closure
             // variable would use the stale route set (see buildStandaloneApiApp).
-            ({ app: apiApp, compiledApiRoutes } = await buildStandaloneApiApp(nextManifest));
+            ({ app: apiApp, compiledApiRoutes, internalPaths } = await buildStandaloneApiApp(nextManifest));
           } catch (err) {
             moduleCache.clear();
             for (const [k, v] of prevModules) moduleCache.set(k, v);

@@ -260,5 +260,8 @@ export const page = { mode: 'client' };
 | Cached, revalidating, or shared-across-components data | `useSWR` / `useQuery` (set `mode` explicitly) |
 | Data fetched **on the server**, baked into the HTML, cached with ISR | a [`loader`](#loader-server-side-data-fetching) + `useLoaderData()` |
 | Real-time streaming data | a [hot route](/ladder/4-hot) (WebSocket) + a client hook to render it |
+| **Write** something on the server from a click | a [server action](/reference/actions) |
 
 The two families compose: a `hybrid` page renders its `loader` data into the HTML *and* serializes it, so an island inside it starts from the server's data and keeps it fresh with `useSWR` from there.
+
+Everything on this page reads. To **change** something on the server, call a [server action](/reference/actions) — a function in `src/actions/` that you import and call directly, with no endpoint to write.
