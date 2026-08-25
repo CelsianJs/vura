@@ -1,6 +1,6 @@
 # RFC 0001 — Server-side data fetching for pages
 
-- **Status:** **APPROVED** 2026-08-23 by Kirby — accepted as written. Not yet implemented.
+- **Status:** **APPROVED** 2026-08-23 by Kirby, accepted as written. **Phase 1 IMPLEMENTED** 2026-08-25 (vura #97, released in 0.6.0): steps 1 through 6 of the implementation order below. Step 7 (streaming) is not started.
 - **Author:** wave-2 worker
 - **Date:** 2026-07-03 (approved 2026-08-23)
 - **Decision:** the recommended API shape is approved: route-level `loader` exports plus a typed `useLoaderData<typeof loader>()`, layered along the existing layout chain, with loader data serialized into the HTML for hydration. `getServerData` is retained as a deprecated alias. Streaming ships as an additive follow-up, not as part of phase 1. The refusal of component-level async "server components" stands, for the reason given below: What Framework's `renderToString` is synchronous, and awaiting inside the component tree would require forking What's renderer.
