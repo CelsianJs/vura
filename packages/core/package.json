@@ -37,7 +37,7 @@
     "@celsian/core": "^0.5.2",
     "@celsian/jwt": "^0.5.2",
     "@celsian/vura-compiler": "workspace:0.7.0",
-    "esbuild": "^0.28.1",
+    "esbuild": "^0.28.2",
     "what-framework": "^0.13.4",
     "what-isr": "^0.13.4"
   },
