@@ -109,6 +109,17 @@ describe('A1.4 success metric', () => {
     //   Roughly half of the new file is the doc comment explaining the contract
     //   and the Celsian fast-response header trap. +~412 → actual 8520.
     //   Ceiling 8580 leaves ~60 headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(8580);
+    // Server actions (2026-08-25): `src/actions/`, called from the browser by
+    //   importing it. New runtime/actions.ts (globalThis-keyed registry,
+    //   same-origin and double-submit CSRF gates, dispatch) and
+    //   actions-build.ts (id derivation, the generated client stub, and the
+    //   esbuild plugin that answers onResolve so an action file is never opened
+    //   for a browser bundle) plus discovery in manifest.ts, bundling and entry
+    //   codegen in build.ts, registration in runtime/server.ts and the endpoint
+    //   in runtime/api-app.ts. The two new files are close to half comment: the
+    //   registry, the id scheme and the stub boundary each exist because of a
+    //   specific failure that is cheaper to explain than to rediscover.
+    //   +~870 → actual 9390. Ceiling 9450 leaves ~60 headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(9450);
   });
 });

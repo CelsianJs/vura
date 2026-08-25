@@ -438,6 +438,71 @@ export function GET(_req: CelsianRequest, reply: CelsianReply) {
 }
 `;
 
+/**
+ * src/actions/todos.ts — a server action module.
+ *
+ * Deliberately holds a credential-shaped constant and reaches for `node:fs`.
+ * Either one reaching a browser bundle is a failure the audit can see, and the
+ * `node:fs` import means a build that opened this file for the browser would
+ * die rather than quietly ship it.
+ */
+const TODOS_ACTIONS = `import { readFileSync } from 'node:fs';
+import { notFound } from '@celsian/vura-core';
+
+const DB_URL = 'postgres://audit:ACTION-SOURCE-MUST-NOT-SHIP@db.internal/prod';
+
+export async function addTodo(text: string) {
+  return { text, added: true };
+}
+
+export async function readSecret() {
+  // Present so the module genuinely cannot run in a browser.
+  return typeof readFileSync === 'function' ? DB_URL.length : 0;
+}
+
+export async function missingTodo() {
+  throw notFound('No such todo');
+}
+
+export async function explode() {
+  throw new Error('postgres://audit:ACTION-SOURCE-MUST-NOT-SHIP@db.internal/prod');
+}
+`;
+
+/** src/pages/todos.tsx — a hybrid page importing the action, so a browser bundle exists. */
+const ACTIONS_PAGE = `import { addTodo } from '../actions/todos';
+
+export const page = { mode: 'hybrid', title: 'Todos' };
+
+export default function TodosPage() {
+  return (
+    <div>
+      <h1 id="todos">Todos</h1>
+      <button id="add" onClick={() => addTodo('milk')}>Add</button>
+    </div>
+  );
+}
+`;
+
+/**
+ * src/api/boom.ts — an API route that throws a Vura HttpError.
+ *
+ * The neighbouring half of the cross-bundle error question. Vura's HttpError is
+ * not Celsian's, so Celsian's `instanceof HttpError` branch does not match it;
+ * the status survives only because Celsian falls back to reading
+ * `error.statusCode` structurally. That is load-bearing behaviour in a
+ * dependency, so it is pinned here rather than assumed.
+ */
+const BOOM_API = `import { notFound } from '@celsian/vura-core';
+import type { CelsianRequest, CelsianReply } from '@celsian/vura-core';
+
+export const route = { kind: 'serverless' };
+
+export function GET(_req: CelsianRequest, _reply: CelsianReply) {
+  throw notFound('No such thing');
+}
+`;
+
 // ─── Core scaffoldAndBuild impl ────────────────────────────────────────────────
 
 async function _scaffoldAndBuild(): Promise<{
@@ -514,6 +579,12 @@ async function _scaffoldAndBuild(): Promise<{
   await writeFile(join(dir, 'src', 'middleware.ts'), MIDDLEWARE);
   await writeFile(join(dir, 'src', 'pages', 'guarded', 'index.tsx'), GUARDED_PAGE);
   await writeFile(join(dir, 'src', 'api', 'guarded.ts'), GUARDED_API);
+
+  // Server actions, and the hybrid page that imports them.
+  await mkdir(join(dir, 'src', 'actions'), { recursive: true });
+  await writeFile(join(dir, 'src', 'actions', 'todos.ts'), TODOS_ACTIONS);
+  await writeFile(join(dir, 'src', 'pages', 'todos.tsx'), ACTIONS_PAGE);
+  await writeFile(join(dir, 'src', 'api', 'boom.ts'), BOOM_API);
 
   // 5. Rewrite deps to local tarballs via link-local-packages.mjs
   const linkResult = spawnSync(process.execPath, [LINK_LOCAL_SCRIPT, dir], {

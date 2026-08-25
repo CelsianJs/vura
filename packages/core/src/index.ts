@@ -390,3 +390,32 @@ export type {
   MiddlewareResult,
   MiddlewareRunner,
 } from './runtime/middleware.js';
+
+// ─── Server actions ───
+
+export {
+  actionRegistry,
+  registerActionModules,
+  actionId,
+  dispatchAction,
+  issueActionToken,
+} from './runtime/actions.js';
+
+export type {
+  ActionFn,
+  ActionRegistry,
+  ActionOutcome,
+  ActionRequestLike,
+  ActionDispatchOptions,
+} from './runtime/actions.js';
+
+export {
+  ACTIONS_DIR,
+  ACTION_ENDPOINT,
+  actionModuleId,
+  extractActionExports,
+  generateActionStub,
+  vuraActionsStubPlugin,
+} from './actions-build.js';
+
+export type { ActionModule } from './manifest.js';

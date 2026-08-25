@@ -78,6 +78,7 @@ const REFERENCE = [
   ['/reference/route-kinds', 'Route kinds'],
   ['/reference/page-modes', 'Page modes'],
   ['/reference/data-fetching', 'Data fetching'],
+  ['/reference/actions', 'Server actions'],
   ['/reference/tasks', 'Tasks'],
   ['/reference/streaming', 'Streaming'],
   ['/reference/middleware', 'Middleware'],
