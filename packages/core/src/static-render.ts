@@ -82,7 +82,22 @@ export async function renderStaticPages(
       // the whole difference between `static` and `server`: same loader code,
       // resolved at build instead of per request. `ctx.request` is absent, which
       // is why LoaderContext declares it optional.
-      const segments: LoaderSegment[] = [{ id: 'page', loader: mod.loader, getServerData: mod.getServerData }];
+      // The layout chain runs here exactly as it does on the server path.
+      // Build-time pages used to skip layouts entirely: a `_layout.tsx` in a
+      // directory of static or hybrid pages was silently ignored, so the same
+      // page rendered with its layout in `vura dev` and without it in the
+      // build. The loader segments are keyed the same way as the server path
+      // (`layout:0`, `layout:1`, `page`), which is what lets a hybrid page's
+      // browser bundle rebuild the same tree from the serialized payload.
+      const layoutMods: any[] = [];
+      for (const layoutPath of page.layouts ?? []) {
+        layoutMods.push(await loadModule(layoutPath));
+      }
+
+      const segments: LoaderSegment[] = [
+        ...layoutMods.map((layout, i) => ({ id: `layout:${i}`, loader: layout.loader })),
+        { id: 'page', loader: mod.loader, getServerData: mod.getServerData },
+      ];
       const ctx = createLoaderContext({ params: {}, url: page.urlPattern, query: {} });
       let loaded: Awaited<ReturnType<typeof runLoaderChain>>;
       try {
@@ -99,7 +114,7 @@ export async function renderStaticPages(
         }
         throw err;
       }
-      const pageData = loaded.data[0];
+      const pageData = loaded.data[loaded.data.length - 1];
       const legacyProps =
         typeof mod.loader !== 'function' && typeof mod.getServerData === 'function' && pageData && typeof pageData === 'object'
           ? (pageData as Record<string, unknown>)
@@ -108,11 +123,21 @@ export async function renderStaticPages(
       // h(), not a direct call: a component invoked directly has no component
       // context, so every What hook inside it — including the useContext that
       // useLoaderData is built on — has nothing to read.
-      const vnode = h(
+      let vnode: unknown = h(
         LoaderDataProvider as any,
         { value: pageData },
         h(Component as any, { ...(pageConfig.props ?? {}), ...legacyProps }),
       );
+      for (let i = layoutMods.length - 1; i >= 0; i--) {
+        const Layout = layoutMods[i]?.default;
+        if (typeof Layout === 'function') {
+          vnode = h(
+            LoaderDataProvider as any,
+            { value: loaded.data[i] },
+            h(Layout as any, { children: vnode }),
+          );
+        }
+      }
       bodyHtml = renderToString(vnode as any);
       if (typeof bodyHtml === 'string' && /^\s*&lt;/.test(bodyHtml)) {
         console.warn(
@@ -176,7 +201,7 @@ export async function renderStaticPages(
 export function generateClientPageEntry(
   pageImportSpecifier: string,
   mode: 'client' | 'hybrid',
-  options: { dev?: boolean } = {},
+  options: { dev?: boolean; layoutImportSpecifiers?: string[] } = {},
 ): string {
   const boot = mode === 'hybrid' ? 'hydrate' : 'mount';
   // When a client/hybrid page throws during its initial render, mount()/hydrate()
@@ -185,22 +210,38 @@ export function generateClientPageEntry(
   // instead. In dev the panel shows the message + stack; in prod it stays
   // generic so stack traces are not leaked to end users.
   const dev = options.dev === true ? 'true' : 'false';
+  const layouts = options.layoutImportSpecifiers ?? [];
+  const layoutImports = layouts
+    .map((spec, i) => `import _Layout${i} from ${JSON.stringify(spec)};`)
+    .join('\n');
+  const layoutList = `[${layouts.map((_, i) => `_Layout${i}`).join(', ')}]`;
+
   return `import Component, * as _pageMod from ${JSON.stringify(pageImportSpecifier)};
 import { h, ${boot} } from 'what-framework';
 import { LoaderDataProvider as _LoaderDataProvider, readLoaderPayload as _readLoaderPayload } from '@celsian/vura-core/client';
+${layoutImports}
 
 const _props = (_pageMod.page && _pageMod.page.props) || {};
 const _root = document.getElementById('app') || document.body;
 // The server serialized every segment's loader data into the document. Re-open
-// the same scope on the client so useLoaderData() reads on hydrate what it read
-// during the server render, instead of throwing "no loader" in the browser.
-// When the page has no loader there is no payload entry, and the bare component
-// is booted so the missing-loader error still names the real problem.
-const _payload = _readLoaderPayload();
-const _hasLoaderData = _payload != null && Object.prototype.hasOwnProperty.call(_payload, 'page');
-const _tree = _hasLoaderData
+// the same scopes on the client so useLoaderData() reads on hydrate what it
+// read during the server render, instead of throwing "no loader" in the
+// browser. The layout chain is rebuilt here for the same reason: the server
+// rendered the page inside its layouts, so hydration has to walk the same tree
+// or it will not match the DOM it is given.
+const _payload = _readLoaderPayload() || {};
+const _segment = (key) =>
+  Object.prototype.hasOwnProperty.call(_payload, key) ? _payload[key] : undefined;
+const _hasLoaderData = Object.prototype.hasOwnProperty.call(_payload, 'page');
+let _tree = _hasLoaderData
   ? h(_LoaderDataProvider, { value: _payload.page }, h(Component, _props))
   : h(Component, _props);
+const _layouts = ${layoutList};
+for (let _i = _layouts.length - 1; _i >= 0; _i--) {
+  const _Layout = _layouts[_i];
+  if (typeof _Layout !== 'function') continue;
+  _tree = h(_LoaderDataProvider, { value: _segment('layout:' + _i) }, h(_Layout, { children: _tree }));
+}
 try {
   ${boot}(_tree, _root);
 } catch (_err) {

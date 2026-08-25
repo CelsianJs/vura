@@ -102,6 +102,13 @@ describe('A1.4 success metric', () => {
     //   the loader context moved onto globalThis so separately bundled page
     //   and layout copies share it. Mostly the comments explaining each
     //   failure. +~187 → actual 8108. Ceiling 8160 leaves ~52 headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(8160);
+    // Middleware (2026-08-25): `src/middleware.ts`, one function that runs
+    //   before a request reaches anything. New runtime/middleware.ts (context,
+    //   cookie parsing, matcher compilation, the runner) plus discovery in
+    //   manifest.ts, bundling in build.ts, and dispatch in runtime/server.ts.
+    //   Roughly half of the new file is the doc comment explaining the contract
+    //   and the Celsian fast-response header trap. +~412 → actual 8520.
+    //   Ceiling 8580 leaves ~60 headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(8580);
   });
 });

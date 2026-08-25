@@ -1,6 +1,8 @@
 # Lifecycle hooks
 
-Hooks run code around every API request — before the handler, when it errors, and after the response is sent. Use them for auth, logging, metrics, and cross-cutting concerns you don't want to repeat in every route.
+Hooks run code around every API request: before the handler, when it errors, and after the response is sent. Use them for logging, metrics, and cross-cutting concerns you don't want to repeat in every route.
+
+> Hooks run for **API routes only**. To guard a page, or to run something before every request whatever it hits, use [middleware](/reference/middleware).
 
 Define global hooks in a **conventional hooks file** at the root of your `src/`:
 

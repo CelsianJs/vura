@@ -169,6 +169,12 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
     lines.push(`import * as ${varName} from '${importPath}';`);
   }
 
+  // Import project middleware if present (convention: src/middleware.ts).
+  // Bundled to dist/server/middleware.js alongside the entry.
+  if (manifest.middleware) {
+    lines.push("import * as _middlewareMod from './middleware.js';");
+  }
+
   // Import global hooks file if present (convention: src/api/_hooks.ts or src/hooks.ts)
   if (globalHooksFile) {
     const hooksImportPath = `./${relative('dist/server', join('dist/server/api', globalHooksFile.replace(/^src\/api\//, '').replace(/^src\//, '')))}`.replace(/\.([mc])?tsx?$/, '.$1js').replace(/\\/g, '/');
@@ -264,6 +270,11 @@ export function generateServerEntry(manifest: RouteManifest, projectRoot: string
     lines.push('  },');
   } else {
     lines.push('  globalHooks: undefined,');
+  }
+
+  // middleware
+  if (manifest.middleware) {
+    lines.push('  middleware: _middlewareMod,');
   }
 
   lines.push('  staticDirs: [_publicDir, _staticDir],');
@@ -622,6 +633,10 @@ export async function build(
   // before bundleServerEntry is called so esbuild can resolve them.
   await bundleServerPageModules(manifest, projectRoot, serverDir);
 
+  // Bundle project middleware (dist/server/middleware.js), next to the entry
+  // that imports it.
+  await bundleMiddlewareModule(manifest, projectRoot, serverDir);
+
   // Generated route/page artifacts use ESM .js output. Make the dist/server
   // subtree self-describing so Node treats those files as modules even when
   // the source project has no package.json or defaults to CommonJS.
@@ -814,6 +829,31 @@ async function bundleServerApiModules(
     // what-framework — keep it external here to avoid double-bundling.
     await bundleRouteModule({ filePath }, projectRoot, outPath, 'node', true);
   }
+}
+
+/**
+ * Bundle `src/middleware.ts` to `dist/server/middleware.js`.
+ *
+ * Same externals as a page module: what-framework stays external so it is not
+ * double-bundled, and `@celsian/vura-core` resolves through the runtime shim.
+ */
+async function bundleMiddlewareModule(
+  manifest: RouteManifest,
+  projectRoot: string,
+  serverDir: string,
+): Promise<void> {
+  if (!manifest.middleware) return;
+  const absPath = join(projectRoot, manifest.middleware);
+  if (!existsSync(absPath)) return;
+
+  await mkdir(serverDir, { recursive: true });
+  await bundleRouteModule(
+    { filePath: manifest.middleware },
+    projectRoot,
+    join(serverDir, 'middleware.js'),
+    'node',
+    true,
+  );
 }
 
 async function bundleServerPageModules(

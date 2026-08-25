@@ -185,7 +185,7 @@ The layout renders `useLoaderData<typeof loader>().user`; the page renders its o
 
 **Loaders in a chain run in parallel.** A layout's loader and its page's loader have no data dependency on each other, so nesting costs no extra latency.
 
-> **Layouts apply to `server`-mode pages.** A page rendered at build time (`static`, `hybrid`, `client`) is rendered on its own today, without its layout chain, and its payload therefore holds only the page's own segment. A layout in a directory of build-time pages is silently skipped. If you need a layout, put the page in `server` mode.
+Layouts apply in every page mode. A `static` or `hybrid` page is wrapped in its layout chain at build time, with each layout's loader running then too, and a hybrid page's browser bundle rebuilds the same chain during hydration so the tree the browser walks is the tree the server rendered.
 
 ### Reading loader data in a page that also runs in the browser
 
@@ -206,7 +206,7 @@ On a `hybrid` page the accessor works on both sides. The server renders with the
 | `server` | On every request. `ctx.request` is available for headers and cookies. |
 | `server` + `revalidate` / `tags` | On cache miss. The result is part of the ISR-cached render, and `revalidateTag()` re-runs it. |
 | `static` | Once, at build time. There is no request, so `ctx.request` is `undefined` and `notFound()` / `redirect()` are build errors. |
-| `hybrid` | Once, at build time, like `static`. The result is serialized into the page, and the browser hydrates from it instead of re-fetching. |
+| `hybrid` | Once, at build time, like `static`. The result is serialized into the page, and the browser hydrates from it, layout chain included, instead of re-fetching. |
 | `client` | Not at all. Use the client hooks above. |
 
 ### The serialized payload

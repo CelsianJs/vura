@@ -167,7 +167,20 @@ const pendingRedirects = new WeakMap<Request, { location: string; status: number
  * Expected return (from core.js line 54-59):
  *   { html, status, tags, path }
  */
-export function createVuraRenderRoute() {
+export interface RenderRouteOptions {
+  /**
+   * Extra script URLs to append to a page's own `page.scripts`.
+   *
+   * `vura dev` uses this for a hybrid page's browser bundle, whose URL is a
+   * dev-server path that does not exist at build time. It exists so the dev
+   * server can render through this exact function rather than keeping a second
+   * copy of the render logic, which is how dev spent 0.6.0 and 0.6.1 unable to
+   * run a loader at all while the built server ran them correctly.
+   */
+  extraScripts?: (page: RuntimePage) => string[];
+}
+
+export function createVuraRenderRoute(options: RenderRouteOptions = {}) {
   return async function renderRoute(routeMatch: {
     path: string;
     query: Record<string, string | string[]>;
@@ -232,7 +245,7 @@ export function createVuraRenderRoute() {
         title: pageConfig.title ?? 'Vura App',
         meta: pageConfig.meta ?? [],
         styles: pageConfig.styles ?? [],
-        scripts: pageConfig.scripts ?? [],
+        scripts: [...(pageConfig.scripts ?? []), ...(options.extraScripts?.(p) ?? [])],
         head: pageConfig.head ?? '',
         bodyEnd: serializeLoaderPayload(byId),
       });
@@ -284,6 +297,8 @@ export interface PagesHandlerOptions {
   cache?: unknown;
   /** On-demand revalidation webhook (Task 4). */
   revalidateWebhook?: unknown;
+  /** See `RenderRouteOptions.extraScripts`. */
+  extraScripts?: (page: RuntimePage) => string[];
 }
 
 type CacheResult = { headers?: Record<string, string> } & Record<string, unknown>;
@@ -344,7 +359,7 @@ export function createPagesHandler(
   const handler = createRequestHandler({
     routes: opts.routes,
     cache: addVuraCacheTagHeaders(opts.cache),
-    render: createVuraRenderRoute(),
+    render: createVuraRenderRoute(opts.extraScripts ? { extraScripts: opts.extraScripts } : {}),
     revalidateWebhook: opts.revalidateWebhook,
     csrf: false,
   });

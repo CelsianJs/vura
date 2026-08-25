@@ -363,6 +363,8 @@ export {
   LOADER_PAYLOAD_ID,
 } from './runtime/loader.js';
 
+export type { RenderRouteOptions } from './runtime/pages.js';
+
 export type {
   Loader,
   LoaderContext,
@@ -370,3 +372,21 @@ export type {
   LoaderSegment,
   LoaderChainResult,
 } from './runtime/loader.js';
+
+// ─── Middleware ───
+
+export {
+  createMiddlewareRunner,
+  compileMatcher,
+  parseCookies,
+} from './runtime/middleware.js';
+
+export type {
+  MiddlewareContext,
+  MiddlewareHandler,
+  MiddlewareConfig,
+  MiddlewareModule,
+  MiddlewareCookies,
+  MiddlewareResult,
+  MiddlewareRunner,
+} from './runtime/middleware.js';
