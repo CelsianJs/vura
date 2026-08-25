@@ -259,7 +259,24 @@ export async function buildCommand(_args: string[]): Promise<void> {
     return join(root, 'node_modules', pkg);
   }
 
-  const esmResolvePlugin = {
+  /**
+   * Resolve the bare specifiers esbuild cannot.
+   *
+   * `inlineWhatFramework` decides what happens to `what-framework` and
+   * `what-core`. A browser bundle needs them inlined — there is no module
+   * resolution in a browser, and their exports maps are import-condition-only,
+   * so `require.resolve` cannot find them. A **server** bundle must keep them
+   * external, and this is the switch that says which.
+   *
+   * It exists because an `onResolve` that returns a path *beats* esbuild's
+   * `external` list. Setting both, as the build-time page loader did, silently
+   * loses: the page module inlined its own copy of what-core while
+   * `renderToString` ran from the installed one, the two disagreed about which
+   * component was rendering, and `useSignal()` threw "can only be called
+   * inside a component function" in every `static` and `hybrid` page. Loaders
+   * escaped it only because `@celsian/vura-core` is not intercepted here.
+   */
+  const makeEsmResolvePlugin = ({ inlineWhatFramework }: { inlineWhatFramework: boolean }) => ({
     name: 'esm-resolve',
     setup(build: any) {
       build.onResolve({ filter: /^@celsian\/vura-core\/(jsx-runtime|jsx-dev-runtime)$/ }, (args: any) => {
@@ -269,6 +286,8 @@ export async function buildCommand(_args: string[]): Promise<void> {
           return { path: cliRequire.resolve(args.path) };
         }
       });
+
+      if (!inlineWhatFramework) return;
 
       // Bare what-framework/what-core imports (the generated client entry
       // imports { h, mount, hydrate } from 'what-framework'). The exports map
@@ -297,7 +316,15 @@ export async function buildCommand(_args: string[]): Promise<void> {
         return null;
       });
     },
-  };
+  });
+
+  /** Externals every server-side bundle shares: one framework copy per process. */
+  const serverRuntimeExternals = ['what-framework', 'what-framework/*', 'what-core', 'what-core/*'];
+
+  /** Browser bundles: what-framework is inlined, because a browser has no resolver. */
+  const browserEsmResolvePlugin = makeEsmResolvePlugin({ inlineWhatFramework: true });
+  /** Server bundles: what-framework stays external, so the process holds one copy. */
+  const serverEsmResolvePlugin = makeEsmResolvePlugin({ inlineWhatFramework: false });
 
   // 3. Bundle server-mode pages
   const serverPages = manifest.pages.filter(p => p.mode === 'server' || p.mode === 'hybrid');
@@ -321,8 +348,10 @@ export async function buildCommand(_args: string[]): Promise<void> {
         outfile: outPath,
         jsx: 'automatic',
         jsxImportSource,
-        plugins: [esmResolvePlugin],
-        external: [],
+        plugins: [serverEsmResolvePlugin],
+        // Server bundles keep the framework external so the process holds one
+        // copy; core's builder rewrites these files with the same externals.
+        external: serverRuntimeExternals,
       });
 
       console.log(`    ◈ ${page.urlPattern} → dist/server/pages/${outFile}`);
@@ -360,8 +389,8 @@ export async function buildCommand(_args: string[]): Promise<void> {
           outfile: outPath,
           jsx: 'automatic',
           jsxImportSource,
-          plugins: [esmResolvePlugin],
-          external: [],
+          plugins: [serverEsmResolvePlugin],
+          external: serverRuntimeExternals,
         });
 
         console.log(`    ⊟ layout ${layout.dirPattern || '(root)'} → dist/server/pages/${outFile}`);
@@ -419,7 +448,7 @@ export async function buildCommand(_args: string[]): Promise<void> {
         plugins: [
           vuraBrowserResolvePlugin(),
           vuraActionsStubPlugin({ projectRoot: root }),
-          esmResolvePlugin,
+          browserEsmResolvePlugin,
         ],
         external: [],
       });
@@ -489,7 +518,7 @@ export async function buildCommand(_args: string[]): Promise<void> {
         outfile: tmpFile,
         jsx: 'automatic',
         jsxImportSource,
-        plugins: [esmResolvePlugin],
+        plugins: [serverEsmResolvePlugin],
         external: sharedRuntimeExternals,
       });
       return nativeImport(pathToFileURL(tmpFile).href);

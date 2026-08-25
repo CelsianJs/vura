@@ -503,6 +503,46 @@ export function GET(_req: CelsianRequest, _reply: CelsianReply) {
 }
 `;
 
+/**
+ * Pages that call `useSignal()` — one per rendered mode.
+ *
+ * The audit's other fixtures all hold state in a module-level `signal()`, which
+ * needs no component context, so none of them could see that every
+ * build-time-rendered page inlined its own copy of what-core while
+ * `renderToString` ran from the installed one. `useSignal` reads the renderer's
+ * current-component state, so it is the shape that fails: it threw in every
+ * `static` and `hybrid` page and nothing noticed.
+ */
+const HOOK_STATIC_PAGE = `import { useSignal } from 'what-framework';
+
+export const page = { mode: 'static', title: 'Hook static' };
+
+export default function HookStatic() {
+  const label = useSignal('hook-static-ok');
+  return <main><h1 id="hook">{label()}</h1></main>;
+}
+`;
+
+const HOOK_SERVER_PAGE = `import { useSignal } from 'what-framework';
+
+export const page = { mode: 'server', title: 'Hook server' };
+
+export default function HookServer() {
+  const label = useSignal('hook-server-ok');
+  return <main><h1 id="hook">{label()}</h1></main>;
+}
+`;
+
+const HOOK_HYBRID_PAGE = `import { useSignal } from 'what-framework';
+
+export const page = { mode: 'hybrid', title: 'Hook hybrid' };
+
+export default function HookHybrid() {
+  const label = useSignal('hook-hybrid-ok');
+  return <main><h1 id="hook">{label()}</h1></main>;
+}
+`;
+
 // ─── Core scaffoldAndBuild impl ────────────────────────────────────────────────
 
 async function _scaffoldAndBuild(): Promise<{
@@ -585,6 +625,12 @@ async function _scaffoldAndBuild(): Promise<{
   await writeFile(join(dir, 'src', 'actions', 'todos.ts'), TODOS_ACTIONS);
   await writeFile(join(dir, 'src', 'pages', 'todos.tsx'), ACTIONS_PAGE);
   await writeFile(join(dir, 'src', 'api', 'boom.ts'), BOOM_API);
+
+  // Pages using a component-context hook, one per rendered mode.
+  await mkdir(join(dir, 'src', 'pages', 'hooks'), { recursive: true });
+  await writeFile(join(dir, 'src', 'pages', 'hooks', 'static.tsx'), HOOK_STATIC_PAGE);
+  await writeFile(join(dir, 'src', 'pages', 'hooks', 'server.tsx'), HOOK_SERVER_PAGE);
+  await writeFile(join(dir, 'src', 'pages', 'hooks', 'hybrid.tsx'), HOOK_HYBRID_PAGE);
 
   // 5. Rewrite deps to local tarballs via link-local-packages.mjs
   const linkResult = spawnSync(process.execPath, [LINK_LOCAL_SCRIPT, dir], {
