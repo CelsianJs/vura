@@ -264,4 +264,4 @@ export const page = { mode: 'client' };
 
 The two families compose: a `hybrid` page renders its `loader` data into the HTML *and* serializes it, so an island inside it starts from the server's data and keeps it fresh with `useSWR` from there.
 
-Everything on this page reads. To **change** something on the server, call a [server action](/reference/actions) — a function in `src/actions/` that you import and call directly, with no endpoint to write.
+Everything on this page reads. To **change** something on the server, call a [server action](/reference/actions): a function in `src/actions/` that you import and call directly, with no endpoint to write.

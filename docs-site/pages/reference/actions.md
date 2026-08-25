@@ -44,7 +44,7 @@ export function addTodo(...args) {
 
 The real module is never read for a browser bundle, so a database URL, an API
 key or a `node:fs` import inside an action file cannot reach the client through
-any path — not through a constant, not through a transitive import, not by
+any path: not through a constant, not through a transitive import, not by
 accident. This is the reason actions live in their own directory rather than
 being marked with a directive inside a page file: the boundary is a location,
 which is easy to see and impossible to get half-right.
@@ -121,8 +121,8 @@ browser. If you want the caller to see it, make it an `HttpError`.
 Actions are a browser-to-server call, and the endpoint is guarded accordingly.
 
 **Same-origin only.** A request must carry `Sec-Fetch-Site: same-origin`, or an
-`Origin` matching the request host. A request with neither is rejected — a
-browser always sends one, so a request without them is a script, and a script
+`Origin` matching the request host. A request with neither is rejected, because
+a browser always sends one: a request without them is a script, and a script
 should be calling an API route.
 
 **JSON only.** The endpoint requires `content-type: application/json`, which an

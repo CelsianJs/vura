@@ -1,7 +1,7 @@
 {
   "name": "@celsian/vura-compiler-native",
-  "version": "0.6.1",
-  "description": "Unpublished native Rust compiler prototype for Vura — source-only until platform binaries are released",
+  "version": "0.7.0",
+  "description": "Unpublished native Rust compiler prototype for Vura \u2014 source-only until platform binaries are released",
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
