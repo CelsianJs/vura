@@ -18,6 +18,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generateClientPageEntry } from '../src/static-render.js';
+import { vuraBrowserResolvePlugin } from '../src/runtime-shim.js';
 
 const REPO_NODE_MODULES = join(__dirname, '..', '..', '..', 'node_modules');
 
@@ -61,6 +62,12 @@ async function bundleEntry(entrySource: string, resolveDir: string): Promise<str
     outfile: 'page.js',
     jsx: 'automatic',
     jsxImportSource: 'what-framework',
+    // The generated entry imports `@celsian/vura-core/client` for the loader
+    // scope. Whoever bundles it supplies this plugin; the CLI does, in both
+    // `vura build` and `vura dev`. Bundling the entry without it is what a
+    // consumer would hit if that wiring were dropped, so the test carries the
+    // same contract rather than a looser one.
+    plugins: [vuraBrowserResolvePlugin()],
     nodePaths: [REPO_NODE_MODULES],
   });
   return result.outputFiles[0]!.text;

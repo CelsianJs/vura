@@ -113,13 +113,38 @@ export function createLoaderContext(input: {
 
 // ─── Reading loader data from a component ───
 
-const LOADER_DATA_MISSING = Symbol('vura.loaderData.missing');
+// Symbol.for, not Symbol: registered in the global symbol registry so every
+// copy of this module agrees on the same sentinel. See the note below.
+const LOADER_DATA_MISSING = Symbol.for('vura.loaderData.missing');
 
 /**
  * One context for all segments. Each segment's provider shadows its ancestors
  * for its own subtree, which is exactly the "nearest loader wins" rule.
+ *
+ * Held on `globalThis`, not in a module-scoped `const`, because a built Vura
+ * app does not contain one copy of this module. Every page and layout is
+ * bundled separately and each bundle inlines its own copy of the loader
+ * runtime; the server entry then inlines all of them. With a module-scoped
+ * context the provider that the page runtime renders and the `useContext` a
+ * layout calls are reading two different context objects, so `useLoaderData()`
+ * in any layout of a built app threw "found no loader data" even though the
+ * loader had run and its data was right there. Unit tests never saw it: they
+ * import one copy.
+ *
+ * A registered symbol key makes the context a true process singleton, which is
+ * the same fix What Framework 0.13.2 applied to its revalidation registry for
+ * the same bundling reason.
  */
-const LoaderDataContext = createContext<unknown>(LOADER_DATA_MISSING);
+const LOADER_CONTEXT_KEY = Symbol.for('vura.loaderDataContext');
+
+interface LoaderContextGlobal {
+  [LOADER_CONTEXT_KEY]?: ReturnType<typeof createContext<unknown>>;
+}
+
+const globalStore = globalThis as unknown as LoaderContextGlobal;
+const LoaderDataContext: ReturnType<typeof createContext<unknown>> =
+  globalStore[LOADER_CONTEXT_KEY] ??
+  (globalStore[LOADER_CONTEXT_KEY] = createContext<unknown>(LOADER_DATA_MISSING));
 
 /** @internal The provider component the page runtime wraps each segment in. */
 export const LoaderDataProvider = LoaderDataContext.Provider as (props: {

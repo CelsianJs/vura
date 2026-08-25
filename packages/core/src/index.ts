@@ -44,6 +44,18 @@ export type {
   BuildResult,
 } from './build.js';
 
+// The shared `@celsian/vura-core` runtime-shim allowlist. Adapters bundle a
+// project's server modules the same way core does and must resolve a bare
+// `@celsian/vura-core` import to the same set of exports.
+export {
+  vuraCoreRuntimeShimContents,
+  vuraBrowserResolvePlugin,
+  coreModuleExt,
+  CORE_PACKAGE_DIR,
+} from './runtime-shim.js';
+
+export type { RuntimeShimOptions } from './runtime-shim.js';
+
 export {
   renderStaticPages,
   wrapDocument,

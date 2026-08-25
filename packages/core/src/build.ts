@@ -30,6 +30,7 @@ import { fileURLToPath } from 'node:url';
 import type { RouteManifest, ApiRoute, PageRoute } from './manifest.js';
 import type { ThenConfig, AdapterBuildContext } from './config.js';
 import type { VuraCacheConfig } from './runtime/cache.js';
+import { vuraCoreRuntimeShimContents } from './runtime-shim.js';
 
 
 const CORE_PACKAGE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -47,28 +48,20 @@ function vuraCoreSelfResolvePlugin() {
       build.onResolve({ filter: /^@celsian\/vura-core\/(jsx-runtime|jsx-dev-runtime)$/ }, (args: any) => ({
         path: coreModuleFile('jsx-runtime'),
       }));
+      // The browser-safe subpath resolves to the real module: it has no Node
+      // built-ins, so a server bundle can take it as-is.
+      build.onResolve({ filter: /^@celsian\/vura-core\/client$/ }, () => ({
+        path: coreModuleFile('client'),
+      }));
       build.onResolve({ filter: /^@celsian\/vura-core$/ }, () => ({
         path: '@celsian/vura-core',
         namespace: 'vura-core-runtime-shim',
       }));
-      build.onLoad({ filter: /.*/, namespace: 'vura-core-runtime-shim' }, () => {
-        const ext = (mod: string) => existsSync(join(CORE_PACKAGE_DIR, `${mod}.ts`)) ? 'ts' : 'js';
-        return {
-          loader: 'js',
-          resolveDir: CORE_PACKAGE_DIR,
-          contents: `
-export { defineConfig } from './config.${ext('config')}';
-export { HttpError, ErrorCode, badRequest, unauthorized, forbidden, notFound, methodNotAllowed, conflict, rateLimited, internalError, serviceUnavailable, formatErrorResponse, sendErrorResponse, renderErrorPage, setGlobalErrorHandler, getGlobalErrorHandler, reportError, getErrorMode } from './errors.${ext('errors')}';
-export { defineSchema, validate, withValidation, validateRequest } from './validation.${ext('validation')}';
-export { HookRegistry, createHookRegistry, getHookRegistry, setDefaultHookRegistry, executeWithHooks } from './hooks.${ext('hooks')}';
-export { startVuraServer, serveStaticIfFound } from './runtime/server.${ext('runtime/server')}';
-export { createApiApp } from './runtime/api-app.${ext('runtime/api-app')}';
-export { createVuraCache, revalidatePath, revalidateTag } from './runtime/cache.${ext('runtime/cache')}';
-export { buildWhatRoutes, createPagesHandler, createVuraRenderRoute } from './runtime/pages.${ext('runtime/pages')}';
-export { runTaskOnce, buildTaskEnvelope } from './runtime/tasks.${ext('runtime/tasks')}';
-`,
-        };
-      });
+      build.onLoad({ filter: /.*/, namespace: 'vura-core-runtime-shim' }, () => ({
+        loader: 'js',
+        resolveDir: CORE_PACKAGE_DIR,
+        contents: vuraCoreRuntimeShimContents({ packageDir: CORE_PACKAGE_DIR }),
+      }));
     },
   };
 }

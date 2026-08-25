@@ -16,6 +16,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { vuraCoreRuntimeShimContents } from '@celsian/vura-core';
 import type { ThenAdapter, AdapterBuildContext } from '@celsian/vura-core';
 import type { RouteManifest, ApiRoute } from '@celsian/vura-core';
 
@@ -51,12 +52,11 @@ function vuraCoreRuntimeShimPlugin() {
       build.onLoad({ filter: /.*/, namespace: 'vura-core-runtime-shim' }, () => ({
         loader: 'js',
         resolveDir: CORE_PACKAGE_DIR,
-        contents: `
-export { defineConfig } from './config.${coreModuleExt('config')}';
-export { HttpError, ErrorCode, badRequest, unauthorized, forbidden, notFound, methodNotAllowed, conflict, rateLimited, internalError, serviceUnavailable, formatErrorResponse, sendErrorResponse, renderErrorPage, setGlobalErrorHandler, getGlobalErrorHandler, reportError, getErrorMode } from './errors.${coreModuleExt('errors')}';
-export { defineSchema, validate, withValidation, validateRequest } from './validation.${coreModuleExt('validation')}';
-export { HookRegistry, createHookRegistry, getHookRegistry, setDefaultHookRegistry, executeWithHooks } from './hooks.${coreModuleExt('hooks')}';
-`,
+        contents: vuraCoreRuntimeShimContents({
+          packageDir: CORE_PACKAGE_DIR,
+          // Workers bundles carry no Node server runtime.
+          includeServerRuntime: false,
+        }),
       }));
     },
   };

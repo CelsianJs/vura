@@ -154,7 +154,20 @@ export async function GET(_req: Request): Promise<Response> {
     mkdirSync(join(root, 'node_modules', 'what-framework'), { recursive: true });
     writeFileSync(
       join(root, 'node_modules', 'what-framework', 'package.json'),
-      JSON.stringify({ name: 'what-framework', version: '9.9.9-fixture', type: 'module' }) + '\n',
+      // The `exports` map matters: the real what-framework does NOT export
+      // './package.json', so `require('what-framework/package.json')` throws
+      // ERR_PACKAGE_PATH_NOT_EXPORTED. A fixture without an exports map lets a
+      // resolution strategy pass here that cannot work in any real install —
+      // which is exactly how the broken version shipped.
+      JSON.stringify({
+        name: 'what-framework',
+        version: '9.9.9-fixture',
+        type: 'module',
+        exports: {
+          '.': { import: './src/index.js' },
+          './server': { import: './src/server.js' },
+        },
+      }) + '\n',
     );
     writeFileSync(join(root, 'src', 'api', 'health.ts'), `
 export async function GET(_req: Request): Promise<Response> {

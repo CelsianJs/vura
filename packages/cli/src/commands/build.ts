@@ -12,9 +12,11 @@
  * 9. Emit hot deploy templates (Dockerfile, fly.toml, package.json) when hot routes present
  */
 
-import { buildManifest, build, renderStaticPages, generateClientPageEntry } from '@celsian/vura-core';
+import { buildManifest, build, renderStaticPages, generateClientPageEntry, vuraBrowserResolvePlugin } from '@celsian/vura-core';
 import { createRequire } from 'node:module';
-import { Buffer } from 'node:buffer';
+import { existsSync, readFileSync } from 'node:fs';
+import { join as pathJoin, resolve as pathResolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { loadConfig } from '../config-loader.js';
 
 // ---------------------------------------------------------------------------
@@ -66,7 +68,6 @@ kill_timeout = "30s"
 `;
 
 const nativeImport = (specifier: string): Promise<any> => import(/* @vite-ignore */ specifier);
-const moduleSourceToDataUrl = (source: string): string => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 
 /**
  * Write dist/package.json.
@@ -97,7 +98,6 @@ async function emitDeployPackageJson(
   const { writeFile, readFile, mkdir } = await import('node:fs/promises');
   const { existsSync } = await import('node:fs');
   const { join } = await import('node:path');
-  const { createRequire } = await import('node:module');
 
   await mkdir(distDir, { recursive: true });
 
@@ -113,7 +113,7 @@ async function emitDeployPackageJson(
 
   const deps: Record<string, string> = { ...((existing.dependencies as Record<string, string>) ?? {}) };
 
-  const whatVersion = resolveWhatFrameworkVersion(createRequire(join(projectRoot, 'package.json')));
+  const whatVersion = resolveWhatFrameworkVersion(projectRoot);
   if (whatVersion) {
     deps['what-framework'] = whatVersion;
   } else {
@@ -133,13 +133,31 @@ async function emitDeployPackageJson(
 }
 
 /** The exact what-framework version installed in the project, or null. */
-function resolveWhatFrameworkVersion(projectRequire: NodeJS.Require): string | null {
-  try {
-    const manifest = projectRequire('what-framework/package.json') as { version?: string };
-    return typeof manifest.version === 'string' ? manifest.version : null;
-  } catch {
-    return null;
+function resolveWhatFrameworkVersion(projectRoot: string): string | null {
+  // Read the installed package.json off disk instead of resolving the
+  // specifier. `require('what-framework/package.json')` looks like the obvious
+  // way to do this and cannot work: what-framework's `exports` map lists `.`,
+  // `./server`, `./router` and friends, and Node refuses any subpath an
+  // exports map does not name — including './package.json'. Every real install
+  // therefore threw ERR_PACKAGE_PATH_NOT_EXPORTED, the version came back null,
+  // and dist/package.json shipped without the dependency the container needs.
+  let dir = projectRoot;
+  for (let depth = 0; depth < 10; depth++) {
+    const candidate = pathJoin(dir, 'node_modules', 'what-framework', 'package.json');
+    if (existsSync(candidate)) {
+      try {
+        const manifest = JSON.parse(readFileSync(candidate, 'utf8')) as { version?: string };
+        if (typeof manifest.version === 'string') return manifest.version;
+      } catch {
+        return null;
+      }
+      return null;
+    }
+    const parent = pathResolve(dir, '..');
+    if (parent === dir) break;
+    dir = parent;
   }
+  return null;
 }
 
 /**
@@ -369,7 +387,10 @@ export async function buildCommand(_args: string[]): Promise<void> {
         outfile: outPath,
         jsx: 'automatic',
         jsxImportSource,
-        plugins: [esmResolvePlugin],
+        // Browser-resolve first: a page that imports `@celsian/vura-core` for
+        // useLoaderData must get the pure client module here, not the package
+        // root, which reaches node:fs and cannot be bundled for a browser.
+        plugins: [vuraBrowserResolvePlugin(), esmResolvePlugin],
         external: [],
       });
 
@@ -404,23 +425,44 @@ export async function buildCommand(_args: string[]): Promise<void> {
     const tmpDir = join(root, 'dist', '.page-tmp');
     await mkdir(tmpDir, { recursive: true });
 
+    // A build-time page is imported into THIS process and rendered by core's
+    // own `renderToString`. Two rules follow, and breaking either one produces
+    // a failure that looks like a framework bug rather than a bundling one:
+    //
+    //  1. `what-framework` and `@celsian/vura-core` stay external. Inlining
+    //     them gives the page a second copy of the framework, with its own
+    //     "currently rendering component" and its own context registry — so
+    //     every hook the page calls, `useLoaderData` included, reads a
+    //     registry that the renderer never wrote to and reports being called
+    //     outside a render.
+    //  2. The bundle is written to a real file rather than imported as a
+    //     `data:` URL. A data: module has no parent path, so it cannot resolve
+    //     the bare specifiers rule 1 just created, and anything it does inline
+    //     that calls `fileURLToPath(import.meta.url)` at module scope throws
+    //     "The URL must be of scheme file".
+    const sharedRuntimeExternals = [
+      'what-framework',
+      'what-framework/*',
+      '@celsian/vura-core',
+      '@celsian/vura-core/*',
+    ];
+    let pageModuleSeq = 0;
     const loadModule = async (filePath: string) => {
       const absPath = resolve(root, filePath);
-      const result = await esbuild({
+      const tmpFile = join(tmpDir, `page-${pageModuleSeq++}.mjs`);
+      await esbuild({
         entryPoints: [absPath],
         bundle: true,
         format: 'esm',
         target: 'es2022',
         platform: 'node',
-        write: false,
-        outfile: 'page.mjs',
+        outfile: tmpFile,
         jsx: 'automatic',
         jsxImportSource,
         plugins: [esmResolvePlugin],
-        external: [],
+        external: sharedRuntimeExternals,
       });
-      const bundledSource = result.outputFiles[0].text;
-      return nativeImport(moduleSourceToDataUrl(bundledSource));
+      return nativeImport(pathToFileURL(tmpFile).href);
     };
 
     const outDir = join(root, 'dist');

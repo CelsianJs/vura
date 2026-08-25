@@ -271,6 +271,133 @@ export default function Mixed() {
 }
 `;
 
+
+/**
+ * src/pages/loaders/_layout.tsx — RFC 0001 layered loader, outer segment.
+ *
+ * Deliberately in a subdirectory: a root layout would wrap every other fixture
+ * page and change what the rest of the audit asserts.
+ *
+ * `startedAt` exists to prove the chain runs in parallel. All three loaders in
+ * this subtree sleep, so if they ran in sequence their start stamps would be a
+ * sleep apart.
+ */
+const LOADER_OUTER_LAYOUT = `import { useLoaderData } from '@celsian/vura-core';
+
+export async function loader() {
+  const startedAt = Date.now();
+  await new Promise(r => setTimeout(r, 120));
+  return { site: 'AUDIT-SITE', startedAt };
+}
+
+export default function OuterLayout({ children }: { children?: unknown }) {
+  const data = useLoaderData<typeof loader>();
+  return (
+    <div class="outer">
+      <header id="site">SITE:{data.site}</header>
+      <main>{children}</main>
+    </div>
+  );
+}
+`;
+
+/** src/pages/loaders/nested/_layout.tsx — inner segment of the same chain. */
+const LOADER_INNER_LAYOUT = `import { useLoaderData } from '@celsian/vura-core';
+
+export async function loader() {
+  const startedAt = Date.now();
+  await new Promise(r => setTimeout(r, 120));
+  return { dept: 'AUDIT-DEPT', startedAt };
+}
+
+export default function InnerLayout({ children }: { children?: unknown }) {
+  const data = useLoaderData<typeof loader>();
+  return (
+    <div class="inner">
+      <h2 id="dept">{data.dept}</h2>
+      {children}
+    </div>
+  );
+}
+`;
+
+/** src/pages/loaders/nested/index.tsx — the leaf of the chain. */
+const LOADER_NESTED_PAGE = `import { useLoaderData } from '@celsian/vura-core';
+
+export const page = { mode: 'server', title: 'Loader chain' };
+
+export async function loader() {
+  const startedAt = Date.now();
+  await new Promise(r => setTimeout(r, 120));
+  return { items: ['alpha', 'beta'], startedAt };
+}
+
+export default function NestedPage() {
+  const data = useLoaderData<typeof loader>();
+  return <ul id="items">{data.items.map((i: string) => <li>{i}</li>)}</ul>;
+}
+`;
+
+/** src/pages/loaders/gate.tsx — loader-driven 404 and redirect. */
+const LOADER_GATE_PAGE = `import { useLoaderData } from '@celsian/vura-core';
+import type { LoaderContext } from '@celsian/vura-core';
+
+export const page = { mode: 'server', title: 'Gate' };
+
+export async function loader(ctx: LoaderContext) {
+  if (ctx.query.mode === 'missing') throw ctx.notFound('no such thing');
+  if (ctx.query.mode === 'moved') throw ctx.redirect('/loaders/nested');
+  return { mode: ctx.query.mode ?? 'none' };
+}
+
+export default function GatePage() {
+  const data = useLoaderData<typeof loader>();
+  return <h1 id="mode">MODE:{data.mode}</h1>;
+}
+`;
+
+/**
+ * src/pages/loaders/island.tsx — hybrid page whose component reads loader data
+ * on BOTH sides: server-rendered into the HTML, then hydrated from the
+ * serialized payload.
+ */
+const LOADER_ISLAND_PAGE = `import { signal } from 'what-framework';
+import { useLoaderData } from '@celsian/vura-core';
+
+export const page = { mode: 'hybrid', title: 'Island' };
+
+export async function loader() {
+  return { greeting: 'ISLAND-LOADED' };
+}
+
+export default function IslandPage() {
+  const data = useLoaderData<typeof loader>();
+  const count = signal(0);
+  return (
+    <div>
+      <h1 id="greeting">{data.greeting}</h1>
+      <button id="inc" onClick={() => count.set(count() + 1)}>inc</button>
+      <span id="count">{() => count()}</span>
+    </div>
+  );
+}
+`;
+
+/** src/pages/loaders/prebuilt.tsx — a build-time loader (static mode). */
+const LOADER_STATIC_PAGE = `import { useLoaderData } from '@celsian/vura-core';
+
+export const page = { mode: 'static', title: 'Prebuilt' };
+
+export async function loader() {
+  return { builtAt: 'BUILD-TIME-DATA' };
+}
+
+export default function PrebuiltPage() {
+  const data = useLoaderData<typeof loader>();
+  return <h1 id="built">{data.builtAt}</h1>;
+}
+`;
+
 // ─── Core scaffoldAndBuild impl ────────────────────────────────────────────────
 
 async function _scaffoldAndBuild(): Promise<{
@@ -332,6 +459,15 @@ async function _scaffoldAndBuild(): Promise<{
   await writeFile(join(dir, 'src', 'api', 'counter.ts'), COUNTER_API);
   await writeFile(join(dir, 'src', 'api', 'live', 'room.ts'), ROOM_API);
   await writeFile(join(dir, 'src', 'api', 'tasks', 'encode.ts'), ENCODE_TASK);
+
+  // RFC 0001 loaders, exercised through a real build and a real server.
+  await mkdir(join(dir, 'src', 'pages', 'loaders', 'nested'), { recursive: true });
+  await writeFile(join(dir, 'src', 'pages', 'loaders', '_layout.tsx'), LOADER_OUTER_LAYOUT);
+  await writeFile(join(dir, 'src', 'pages', 'loaders', 'nested', '_layout.tsx'), LOADER_INNER_LAYOUT);
+  await writeFile(join(dir, 'src', 'pages', 'loaders', 'nested', 'index.tsx'), LOADER_NESTED_PAGE);
+  await writeFile(join(dir, 'src', 'pages', 'loaders', 'gate.tsx'), LOADER_GATE_PAGE);
+  await writeFile(join(dir, 'src', 'pages', 'loaders', 'island.tsx'), LOADER_ISLAND_PAGE);
+  await writeFile(join(dir, 'src', 'pages', 'loaders', 'prebuilt.tsx'), LOADER_STATIC_PAGE);
 
   // 5. Rewrite deps to local tarballs via link-local-packages.mjs
   const linkResult = spawnSync(process.execPath, [LINK_LOCAL_SCRIPT, dir], {

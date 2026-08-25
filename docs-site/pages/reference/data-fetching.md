@@ -185,6 +185,20 @@ The layout renders `useLoaderData<typeof loader>().user`; the page renders its o
 
 **Loaders in a chain run in parallel.** A layout's loader and its page's loader have no data dependency on each other, so nesting costs no extra latency.
 
+> **Layouts apply to `server`-mode pages.** A page rendered at build time (`static`, `hybrid`, `client`) is rendered on its own today, without its layout chain, and its payload therefore holds only the page's own segment. A layout in a directory of build-time pages is silently skipped. If you need a layout, put the page in `server` mode.
+
+### Reading loader data in a page that also runs in the browser
+
+`useLoaderData` imports from `@celsian/vura-core` in any page:
+
+```tsx
+import { useLoaderData } from '@celsian/vura-core';
+```
+
+For a `client` or `hybrid` page this import is redirected at build time to `@celsian/vura-core/client`, the browser-safe half of the package, so the page bundles for a browser without dragging in the build system. You can write that subpath explicitly if you prefer; the two are the same module. What you cannot do is reach a server-only export (`createApiApp`, `revalidateTag`, anything touching the filesystem) from a page that runs in the browser: the build stops with esbuild naming the symbol.
+
+On a `hybrid` page the accessor works on both sides. The server renders with the loader's data, serializes it into the document, and the client re-opens the same scope from that payload during hydration, so the component reads the same object in the browser that it read on the server, with no second request.
+
 ### It works with every page mode
 
 | Mode | When the loader runs |
@@ -192,7 +206,7 @@ The layout renders `useLoaderData<typeof loader>().user`; the page renders its o
 | `server` | On every request. `ctx.request` is available for headers and cookies. |
 | `server` + `revalidate` / `tags` | On cache miss. The result is part of the ISR-cached render, and `revalidateTag()` re-runs it. |
 | `static` | Once, at build time. There is no request, so `ctx.request` is `undefined` and `notFound()` / `redirect()` are build errors. |
-| `hybrid` | On the server, and the result is serialized into the page so islands hydrate from it instead of re-fetching. |
+| `hybrid` | Once, at build time, like `static`. The result is serialized into the page, and the browser hydrates from it instead of re-fetching. |
 | `client` | Not at all. Use the client hooks above. |
 
 ### The serialized payload

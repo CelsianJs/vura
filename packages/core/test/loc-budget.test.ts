@@ -93,6 +93,15 @@ describe('A1.4 success metric', () => {
     //   JSDoc) plus the loader phase and redirect channel in runtime/pages.ts,
     //   build-time loaders in static-render.ts, and `loader` detection in
     //   manifest.ts. +~459 → actual 7921. Ceiling 7970 leaves ~49 headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(7970);
+    // Loaders in built apps (2026-08-25): the 0.6.0 loader worked only when
+    //   imported from source. New runtime-shim.ts holds the one
+    //   `@celsian/vura-core` runtime allowlist that core and both adapters had
+    //   been maintaining as three copies (the copy that made the feature
+    //   unbuildable) plus the browser-resolve plugin; new client.ts is the
+    //   browser-safe export surface a client or hybrid page bundles against;
+    //   the loader context moved onto globalThis so separately bundled page
+    //   and layout copies share it. Mostly the comments explaining each
+    //   failure. +~187 → actual 8108. Ceiling 8160 leaves ~52 headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(8160);
   });
 });

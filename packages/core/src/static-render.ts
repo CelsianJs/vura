@@ -187,11 +187,22 @@ export function generateClientPageEntry(
   const dev = options.dev === true ? 'true' : 'false';
   return `import Component, * as _pageMod from ${JSON.stringify(pageImportSpecifier)};
 import { h, ${boot} } from 'what-framework';
+import { LoaderDataProvider as _LoaderDataProvider, readLoaderPayload as _readLoaderPayload } from '@celsian/vura-core/client';
 
 const _props = (_pageMod.page && _pageMod.page.props) || {};
 const _root = document.getElementById('app') || document.body;
+// The server serialized every segment's loader data into the document. Re-open
+// the same scope on the client so useLoaderData() reads on hydrate what it read
+// during the server render, instead of throwing "no loader" in the browser.
+// When the page has no loader there is no payload entry, and the bare component
+// is booted so the missing-loader error still names the real problem.
+const _payload = _readLoaderPayload();
+const _hasLoaderData = _payload != null && Object.prototype.hasOwnProperty.call(_payload, 'page');
+const _tree = _hasLoaderData
+  ? h(_LoaderDataProvider, { value: _payload.page }, h(Component, _props))
+  : h(Component, _props);
 try {
-  ${boot}(h(Component, _props), _root);
+  ${boot}(_tree, _root);
 } catch (_err) {
   _renderVuraBootError(_root, _err, ${dev});
 }
