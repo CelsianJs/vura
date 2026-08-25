@@ -315,7 +315,15 @@ export interface DocumentOptions {
   bodyEnd?: string;
 }
 
-export function wrapDocument(bodyHtml: string, opts: DocumentOptions): string {
+/**
+ * The document either side of the app root.
+ *
+ * Split out so a streaming render can flush `open` before the body exists and
+ * `close` after the last chunk, without a second copy of the document. A
+ * second copy is exactly how `vura dev` spent two releases rendering pages
+ * differently from the server it was meant to imitate.
+ */
+export function documentShell(opts: DocumentOptions): { open: string; close: string } {
   const metaTags = opts.meta
     .map(m => `<meta ${Object.entries(m).map(([k, v]) => `${k}="${escapeHtml(v)}"`).join(' ')}>`)
     .join('\n    ');
@@ -328,7 +336,7 @@ export function wrapDocument(bodyHtml: string, opts: DocumentOptions): string {
     .map(s => `<script type="module" src="${s}"></script>`)
     .join('\n    ');
 
-  return `<!DOCTYPE html>
+  const open = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -339,11 +347,20 @@ export function wrapDocument(bodyHtml: string, opts: DocumentOptions): string {
     ${opts.head}
 </head>
 <body>
-    <div id="app">${bodyHtml}</div>
+    <div id="app">`;
+
+  const close = `</div>
     ${opts.bodyEnd ?? ''}
     ${scriptTags}
 </body>
 </html>`;
+
+  return { open, close };
+}
+
+export function wrapDocument(bodyHtml: string, opts: DocumentOptions): string {
+  const { open, close } = documentShell(opts);
+  return `${open}${bodyHtml}${close}`;
 }
 
 export function escapeHtml(str: string): string {

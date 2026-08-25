@@ -363,6 +363,7 @@ export {
   LOADER_PAYLOAD_ID,
 } from './runtime/loader.js';
 
+export { createVuraStreamRoute, isStreamingPage } from './runtime/pages.js';
 export type { RenderRouteOptions } from './runtime/pages.js';
 
 export type {

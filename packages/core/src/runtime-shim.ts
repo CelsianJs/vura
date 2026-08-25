@@ -75,7 +75,7 @@ export function vuraCoreRuntimeShimContents(options: RuntimeShimOptions = {}): s
       `export { startVuraServer, serveStaticIfFound } from './runtime/server.${ext('runtime/server')}';`,
       `export { createApiApp } from './runtime/api-app.${ext('runtime/api-app')}';`,
       `export { createVuraCache, revalidatePath, revalidateTag } from './runtime/cache.${ext('runtime/cache')}';`,
-      `export { buildWhatRoutes, createPagesHandler, createVuraRenderRoute } from './runtime/pages.${ext('runtime/pages')}';`,
+      `export { buildWhatRoutes, createPagesHandler, createVuraRenderRoute, createVuraStreamRoute, isStreamingPage } from './runtime/pages.${ext('runtime/pages')}';`,
       `export { runTaskOnce, buildTaskEnvelope } from './runtime/tasks.${ext('runtime/tasks')}';`,
     );
   }

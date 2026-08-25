@@ -383,6 +383,71 @@ export default function IslandPage() {
 }
 `;
 
+/**
+ * src/pages/streamed.tsx — a streamed page.
+ *
+ * Shaped to make progressive delivery *observable* rather than merely claimed:
+ * the shell is cheap and synchronous, the Suspense child costs a real 150ms.
+ * A server that buffered the document would deliver both markers at the same
+ * moment, and the audit's timing assertion would fail.
+ */
+const STREAMED_PAGE = `import { Suspense, createResource } from 'what-framework';
+
+export const page = { mode: 'server', streaming: true, title: 'Streamed' };
+
+function Slow() {
+  const [data] = createResource(
+    () => new Promise((resolve) => setTimeout(() => resolve('SLOW-STREAM-DATA'), 150)),
+    { key: 'slow' },
+  );
+  return <p id="slow">{data()}</p>;
+}
+
+export default function StreamedPage() {
+  return (
+    <div>
+      <h1 id="shell">STREAM-SHELL</h1>
+      <Suspense fallback={<p id="fallback">loading</p>}>
+        <Slow />
+      </Suspense>
+    </div>
+  );
+}
+`;
+
+/** src/pages/streamed-loader.tsx — streaming composed with an RFC 0001 loader. */
+const STREAMED_LOADER_PAGE = `import { useLoaderData } from '@celsian/vura-core';
+
+export const page = { mode: 'server', streaming: true, title: 'Streamed loader' };
+
+export async function loader() {
+  return { via: 'STREAM-LOADER-DATA' };
+}
+
+export default function StreamedLoaderPage() {
+  const data = useLoaderData<typeof loader>();
+  return <h1 id="via">{data.via}</h1>;
+}
+`;
+
+/**
+ * src/pages/streamed-404.tsx — `throw ctx.notFound()` from a streamed page's
+ * loader. The point is that a streamed page can still choose its status: the
+ * loader chain is settled before the first byte precisely so this works.
+ */
+const STREAMED_NOTFOUND_PAGE = `import type { LoaderContext } from '@celsian/vura-core';
+
+export const page = { mode: 'server', streaming: true, title: 'Streamed 404' };
+
+export async function loader(ctx: LoaderContext) {
+  throw ctx.notFound();
+}
+
+export default function StreamedNotFoundPage() {
+  return <h1>unreachable</h1>;
+}
+`;
+
 /** src/pages/loaders/prebuilt.tsx — a build-time loader (static mode). */
 const LOADER_STATIC_PAGE = `import { useLoaderData } from '@celsian/vura-core';
 
@@ -614,6 +679,11 @@ async function _scaffoldAndBuild(): Promise<{
   await writeFile(join(dir, 'src', 'pages', 'loaders', 'island.tsx'), LOADER_ISLAND_PAGE);
   await writeFile(join(dir, 'src', 'pages', 'loaders', 'prebuilt.tsx'), LOADER_STATIC_PAGE);
 
+  // Streaming SSR fixtures.
+  await writeFile(join(dir, 'src', 'pages', 'streamed.tsx'), STREAMED_PAGE);
+  await writeFile(join(dir, 'src', 'pages', 'streamed-loader.tsx'), STREAMED_LOADER_PAGE);
+  await writeFile(join(dir, 'src', 'pages', 'streamed-404.tsx'), STREAMED_NOTFOUND_PAGE);
+
   // Project middleware, and the page and API route it guards.
   await mkdir(join(dir, 'src', 'pages', 'guarded'), { recursive: true });
   await writeFile(join(dir, 'src', 'middleware.ts'), MIDDLEWARE);
@@ -796,5 +866,74 @@ export async function bootServer(env: Record<string, string>): Promise<{
       setTimeout(() => { proc.kill('SIGKILL'); }, 3000);
     }),
     stdout: () => stdoutChunks.join(''),
+  };
+}
+
+/**
+ * Boot `vura dev` against the same scaffold the production audit uses.
+ *
+ * Dev has its own request pipeline, and every time a page feature has shipped
+ * it has been the half that drifted: hybrid pages stopped getting their client
+ * bundle, loaders worked in a build and not in dev. Booting the real dev server
+ * and putting it through the same assertions as production is the only check
+ * that catches that class of divergence.
+ */
+export async function bootDevServer(env: Record<string, string> = {}): Promise<{
+  port: number;
+  kill: () => Promise<void>;
+  stdout: () => string;
+}> {
+  const { dir, cliBin } = await scaffoldAndBuild();
+
+  const cleanEnv: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env as Record<string, string>)) {
+    if (!/^VURA_/.test(k)) cleanEnv[k] = v;
+  }
+  cleanEnv.NODE_ENV = 'development';
+  for (const [k, v] of Object.entries(env)) cleanEnv[k] = v;
+
+  // Port 0 lets the OS pick, so parallel test files cannot collide.
+  const proc = spawn(process.execPath, [cliBin, 'dev', '--port', '0'], {
+    cwd: dir,
+    env: cleanEnv,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  const chunks: string[] = [];
+  proc.stdout.setEncoding('utf8');
+  proc.stderr.setEncoding('utf8');
+  proc.stdout.on('data', (d: string) => chunks.push(d));
+  proc.stderr.on('data', (d: string) => chunks.push(d));
+
+  const port = await new Promise<number>((resolve, reject) => {
+    const t = setTimeout(
+      () => reject(new Error(`vura dev did not start in 60s. Output:\n${chunks.join('')}`)),
+      60_000,
+    );
+    const scan = (chunk: string) => {
+      // The dev banner is styled, so match the URL rather than a plain phrase.
+      const m = chunk.match(/http:\/\/[^\s:]+:(\d+)/);
+      if (m) {
+        clearTimeout(t);
+        resolve(Number(m[1]));
+      }
+    };
+    proc.stdout.on('data', scan);
+    proc.stderr.on('data', scan);
+    proc.on('error', (err) => { clearTimeout(t); reject(err); });
+    proc.on('exit', (code) => {
+      clearTimeout(t);
+      reject(new Error(`vura dev exited with ${code} before listening. Output:\n${chunks.join('')}`));
+    });
+  });
+
+  return {
+    port,
+    kill: () => new Promise<void>((resolve) => {
+      proc.once('exit', () => resolve());
+      proc.kill('SIGTERM');
+      setTimeout(() => { proc.kill('SIGKILL'); }, 3000);
+    }),
+    stdout: () => chunks.join(''),
   };
 }
