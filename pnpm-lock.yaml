@@ -89,7 +89,7 @@ importers:
   packages/adapter-cloudflare:
     dependencies:
       '@celsian/vura-core':
-        specifier: workspace:0.6.1
+        specifier: workspace:0.7.0
         version: link:../core
       esbuild:
         specifier: ^0.28.1
@@ -98,7 +98,7 @@ importers:
   packages/adapter-lambda:
     dependencies:
       '@celsian/vura-core':
-        specifier: workspace:0.6.1
+        specifier: workspace:0.7.0
         version: link:../core
       esbuild:
         specifier: ^0.28.1
@@ -107,13 +107,13 @@ importers:
   packages/adapter-vura:
     dependencies:
       '@celsian/vura-core':
-        specifier: workspace:0.6.1
+        specifier: workspace:0.7.0
         version: link:../core
 
   packages/cli:
     dependencies:
       '@celsian/vura-core':
-        specifier: workspace:0.6.1
+        specifier: workspace:0.7.0
         version: link:../core
       esbuild:
         specifier: ^0.28.1
@@ -123,7 +123,7 @@ importers:
         version: 0.13.2(@babel/core@7.29.7)
     devDependencies:
       '@celsian/vura-adapter-vura':
-        specifier: workspace:0.6.1
+        specifier: workspace:0.7.0
         version: link:../adapter-vura
       '@types/ws':
         specifier: ^8.18.1
@@ -149,7 +149,7 @@ importers:
         specifier: ^0.5.2
         version: 0.5.4
       '@celsian/vura-compiler':
-        specifier: workspace:0.6.1
+        specifier: workspace:0.7.0
         version: link:../compiler
       esbuild:
         specifier: ^0.28.1
@@ -180,7 +180,7 @@ importers:
   packages/vite-plugin:
     dependencies:
       '@celsian/vura-core':
-        specifier: workspace:0.6.1
+        specifier: workspace:0.7.0
         version: link:../core
       esbuild:
         specifier: ^0.28.1

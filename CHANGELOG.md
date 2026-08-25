@@ -1,5 +1,120 @@
 # Changelog
 
+## 0.7.0 - 2026-08-25
+
+Two features and one bug that had been quietly breaking builds.
+
+`src/middleware.ts` runs before a request reaches anything. `src/actions/` holds
+functions the browser can call by importing them. And `useSignal()`, a hook
+almost every What page reaches for, could not be used in a `static` or `hybrid`
+page at all: the build failed outright.
+
+### Added
+
+- **Page middleware: `src/middleware.ts`.** One function, run before static
+  files, API routes and pages alike. Return a `Response` and it is the answer;
+  return nothing and the request carries on with `ctx.headers` merged onto
+  whatever the route produces.
+
+  ```ts
+  export const config = { matcher: ['/dashboard/:path*'] };
+
+  export default function middleware(ctx: MiddlewareContext) {
+    ctx.headers.set('x-request-id', crypto.randomUUID());
+    if (!ctx.cookies.get('session')) return ctx.redirect('/login');
+  }
+  ```
+
+  `config.matcher` supports exact paths, named segments (`/team/:id`), named
+  catch-alls (`/dashboard/:path*`) and anonymous ones (`/assets/*`).
+  `/__vura/*` and `/__tasks` are never matched, so a project's auth guard
+  cannot 401 its own cache purges.
+
+  Vura had lifecycle hooks before this, and they ran for API routes **only**.
+  An `onRequest` in `src/api/_hooks.ts` fires for `/api/hello` and does not fire
+  for a page. So the most ordinary requirement there is, keeping an
+  unauthenticated visitor away from `/dashboard` before it renders, had nowhere
+  to live.
+
+- **Server actions: `src/actions/`.** Every named function a file there exports
+  is callable from client code by importing it. No endpoint to write, no fetch
+  to hand-roll, and the import is type-checked against the real function.
+
+  ```ts
+  // src/actions/todos.ts
+  export async function addTodo(text: string) {
+    return db.todos.insert({ text });
+  }
+  ```
+  ```tsx
+  import { addTodo } from '../actions/todos';
+  await addTodo('milk');
+  ```
+
+  The browser never receives the module. An import that lands in `src/actions/`
+  is answered at the bundler's resolve step, so the file is never opened for a
+  browser bundle and nothing inside one (a connection string, an API key, a
+  `node:fs` import) can reach the client through any path.
+
+  Ids are derived from the file path and the export name (`todos#addTodo`), so
+  they are stable across builds and readable in a network tab. The endpoint is
+  same-origin only, requires a JSON content type, and carries a CSRF token
+  checked against an `HttpOnly` cookie that uses the `__Host-` prefix over
+  HTTPS. Throwing an `HttpError` from an action gives the caller that status;
+  any other error is logged server-side and returns a generic 500.
+
+  Not yet available on the Cloudflare or Lambda adapters, which bundle API
+  routes only. Same caveat as middleware, and both are documented.
+
+### Fixed
+
+- **`useSignal()` threw in every `static` and `hybrid` page.** The build failed
+  with `[what] useSignal() can only be called inside a component function`.
+
+  The CLI's resolve plugin answers `onResolve` for `what-framework`, and an
+  `onResolve` that returns a path beats esbuild's `external` list. The
+  build-time page loader set both, so the page module inlined its own copy of
+  what-core while `renderToString` ran from the installed one, and the two
+  disagreed about which component was rendering. Loaders escaped it only
+  because `@celsian/vura-core` is not intercepted, which is how 0.6.1 shipped
+  working loaders sitting on top of a renderer that could not run a hook.
+
+  Nothing caught it because every hybrid and client fixture in the audit suite
+  holds state in a module-level `signal()`, which needs no component context at
+  all. There is now a page per rendered mode built around `useSignal`.
+
+- **Loaders did not work in `vura dev`.** Every page with a `loader` returned
+  500 in dev, on 0.6.0 and 0.6.1, while the built server ran them correctly.
+  The dev server carried its own copy of the page-render logic and it had
+  drifted: it knew `getServerData` and not `loader`, and called the component
+  directly instead of through `h()`, the exact defect 0.6.0 fixed on the
+  server path. Dev now renders through `createVuraRenderRoute()`, the same
+  function the server entry uses.
+
+- **Build-time render errors named no page.** A component throwing during
+  prerender reported only its own message: no file, no route, no stack, for a
+  project that might have fifty pages. Errors are now prefixed with the file
+  and the route.
+
+### Changed
+
+- **Layouts now apply to build-time pages.** A `static`, `hybrid` or `client`
+  page previously rendered without its layout chain, and its loader payload
+  held only the page segment; 0.6.1 documented that as a limitation. It now
+  renders the chain exactly as a `server` page does, and a hybrid page's
+  browser entry rebuilds the same chain from the serialized payload so
+  hydration walks the tree that is actually in the document.
+
+  **This changes the output of an existing project** that has a layout file in
+  a build-time page's directory: that page was rendered unwrapped and will now
+  be wrapped. That is the behaviour the docs always described.
+
+- Server-side bundles keep `what-framework` external, so a built application
+  holds one copy of the framework per process rather than one per page bundle.
+
+- `@celsian/vura-core`'s tracked tarball ceiling moves 158 KB to 182 KB, and
+  the CLI's 54 KB to 56 KB.
+
 ## 0.6.1 - 2026-08-25
 
 The loaders 0.6.0 introduced did not work in a built application. They worked in
