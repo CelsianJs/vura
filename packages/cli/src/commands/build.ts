@@ -15,7 +15,7 @@
 import { buildManifest, build, renderStaticPages, generateClientPageEntry, vuraBrowserResolvePlugin } from '@celsian/vura-core';
 import { createRequire } from 'node:module';
 import { existsSync, readFileSync } from 'node:fs';
-import { join as pathJoin, resolve as pathResolve } from 'node:path';
+import { join as pathJoin, resolve as pathResolve, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from '../config-loader.js';
 
@@ -133,6 +133,21 @@ async function emitDeployPackageJson(
 }
 
 /** The exact what-framework version installed in the project, or null. */
+/**
+ * Import specifiers for a page's layout chain, relative to the page's own
+ * directory (the resolveDir the generated browser entry is bundled with).
+ */
+function layoutSpecifiersFor(
+  page: { filePath: string; layouts?: string[] },
+  projectRoot: string,
+): string[] {
+  const pageDir = pathResolve(projectRoot, page.filePath, '..');
+  return (page.layouts ?? []).map((layoutPath) => {
+    const rel = relative(pageDir, pathResolve(projectRoot, layoutPath)).replace(/\\/g, '/');
+    return rel.startsWith('.') ? rel : `./${rel}`;
+  });
+}
+
 function resolveWhatFrameworkVersion(projectRoot: string): string | null {
   // Read the installed package.json off disk instead of resolving the
   // specifier. `require('what-framework/package.json')` looks like the obvious
@@ -375,7 +390,14 @@ export async function buildCommand(_args: string[]): Promise<void> {
 
       await esbuild({
         stdin: {
-          contents: generateClientPageEntry(`./${basename(absPath)}`, page.mode as 'client' | 'hybrid'),
+          contents: generateClientPageEntry(
+            `./${basename(absPath)}`,
+            page.mode as 'client' | 'hybrid',
+            // The server rendered this page inside its layouts, so the browser
+            // has to hydrate the same tree. Specifiers are relative to the
+            // page's own directory, which is the entry's resolveDir.
+            { layoutImportSpecifiers: layoutSpecifiersFor(page, root) },
+          ),
           resolveDir: dirname(absPath),
           sourcefile: '__vura-client-entry__.js',
           loader: 'js',

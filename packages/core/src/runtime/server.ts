@@ -16,6 +16,10 @@
  */
 
 import { createServer as createHttpServer, type Server } from 'node:http';
+import {
+  createMiddlewareRunner,
+  type MiddlewareModule,
+} from './middleware.js';
 import { createReadStream, realpathSync, statSync } from 'node:fs';
 import { extname, normalize, resolve, sep } from 'node:path';
 import { nodeToWebRequest, writeWebResponse } from '@celsian/core';
@@ -127,6 +131,8 @@ function sendStaticFile(
     const st = statSync(realFilePath);
     if (!st.isFile()) return false;
     const ct = getMimeType(realFilePath);
+    // Headers already set on `res` (middleware's, for one) are merged by Node,
+    // with these taking precedence.
     res.writeHead(200, {
       'content-type': ct,
       'content-length': st.size.toString(),
@@ -207,6 +213,12 @@ export interface VuraServerOptions {
    * Graceful-shutdown drain timeout (ms).  Default: 30 000.
    */
   shutdownTimeoutMs?: number;
+  /**
+   * The project's `src/middleware.ts` module, if it has one. Passed as a
+   * loaded module rather than a path because the server entry is a bundle:
+   * there is nothing to import from at runtime.
+   */
+  middleware?: MiddlewareModule | null;
   /**
    * Whether to install SIGTERM/SIGINT handlers that call process.exit().
    *
@@ -322,6 +334,11 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
   const serverPages = opts.pages.filter(
     (p) => p.mode === 'server' || p.mode === 'hybrid',
   );
+  // ── Middleware ──
+  // Built once. A project without `src/middleware.ts` gets a disabled runner
+  // whose run() is never called, so the dispatch below costs one boolean.
+  const middleware = createMiddlewareRunner(opts.middleware);
+
   const pagesHandler = createPagesHandler({
     routes: buildWhatRoutes(serverPages),
     cache: engine,
@@ -534,15 +551,40 @@ export async function startVuraServer(opts: VuraServerOptions): Promise<VuraServ
       //      framework-generated assets don't shadow application handlers.
       //   4. SSR pages (what-fw pagesHandler).
 
+      // ── Convert to Web Request ──
+      // Hoisted above static serving because middleware runs first and needs
+      // the request: an auth guard on /dashboard has to see the request before
+      // a prerendered /dashboard/index.html is handed out.
+      const webReq = nodeToWebRequest(nodeReq, url);
+
+      // ── Middleware ──
+      if (middleware.enabled) {
+        const outcome = await middleware.run(webReq, url);
+        if (outcome.response) {
+          await writeWebResponse(nodeRes, outcome.response);
+          return;
+        }
+        // Headers go onto the Node response, not onto the Response object the
+        // route will return. A Celsian `reply.json()` carries a snapshot of its
+        // headers on the Response under a symbol, and the Node writer uses that
+        // snapshot: anything set on `response.headers` afterwards is silently
+        // dropped. Setting them here also covers the static-file paths below,
+        // which never build a Response at all. Node merges these with whatever
+        // the eventual `writeHead()` passes, and gives `writeHead()` precedence,
+        // so a route that sets a header deliberately still wins.
+        if (outcome.headers) {
+          for (const [key, value] of outcome.headers) {
+            if (!nodeRes.hasHeader(key)) nodeRes.setHeader(key, value);
+          }
+        }
+      }
+
       // ── Static files: public/ only (first dir, globalIndex 0) ──
       if (opts.staticDirs && opts.staticDirs.length > 0) {
         if (await serveStaticIfFound([opts.staticDirs[0]!], url.pathname, nodeReq.method ?? 'GET', nodeRes, 0)) {
           return;
         }
       }
-
-      // ── Convert to Web Request ──
-      const webReq = nodeToWebRequest(nodeReq, url);
 
       // ── API + ISR webhook routes ──
       if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/__vura/')) {

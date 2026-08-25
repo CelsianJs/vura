@@ -52,6 +52,25 @@ export async function importRouteModule(
     platform: 'node',
     write: false,
     outfile: 'handler.mjs',
+    // The framework stays external, for the same reason it does in a
+    // production build: this module is imported into the dev server's own
+    // process and rendered by the dev server's `renderToString`. Inlining
+    // what-framework gives the page a second copy with its own "currently
+    // rendering component" and its own context registry, so every hook it
+    // calls reads a registry the renderer never wrote to. That is what made
+    // `useLoaderData()` fail in `vura dev` while working in a built app: the
+    // page reported "found no loader data" and What warned that useContext had
+    // been called outside a render.
+    //
+    // Safe to mark external here because the output is written to a real file
+    // inside the project, so Node resolves these specifiers from the project's
+    // own node_modules.
+    external: [
+      'what-framework',
+      'what-framework/*',
+      '@celsian/vura-core',
+      '@celsian/vura-core/*',
+    ],
     ...(isPage ? { jsx: 'automatic', jsxImportSource } : {}),
   });
 

@@ -71,6 +71,7 @@ export function vuraCoreRuntimeShimContents(options: RuntimeShimOptions = {}): s
       // framework is external and not installed, and the artifact dies on its
       // first invocation with ERR_MODULE_NOT_FOUND.
       `export { useLoaderData, readLoaderPayload, LoaderDataProvider, LOADER_PAYLOAD_ID, createLoaderContext, runLoaderChain, serializeLoaderPayload, isLoaderNotFound, isLoaderRedirect, LoaderNotFoundError, LoaderRedirectError } from './runtime/loader.${ext('runtime/loader')}';`,
+      `export { createMiddlewareRunner, compileMatcher, parseCookies } from './runtime/middleware.${ext('runtime/middleware')}';`,
       `export { startVuraServer, serveStaticIfFound } from './runtime/server.${ext('runtime/server')}';`,
       `export { createApiApp } from './runtime/api-app.${ext('runtime/api-app')}';`,
       `export { createVuraCache, revalidatePath, revalidateTag } from './runtime/cache.${ext('runtime/cache')}';`,

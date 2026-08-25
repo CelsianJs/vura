@@ -398,6 +398,46 @@ export default function PrebuiltPage() {
 }
 `;
 
+
+/**
+ * src/middleware.ts — project middleware.
+ *
+ * Guards a page subtree, sets a header on every matched request, and leaves
+ * everything else alone. The matcher covers both a page path and an API path
+ * so the audit can prove middleware reaches both.
+ */
+const MIDDLEWARE = `import type { MiddlewareContext } from '@celsian/vura-core';
+
+export const config = {
+  matcher: ['/guarded/:path*', '/api/guarded'],
+};
+
+export default function middleware(ctx: MiddlewareContext) {
+  ctx.headers.set('x-vura-middleware', 'ran');
+  if (ctx.cookies.get('session') !== 'letmein') {
+    return ctx.redirect('/login', 302);
+  }
+}
+`;
+
+/** src/pages/guarded/index.tsx — the page the middleware protects. */
+const GUARDED_PAGE = `export const page = { mode: 'server', title: 'Guarded' };
+
+export default function GuardedPage() {
+  return <h1 id="guarded">SECRET-CONTENT</h1>;
+}
+`;
+
+/** src/api/guarded.ts — an API route behind the same matcher. */
+const GUARDED_API = `import type { CelsianRequest, CelsianReply } from '@celsian/vura-core';
+
+export const route = { kind: 'serverless' };
+
+export function GET(_req: CelsianRequest, reply: CelsianReply) {
+  return reply.json({ secret: true });
+}
+`;
+
 // ─── Core scaffoldAndBuild impl ────────────────────────────────────────────────
 
 async function _scaffoldAndBuild(): Promise<{
@@ -468,6 +508,12 @@ async function _scaffoldAndBuild(): Promise<{
   await writeFile(join(dir, 'src', 'pages', 'loaders', 'gate.tsx'), LOADER_GATE_PAGE);
   await writeFile(join(dir, 'src', 'pages', 'loaders', 'island.tsx'), LOADER_ISLAND_PAGE);
   await writeFile(join(dir, 'src', 'pages', 'loaders', 'prebuilt.tsx'), LOADER_STATIC_PAGE);
+
+  // Project middleware, and the page and API route it guards.
+  await mkdir(join(dir, 'src', 'pages', 'guarded'), { recursive: true });
+  await writeFile(join(dir, 'src', 'middleware.ts'), MIDDLEWARE);
+  await writeFile(join(dir, 'src', 'pages', 'guarded', 'index.tsx'), GUARDED_PAGE);
+  await writeFile(join(dir, 'src', 'api', 'guarded.ts'), GUARDED_API);
 
   // 5. Rewrite deps to local tarballs via link-local-packages.mjs
   const linkResult = spawnSync(process.execPath, [LINK_LOCAL_SCRIPT, dir], {

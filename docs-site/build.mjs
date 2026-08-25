@@ -80,6 +80,7 @@ const REFERENCE = [
   ['/reference/data-fetching', 'Data fetching'],
   ['/reference/tasks', 'Tasks'],
   ['/reference/streaming', 'Streaming'],
+  ['/reference/middleware', 'Middleware'],
   ['/reference/hooks', 'Hooks'],
   ['/reference/errors', 'Error handling'],
   ['/reference/auth', 'Auth'],

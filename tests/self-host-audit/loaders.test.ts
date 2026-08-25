@@ -109,12 +109,25 @@ describe('L3: build-time loaders', () => {
     expect(html).toContain('BUILD-TIME-DATA');
     expect(payloadOf(html).page.builtAt).toBe('BUILD-TIME-DATA');
   });
+
+  it('wraps a build-time page in its layout chain, like a server page', async () => {
+    // A `_layout.tsx` in a directory of static or hybrid pages used to be
+    // silently ignored: the same page rendered with its layout in `vura dev`
+    // and without it in the build.
+    const html = await (await fetch(`${base()}/loaders/prebuilt`)).text();
+    expect(html).toContain('SITE:AUDIT-SITE');
+    expect(payloadOf(html)['layout:0'].site).toBe('AUDIT-SITE');
+  });
 });
 
 describe('L4: a hybrid page keeps its loader data across hydration', () => {
   it('server-renders the loader data and ships the payload with the bundle', async () => {
     const html = await (await fetch(`${base()}/loaders/island`)).text();
     expect(html).toContain('ISLAND-LOADED');
+    // Inside its layout, and with the layout's own segment in the payload, so
+    // the browser can rebuild the same tree.
+    expect(html).toContain('SITE:AUDIT-SITE');
+    expect(payloadOf(html)['layout:0'].site).toBe('AUDIT-SITE');
     expect(payloadOf(html).page.greeting).toBe('ISLAND-LOADED');
     expect(html).toMatch(/<script type="module" src="\/_then\/pages\/loaders\/island\.[a-f0-9]+\.js">/);
   });
@@ -129,6 +142,13 @@ describe('L4: a hybrid page keeps its loader data across hydration', () => {
     // provider. Without this the component throws on hydrate and the user sees
     // the boot-error panel instead of their page.
     expect(bundle).toContain('__VURA_LOADER__');
+    // And it rebuilds the layout chain, because that is the tree the server
+    // rendered: hydrating only the page component would walk a DOM it does not
+    // expect. The layout's own markup is in the bundle, and the entry reads its
+    // segment out of the payload by key. (The string 'AUDIT-SITE' is not: that
+    // value comes from the layout's loader, which runs on the server.)
+    expect(bundle).toContain('SITE:');
+    expect(bundle).toContain('layout:');
   });
 
   it('does not drag Node built-ins into the browser bundle', async () => {

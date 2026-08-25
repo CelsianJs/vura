@@ -10,6 +10,7 @@
  */
 
 import { readdir, readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { join, relative, parse as parsePath } from 'node:path';
 import {
   maskNonCode,
@@ -81,6 +82,11 @@ export interface RouteManifest {
   pages: PageRoute[];
   /** Layout files detected in the pages directory */
   layouts: LayoutRoute[];
+  /**
+   * Project middleware, if `src/middleware.ts` exists. Path is relative to the
+   * project root. Absent when the project has none, which is the common case.
+   */
+  middleware?: string;
   timestamp: string;
 }
 
@@ -372,12 +378,35 @@ export async function buildManifest(projectRoot: string): Promise<RouteManifest>
     });
   }
 
+  const middleware = await findMiddlewareFile(projectRoot);
+
   return {
     api,
     pages,
     layouts,
+    ...(middleware ? { middleware } : {}),
     timestamp: new Date().toISOString(),
   };
+}
+
+/**
+ * Locate `src/middleware.{ts,js,mjs}`.
+ *
+ * One conventional path, not a scan: middleware is a single project-wide file,
+ * and a project with two of them has a question to answer rather than a
+ * behaviour to define. The first extension found wins, in the order below.
+ */
+const MIDDLEWARE_FILENAMES = [
+  'src/middleware.ts',
+  'src/middleware.js',
+  'src/middleware.mjs',
+];
+
+async function findMiddlewareFile(projectRoot: string): Promise<string | null> {
+  for (const candidate of MIDDLEWARE_FILENAMES) {
+    if (existsSync(join(projectRoot, candidate))) return candidate;
+  }
+  return null;
 }
 
 function isPageMode(s: string): s is PageMode {

@@ -15,6 +15,7 @@
 
 import { renderToString as builtinRenderToString } from 'what-framework/server';
 import { importRouteModule } from './shared.js';
+import { resolve as nodeResolve, relative as nodeRelative } from 'node:path';
 import {
   buildManifest,
   compilePageRoutes,
@@ -37,6 +38,8 @@ import {
   writeWebResponse,
   generateClientPageEntry,
   vuraBrowserResolvePlugin,
+  createMiddlewareRunner,
+  createVuraRenderRoute,
 } from '@celsian/vura-core';
 import type {
   PageRoute,
@@ -46,6 +49,7 @@ import type {
   RouteManifest,
   LocalChildDispatch,
   StepRecord,
+  MiddlewareModule,
 } from '@celsian/vura-core';
 
 interface DevOptions {
@@ -245,7 +249,33 @@ export async function startStandaloneServer(
 
   const logger = getLogger();
 
+  // A hybrid page's browser bundle lives at a dev-server path that does not
+  // exist at build time, so it is injected here rather than read off the page.
+  const devRenderRoute = createVuraRenderRoute({
+    extraScripts: (page) => (page.mode === 'hybrid' ? [browserScriptPath(page as PageRoute)] : []),
+  });
+
   const { existsSync } = await import('node:fs');
+
+  // ── Middleware ──
+  // Loaded through the same cached loader as routes so an edit is picked up on
+  // the next request, and so module-level state in a middleware behaves the way
+  // it does in a route. `manifest.middleware` is refreshed by the fs-watcher
+  // rescan, so adding or deleting the file mid-session is picked up too.
+  async function currentMiddlewareRunner(forManifest: RouteManifest) {
+    if (!forManifest.middleware) return createMiddlewareRunner(null);
+    try {
+      const mod = await loadHandlerCached(forManifest.middleware);
+      return createMiddlewareRunner(mod as MiddlewareModule);
+    } catch (err) {
+      // A syntax error in middleware must not take the whole dev server down,
+      // and it must not silently disable the auth guard the developer is
+      // relying on either. Say so, loudly, on every request until it is fixed.
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error(`[vura] middleware failed to load: ${error.message}`);
+      return createMiddlewareRunner(null);
+    }
+  }
 
   function findGlobalHooksFile(): string | null {
     for (const filename of GLOBAL_HOOKS_FILENAMES) {
@@ -342,7 +372,13 @@ export async function startStandaloneServer(
 
     const result = await esbuild({
       stdin: {
-        contents: generateClientPageEntry(`./${basename(absPath)}`, page.mode as 'client' | 'hybrid', { dev: true }),
+        contents: generateClientPageEntry(
+          `./${basename(absPath)}`,
+          page.mode as 'client' | 'hybrid',
+          // Same layout chain the dev renderer wraps the page in, so hydration
+          // walks the tree that is actually in the document.
+          { dev: true, layoutImportSpecifiers: devLayoutSpecifiers(page) },
+        ),
         resolveDir: dirname(absPath),
         sourcefile: '__vura-client-entry__.js',
         loader: 'js',
@@ -364,6 +400,18 @@ export async function startStandaloneServer(
     const text = result.outputFiles[0]!.text;
     browserBundleCache.set(page.filePath, text);
     return text;
+  }
+
+  /**
+   * Import specifiers for a page's layouts, relative to the page's directory,
+   * which is the resolveDir the browser entry is bundled with.
+   */
+  function devLayoutSpecifiers(page: PageRoute): string[] {
+    const pageDir = nodeResolve(opts.projectRoot, page.filePath, '..');
+    return (page.layouts ?? []).map((layoutPath) => {
+      const rel = nodeRelative(pageDir, nodeResolve(opts.projectRoot, layoutPath)).replace(/\\/g, '/');
+      return rel.startsWith('.') ? rel : `./${rel}`;
+    });
   }
 
   const server = createServer(async (req, res) => {
@@ -391,6 +439,34 @@ export async function startStandaloneServer(
       res.writeHead(204);
       res.end();
       return;
+    }
+
+    // ── Middleware ──
+    // Before static serving, before routes: an auth guard has to be able to
+    // keep a visitor away from a page, and a page may be a prerendered file.
+    let middlewareHeaders: Headers | undefined;
+    {
+      const runner = await currentMiddlewareRunner(manifest);
+      if (runner.enabled) {
+        const webReq = new Request(url.toString(), {
+          method,
+          headers: req.headers as Record<string, string>,
+        });
+        const outcome = await runner.run(webReq, url);
+        if (outcome.response) {
+          const headers: Record<string, string> = {};
+          outcome.response.headers.forEach((v, k) => { headers[k] = v; });
+          res.writeHead(outcome.response.status, headers);
+          res.end(outcome.response.body ? await outcome.response.text() : '');
+          return;
+        }
+        middlewareHeaders = outcome.headers;
+      }
+      if (middlewareHeaders) {
+        for (const [k, v] of middlewareHeaders) {
+          if (!res.hasHeader(k)) res.setHeader(k, v);
+        }
+      }
     }
 
     // Static file serving from public/ directory
@@ -632,45 +708,47 @@ export async function startStandaloneServer(
           }
 
           if (typeof Component === 'function') {
-            let serverData: Record<string, unknown> = {};
-            if (typeof mod.getServerData === 'function') {
-              serverData = await mod.getServerData({
-                params: pageMatch.params,
-                url: url.pathname,
-                query: Object.fromEntries(url.searchParams.entries()),
-              });
+            // Rendered by the SAME function the production server uses.
+            // The dev server used to carry its own copy of this logic, and it
+            // drifted: it called the component directly instead of through
+            // `h()`, it knew only `getServerData` and not `loader`, and it had
+            // no layout data, no payload and no notFound/redirect. So RFC 0001
+            // loaders worked in a built app and failed in `vura dev`, which is
+            // where a developer meets the feature first.
+            const layoutModules: Record<string, unknown>[] = [];
+            for (const layoutPath of pageMatch.page.layouts ?? []) {
+              layoutModules.push(await loadHandler(layoutPath));
             }
 
-            let vnode = Component({ ...serverData, params: pageMatch.params });
+            const runtimePage = {
+              ...pageMatch.page,
+              // Dev renders every non-client page per request: there is no
+              // build output to serve, and no ISR cache in front of it.
+              mode: 'server' as const,
+              config: { ...(pageMatch.page.config ?? {}), revalidate: undefined },
+              module: mod,
+              layoutModules,
+            };
 
-            // Wrap in layout chain if layouts are defined (outermost first)
-            if (pageMatch.page.layouts && pageMatch.page.layouts.length > 0) {
-              // Load layouts innermost-last, wrap from inside out
-              for (let li = pageMatch.page.layouts.length - 1; li >= 0; li--) {
-                const layoutMod = await loadHandler(pageMatch.page.layouts[li]);
-                const LayoutComponent = layoutMod.default;
-                if (typeof LayoutComponent === 'function') {
-                  vnode = LayoutComponent({ children: vnode, params: pageMatch.params });
-                }
-              }
-            }
-
-            const bodyHtml = builtinRenderToString(vnode);
-            const html = wrapDocument(bodyHtml, {
-              title: pageConfig.title ?? 'Vura App',
-              meta: pageConfig.meta ?? [],
-              styles: pageConfig.styles ?? [],
-              // Hybrid pages also load their browser bundle so hydrate() runs
-              // against the SSR'd DOM — same contract as the production build.
-              scripts: [
-                ...(pageConfig.scripts ?? []),
-                ...(pageMatch.page.mode === 'hybrid' ? [browserScriptPath(pageMatch.page)] : []),
-              ],
-              head: pageConfig.head ?? '',
+            const webReq = new Request(url.toString(), {
+              method,
+              headers: req.headers as Record<string, string>,
             });
 
-            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(html);
+            const result = await devRenderRoute({
+              path: url.pathname,
+              query: Object.fromEntries(url.searchParams.entries()),
+              config: { mode: 'server' as const },
+              route: { path: url.pathname, page: { mode: 'server' as const }, vura: runtimePage as any },
+              params: pageMatch.params,
+              request: webReq,
+            });
+
+            res.writeHead(result.status, {
+              'Content-Type': 'text/html; charset=utf-8',
+              ...(result.headers ?? {}),
+            });
+            res.end(result.html);
             return;
           }
         } catch (err: any) {
