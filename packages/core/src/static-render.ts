@@ -13,6 +13,16 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { renderToString } from 'what-framework/server';
+import { h } from 'what-framework';
+import {
+  createLoaderContext,
+  isLoaderNotFound,
+  isLoaderRedirect,
+  LoaderDataProvider,
+  runLoaderChain,
+  serializeLoaderPayload,
+  type LoaderSegment,
+} from './runtime/loader.js';
 import type { PageRoute } from './manifest.js';
 
 export interface PageRenderResult {
@@ -56,6 +66,7 @@ export async function renderStaticPages(
     }
 
     let bodyHtml: string;
+    let loaderPayload = '';
     const scripts = [...(pageConfig.scripts ?? [])];
 
     if (page.mode === 'client') {
@@ -65,14 +76,50 @@ export async function renderStaticPages(
       if (clientScript) scripts.push(clientScript);
       else scripts.push(`/${page.filePath.replace(/\.(tsx|jsx|ts|js)$/, '.js')}`);
     } else {
-      // Static and hybrid: pre-render the component
-      const vnode = Component(pageConfig.props ?? {});
-      if (typeof vnode === 'string' && /^\s*</.test(vnode)) {
+      // Static and hybrid: pre-render the component.
+      //
+      // A loader on a build-time page runs HERE, once, with no request. That is
+      // the whole difference between `static` and `server`: same loader code,
+      // resolved at build instead of per request. `ctx.request` is absent, which
+      // is why LoaderContext declares it optional.
+      const segments: LoaderSegment[] = [{ id: 'page', loader: mod.loader, getServerData: mod.getServerData }];
+      const ctx = createLoaderContext({ params: {}, url: page.urlPattern, query: {} });
+      let loaded: Awaited<ReturnType<typeof runLoaderChain>>;
+      try {
+        loaded = await runLoaderChain(segments, ctx);
+      } catch (err) {
+        // notFound()/redirect() have no meaning at build time — there is no
+        // request to answer. Say so plainly instead of failing with a stack
+        // trace from inside the loader machinery.
+        if (isLoaderNotFound(err) || isLoaderRedirect(err)) {
+          throw new Error(
+            `[vura] ${page.filePath}: a build-time loader called ${isLoaderNotFound(err) ? 'notFound()' : 'redirect()'}, ` +
+              `which only works for a page rendered per request. Set page mode to 'server' if this page needs request-time control flow.`,
+          );
+        }
+        throw err;
+      }
+      const pageData = loaded.data[0];
+      const legacyProps =
+        typeof mod.loader !== 'function' && typeof mod.getServerData === 'function' && pageData && typeof pageData === 'object'
+          ? (pageData as Record<string, unknown>)
+          : {};
+
+      // h(), not a direct call: a component invoked directly has no component
+      // context, so every What hook inside it — including the useContext that
+      // useLoaderData is built on — has nothing to read.
+      const vnode = h(
+        LoaderDataProvider as any,
+        { value: pageData },
+        h(Component as any, { ...(pageConfig.props ?? {}), ...legacyProps }),
+      );
+      bodyHtml = renderToString(vnode as any);
+      if (typeof bodyHtml === 'string' && /^\s*&lt;/.test(bodyHtml)) {
         console.warn(
           `  [then] Warning: ${page.filePath} returned an HTML string — it will be escaped and render as literal text. Return JSX / h() nodes instead.`,
         );
       }
-      bodyHtml = renderToString(vnode);
+      loaderPayload = serializeLoaderPayload(loaded.byId);
 
       if (page.mode === 'hybrid') {
         // Hybrid pages include their browser bundle for hydration/island code.
@@ -88,6 +135,7 @@ export async function renderStaticPages(
       styles: pageConfig.styles ?? [],
       scripts,
       head: pageConfig.head ?? '',
+      bodyEnd: loaderPayload,
     });
 
     // Determine output path
@@ -182,6 +230,14 @@ export interface DocumentOptions {
   styles: string[];
   scripts: string[];
   head: string;
+  /**
+   * Markup appended after the app root and before the script tags.
+   *
+   * This is where the serialized loader payload goes. It must be OUTSIDE
+   * `<div id="app">`: hydration walks the server-rendered DOM node for node,
+   * and an extra child the client tree does not produce is a mismatch.
+   */
+  bodyEnd?: string;
 }
 
 export function wrapDocument(bodyHtml: string, opts: DocumentOptions): string {
@@ -209,6 +265,7 @@ export function wrapDocument(bodyHtml: string, opts: DocumentOptions): string {
 </head>
 <body>
     <div id="app">${bodyHtml}</div>
+    ${opts.bodyEnd ?? ''}
     ${scriptTags}
 </body>
 </html>`;

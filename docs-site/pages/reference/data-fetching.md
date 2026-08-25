@@ -22,7 +22,7 @@ export default function Dashboard() {
 }
 ```
 
-> **These are client-side hooks.** They do not fetch during static prerender or server-mode SSR — on those render passes they return their loading state. For data that must be fetched **on the server at request time** and rendered into the HTML, use `mode: 'server'` with `getServerData` (see [Page modes](/reference/page-modes)). Request-time server-side data fetching *from inside a component* is not available yet; it is being designed (see the SSR data-fetching RFC in the repo).
+> **These are client-side hooks.** They do not fetch during static prerender or server-mode SSR — on those render passes they return their loading state. For data that must be fetched **on the server** and rendered into the HTML, export a [`loader`](#loader--server-side-data-fetching).
 
 ---
 
@@ -126,6 +126,103 @@ setQueryData('posts', (prev) => [newPost, ...(prev ?? [])]);
 
 ---
 
+## `loader` — server-side data fetching
+
+A page or layout can export a `loader`. It runs **on the server, before the component renders**, and the component reads its result with `useLoaderData()`. The data is already in the HTML the browser receives — no loading state, no request waterfall, no client round trip.
+
+```tsx
+// src/pages/posts/[id].tsx
+import { useLoaderData, type LoaderContext } from '@celsian/vura-core';
+
+export const page = { mode: 'server', title: 'Post' };
+
+export async function loader(ctx: LoaderContext) {
+  const post = await db.post.find(ctx.params.id);
+  if (!post) throw ctx.notFound();
+  return { post };
+}
+
+export default function Post() {
+  const { post } = useLoaderData<typeof loader>();
+  return <article><h1>{post.title}</h1></article>;
+}
+```
+
+`useLoaderData<typeof loader>()` is typed from the loader's return type, so renaming a field is a compile error rather than an `undefined` at runtime.
+
+### What the loader receives
+
+```ts
+interface LoaderContext {
+  params: Record<string, string>;              // matched dynamic segments
+  url: string;                                 // the pathname
+  query: Record<string, string | string[]>;    // parsed query string
+  request?: Request;                           // absent at build time — see below
+  notFound(message?): LoaderNotFoundError;     // throw it
+  redirect(to, status?): LoaderRedirectError;  // throw it
+}
+```
+
+`notFound()` and `redirect()` **return** an error for you to throw, so the throw is visible at the call site and TypeScript narrows the code after it:
+
+```ts
+if (!session) throw ctx.redirect('/login');   // 302 by default
+if (!post) throw ctx.notFound();              // renders the 404 page
+```
+
+A loader that throws anything else is a 500, logged like any other server error. `notFound` and `redirect` are not: they are ordinary control flow and never look like an outage.
+
+### Loaders compose along the layout chain
+
+Each segment in the matched chain gets its own loader, and each component reads its own segment's data. Nothing is prop-drilled.
+
+```
+src/pages/dashboard/_layout.tsx   loader → { user }
+src/pages/dashboard/billing.tsx   loader → { invoices }
+```
+
+The layout renders `useLoaderData<typeof loader>().user`; the page renders its own invoices. A component nested three levels inside the page still reads the page's data, because the scope follows the component tree.
+
+**Loaders in a chain run in parallel.** A layout's loader and its page's loader have no data dependency on each other, so nesting costs no extra latency.
+
+### It works with every page mode
+
+| Mode | When the loader runs |
+|---|---|
+| `server` | On every request. `ctx.request` is available for headers and cookies. |
+| `server` + `revalidate` / `tags` | On cache miss. The result is part of the ISR-cached render, and `revalidateTag()` re-runs it. |
+| `static` | Once, at build time. There is no request, so `ctx.request` is `undefined` and `notFound()` / `redirect()` are build errors. |
+| `hybrid` | On the server, and the result is serialized into the page so islands hydrate from it instead of re-fetching. |
+| `client` | Not at all — use the client hooks above. |
+
+### The serialized payload
+
+Every render writes the loader data into the document:
+
+```html
+<script id="__VURA_LOADER__" type="application/json">{"page":{"post":{…}}}</script>
+```
+
+It sits outside `<div id="app">` so it never participates in hydration, and it is `application/json` rather than executable JavaScript. Loader data must be JSON-serializable: returning a class instance, a function, or a circular structure fails the render with a message saying so.
+
+### Migrating from `getServerData`
+
+`getServerData` still works and still spreads its result into the component's props. It is now an alias for the same machinery, so its data is *also* readable through `useLoaderData()` — which means a page can migrate one line at a time:
+
+```tsx
+// Before
+export async function getServerData({ params }) { return { post: await find(params.id) }; }
+export default function Post({ post }) { … }
+
+// After
+export async function loader(ctx: LoaderContext) { return { post: await find(ctx.params.id) }; }
+export default function Post() { const { post } = useLoaderData<typeof loader>(); … }
+```
+
+If a page exports both, `loader` wins and `getServerData` is ignored. `getServerData` will start printing a deprecation notice in a later minor and will not be removed before the next major.
+
+---
+
 ## Gotcha: `useSWR` / `useQuery` auto-select server mode
 
 If a page has **no explicit `mode`**, Vura's manifest scanner treats an import of `useSWR`, `useQuery`, or `useServerData` as a signal that the page needs server rendering and defaults it to `mode: 'server'`. Since these hooks fetch client-side, a server-mode page renders their loading state and never hydrates — the request never runs.
@@ -147,7 +244,7 @@ export const page = { mode: 'client' };
 |---|---|
 | Fetch after the page loads, interactive dashboard | `useFetch` / `createResource` on a `client` (or `hybrid`) page |
 | Cached, revalidating, or shared-across-components data | `useSWR` / `useQuery` (set `mode` explicitly) |
-| Data fetched **on the server**, baked into the HTML, cached with ISR | `mode: 'server'` + `getServerData` — see [Page modes](/reference/page-modes) |
+| Data fetched **on the server**, baked into the HTML, cached with ISR | a [`loader`](#loader--server-side-data-fetching) + `useLoaderData()` |
 | Real-time streaming data | a [hot route](/ladder/4-hot) (WebSocket) + a client hook to render it |
 
-The two families compose: a `server`-mode page can render an initial payload via `getServerData`, and a `client` island inside it can keep that data fresh with `useSWR`.
+The two families compose: a `hybrid` page renders its `loader` data into the HTML *and* serializes it, so an island inside it starts from the server's data and keeps it fresh with `useSWR` from there.

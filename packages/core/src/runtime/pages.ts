@@ -29,8 +29,19 @@
 // TODO(what-fw): server.d.ts doesn't declare createRequestHandler — fix upstream, then drop this shim
 // @ts-ignore — createRequestHandler is exported at runtime, not yet in .d.ts
 import { renderToString, createRequestHandler as _createRequestHandler } from 'what-framework/server';
+import { h } from 'what-framework';
 import { wrapDocument } from '../static-render.js';
 import { buildVuraCacheTagHeader } from './cache-tags.js';
+import {
+  createLoaderContext,
+  isLoaderNotFound,
+  isLoaderRedirect,
+  LoaderDataProvider,
+  runLoaderChain,
+  serializeLoaderPayload,
+  type Loader,
+  type LoaderSegment,
+} from './loader.js';
 
 const createRequestHandler = _createRequestHandler as (
   options: Record<string, unknown>,
@@ -46,6 +57,9 @@ import type { PageRoute } from '../manifest.js';
 export interface RuntimePage extends PageRoute {
   module: {
     default: (props: any) => unknown;
+    /** RFC 0001 server-side data fetching. Supersedes getServerData. */
+    loader?: Loader;
+    /** @deprecated Use `loader`. Kept working; its result is still spread into props. */
     getServerData?: (ctx: any) => Promise<any> | any;
     page?: Record<string, any>;
   };
@@ -55,7 +69,7 @@ export interface RuntimePage extends PageRoute {
    * The server entry MUST load those paths (PageRoute.layouts) into actual
    * modules and populate this field (layoutModules) before calling buildWhatRoutes.
    */
-  layoutModules?: Array<{ default: (props: any) => unknown }>;
+  layoutModules?: Array<{ default: (props: any) => unknown; loader?: Loader }>;
 }
 
 /**
@@ -119,6 +133,28 @@ export function buildWhatRoutes(pages: RuntimePage[]): WhatPageRoute[] {
   });
 }
 
+// ─── Loader redirects ───
+
+/**
+ * Redirects a loader asked for, keyed by the Request that produced them.
+ *
+ * what-server's direct-render path (server mode, no cache) builds its Response
+ * from `out.html` and `out.status` only — it drops `out.headers`, which the
+ * cached path does honour. So a 302 returned from `render` arrives at the
+ * browser with no `Location`, which is worse than not redirecting at all.
+ *
+ * Rather than emit a meta-refresh, the render records the redirect against the
+ * request object and the handler below converts it into a real Response. A
+ * WeakMap keyed by the Request keeps this per-request with no cleanup to forget
+ * and nothing shared between concurrent requests.
+ *
+ * Fixed upstream in what-framework 0.13.3, which spreads `out.headers` on the
+ * direct-render branch like the cache branch always did. This stays until Vura's
+ * declared range excludes 0.13.2, because a project on 0.13.2 would otherwise
+ * get a 302 with no Location — a blank page with nothing to explain it.
+ */
+const pendingRedirects = new WeakMap<Request, { location: string; status: number }>();
+
 // ─── Render Callback ───
 
 /**
@@ -140,28 +176,54 @@ export function createVuraRenderRoute() {
     params: Record<string, string>;
     request: Request;
     csrfToken?: string;
-  }): Promise<{ html: string; status: number; tags: string[]; path: string }> {
-    const { route, params, query, path } = routeMatch;
+  }): Promise<{ html: string; status: number; tags: string[]; path: string; headers?: Record<string, string> }> {
+    const { route, params, query, path, request } = routeMatch;
 
     try {
       const p = route.vura;
       const mod = p.module;
       const pageConfig = mod.page ?? {};
-
-      // Run getServerData if present.
-      // ctx.url is the pathname string (not a URL object) — matches legacy build.ts RENDER_PAGE_CODE
-      let serverData: Record<string, unknown> = {};
-      if (typeof mod.getServerData === 'function') {
-        serverData = await mod.getServerData({ params, url: path, query });
-      }
-
-      // Render component tree: page wrapped by layout chain (outermost first)
-      let vnode: unknown = mod.default({ ...serverData, params });
       const layouts = p.layoutModules ?? [];
+
+      // Loaders run before the render, never during it: What's renderToString
+      // is synchronous, so there is nowhere inside the tree to await. Every
+      // segment's loader runs in parallel — a layout and its page have no data
+      // dependency on each other, and serializing them would make nesting cost
+      // latency. (RFC 0001.)
+      const segments: LoaderSegment[] = [
+        ...layouts.map((layout, i) => ({ id: `layout:${i}`, loader: layout.loader })),
+        { id: 'page', loader: mod.loader, getServerData: mod.getServerData },
+      ];
+      // ctx.url is the pathname string (not a URL object) — matches legacy build.ts RENDER_PAGE_CODE
+      const ctx = createLoaderContext({ params, url: path, query, request });
+      const { data, byId } = await runLoaderChain(segments, ctx);
+      const pageData = data[data.length - 1];
+
+      // getServerData's contract was `{ ...data }` spread into props, and pages
+      // in the wild depend on it. It keeps that AND appears through
+      // useLoaderData, so a page can migrate one line at a time.
+      const legacyProps =
+        typeof mod.loader !== 'function' && typeof mod.getServerData === 'function' && pageData && typeof pageData === 'object'
+          ? (pageData as Record<string, unknown>)
+          : {};
+
+      // The component is handed to h() rather than called directly. Calling it
+      // directly runs the body outside any component context, so every What
+      // hook inside a page — useContext included, which is how useLoaderData
+      // reads its data — would throw or read nothing.
+      let vnode: unknown = h(
+        LoaderDataProvider as any,
+        { value: pageData },
+        h(mod.default as any, { ...legacyProps, params }),
+      );
       for (let i = layouts.length - 1; i >= 0; i--) {
         const Layout = layouts[i]!.default;
         if (typeof Layout === 'function') {
-          vnode = Layout({ children: vnode, params });
+          vnode = h(
+            LoaderDataProvider as any,
+            { value: data[i] },
+            h(Layout as any, { children: vnode, params }),
+          );
         }
       }
 
@@ -172,6 +234,7 @@ export function createVuraRenderRoute() {
         styles: pageConfig.styles ?? [],
         scripts: pageConfig.scripts ?? [],
         head: pageConfig.head ?? '',
+        bodyEnd: serializeLoaderPayload(byId),
       });
 
       // tags come from route.page (= routeMatch.config), not the render return,
@@ -180,6 +243,28 @@ export function createVuraRenderRoute() {
 
       return { html, status: 200, tags, path };
     } catch (err) {
+      // A loader's notFound()/redirect() is control flow, not a failure. Letting
+      // it fall into the 500 branch below would turn "no post with that id" into
+      // "this server is broken", which is the wrong status, the wrong page, and
+      // the wrong thing to page someone about.
+      if (isLoaderNotFound(err)) {
+        return {
+          html: '<!DOCTYPE html><html><body><h1>404 — Not Found</h1></body></html>',
+          status: 404,
+          tags: [],
+          path,
+        };
+      }
+      if (isLoaderRedirect(err)) {
+        if (request) pendingRedirects.set(request, { location: err.location, status: err.status });
+        return {
+          html: '',
+          status: err.status,
+          tags: [],
+          path,
+          headers: { Location: err.location },
+        };
+      }
       console.error(`[vura] renderRoute error for path "${path}":`, err);
       return {
         html: '<!DOCTYPE html><html><body><h1>500 — Server Error</h1></body></html>',
@@ -256,11 +341,24 @@ function addVuraCacheTagHeaders(cache: unknown): unknown {
 export function createPagesHandler(
   opts: PagesHandlerOptions,
 ): (req: Request) => Promise<Response> {
-  return createRequestHandler({
+  const handler = createRequestHandler({
     routes: opts.routes,
     cache: addVuraCacheTagHeaders(opts.cache),
     render: createVuraRenderRoute(),
     revalidateWebhook: opts.revalidateWebhook,
     csrf: false,
   });
+
+  return async function vuraPagesHandler(req: Request): Promise<Response> {
+    const response = await handler(req);
+    const redirect = pendingRedirects.get(req);
+    if (!redirect) return response;
+    pendingRedirects.delete(req);
+    // Carry the cookies the inner handler set (the CSRF cookie among them) so a
+    // redirect does not silently drop session state on the way to the target.
+    const headers = new Headers(response.headers);
+    headers.set('Location', redirect.location);
+    headers.delete('content-type');
+    return new Response(null, { status: redirect.status, headers });
+  };
 }
