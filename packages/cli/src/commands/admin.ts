@@ -77,9 +77,22 @@ export function isAllowedAdminRequest(
   }
 }
 
-export async function adminCommand(args: string[]): Promise<void> {
-  const opts = parseAdminOptions(args);
-
+/**
+ * Start the admin server and return once it is listening.
+ *
+ * Split out of `adminCommand` so tests can drive a real server: the command
+ * itself never returns, and the bug this exists to pin lived in the wiring
+ * rather than in any function a unit test could reach. `vura admin --port 0`
+ * built its same-origin allowlist from the *requested* port, so the allowlist
+ * held `localhost:0` while the browser sent the real one and every API request
+ * was refused as cross-origin with a valid token in hand.
+ */
+export async function startAdminServer(opts: AdminOptions): Promise<{
+  server: import('node:http').Server;
+  port: number;
+  token: string;
+  close: () => Promise<void>;
+}> {
   assertSafeAdminBindHost(opts.host);
 
   const { createServer } = await import('node:http');
@@ -93,11 +106,18 @@ export async function adminCommand(args: string[]): Promise<void> {
   const projectName = basename(opts.projectRoot);
   const adminToken = randomBytes(32).toString('base64url');
 
+  // The port the server actually bound. `--port 0` means "pick a free port",
+  // and the same-origin allowlist below is built from it: with the *requested*
+  // port the allowlist held `localhost:0` while the browser sent the real one,
+  // so every request to a `--port 0` dashboard was refused as cross-origin.
+  // Assigned in the listen callback, before any request can arrive.
+  let boundPort = opts.port;
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     const method = (req.method ?? 'GET').toUpperCase();
     const isAdminApi = url.pathname.startsWith('/__admin/api/');
-    const sameOrigin = isAllowedAdminRequest(req.headers, opts.host, opts.port);
+    const sameOrigin = isAllowedAdminRequest(req.headers, opts.host, boundPort);
     const apiHeaders = adminApiHeaders();
 
     if (method === 'OPTIONS') {
@@ -346,26 +366,55 @@ export async function adminCommand(args: string[]): Promise<void> {
     res.end(JSON.stringify({ error: 'Not found' }));
   });
 
-  server.listen(opts.port, opts.host, () => {
+  const onListening = () => {
     const displayHost = opts.host === '127.0.0.1' ? 'localhost' : opts.host;
+    const addr = server.address();
+    boundPort = addr && typeof addr === 'object' ? addr.port : opts.port;
     const displayUrl = displayHost.includes(':')
-      ? `http://[${displayHost}]:${opts.port}`
-      : `http://${displayHost}:${opts.port}`;
-    console.log(`
-  ┌─────────────────────────────────────────┐
-  │                                         │
-  │   vura admin                            │
-  │                                         │
-  │   Dashboard: ${displayUrl.padEnd(22)} │
-  │   Token:     ${adminToken.slice(0, 8).padEnd(25)} │
-  │   Project:   ${projectName.slice(0, 25).padEnd(25)} │
-  │                                         │
-  │   ${manifest.api.length} API routes · ${manifest.pages.length} pages             │
-  │                                         │
-  └─────────────────────────────────────────┘
-`);
+      ? `http://[${displayHost}]:${boundPort}`
+      : `http://${displayHost}:${boundPort}`;
+    // Every line is padded to one width. They used to be padded to four
+    // different ones (36, 39, 39 and 38 inside a 41-wide box), so the box only
+    // ever looked square by accident of the default port's length.
+    const W = 41;
+    const line = (text = '') => `  │${text.padEnd(W).slice(0, W)}│`;
+    const rule = (l: string, r: string) => `  ${l}${'─'.repeat(W)}${r}`;
+    const field = (label: string, value: string) => line(`   ${label.padEnd(12)}${value}`);
+    console.log([
+      '',
+      rule('┌', '┐'),
+      line(),
+      line('   vura admin'),
+      line(),
+      field('Dashboard:', displayUrl),
+      field('Token:', `${adminToken.slice(0, 8)}...`),
+      field('Project:', projectName),
+      line(),
+      line(`   ${manifest.api.length} API routes · ${manifest.pages.length} pages`),
+      line(),
+      rule('└', '┘'),
+      '',
+    ].join('\n'));
+  };
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(opts.port, opts.host, () => {
+      onListening();
+      resolve();
+    });
   });
 
+  return {
+    server,
+    port: boundPort,
+    token: adminToken,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+}
+
+export async function adminCommand(args: string[]): Promise<void> {
+  await startAdminServer(parseAdminOptions(args));
   await new Promise(() => {});
 }
 

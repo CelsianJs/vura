@@ -19,6 +19,54 @@ import { join as pathJoin, resolve as pathResolve, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from '../config-loader.js';
 
+/**
+ * Remove hashed page bundles that this build did not emit.
+ *
+ * Bundle filenames carry a content hash, so every edit to a client or hybrid
+ * page produces a new name and orphans the old one. Nothing removed those, so
+ * `dist/static/_then/pages` grew with every incremental build and the dead
+ * copies shipped to whatever the project deployed to.
+ *
+ * Recursive, because pages nest (`loaders/island.js`). Empty directories left
+ * behind by a deleted page are removed too. `fs` is injected so this can be
+ * tested without touching a disk.
+ */
+export async function pruneStaleBundles(
+  dir: string,
+  keep: Set<string>,
+  fs: {
+    readdir: (p: string, o: { withFileTypes: true }) => Promise<Array<{ name: string; isDirectory: () => boolean }>>;
+    rm: (p: string, o?: { recursive?: boolean; force?: boolean }) => Promise<void>;
+  },
+): Promise<number> {
+  let removed = 0;
+  let entries: Array<{ name: string; isDirectory: () => boolean }>;
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return 0; // nothing was written here
+  }
+
+  for (const entry of entries) {
+    const full = pathJoin(dir, entry.name);
+    if (entry.isDirectory()) {
+      removed += await pruneStaleBundles(full, keep, fs);
+      // The page that lived here is gone; do not leave the empty shell.
+      try {
+        const rest = await fs.readdir(full, { withFileTypes: true });
+        if (rest.length === 0) await fs.rm(full, { recursive: true, force: true });
+      } catch {
+        /* raced or unreadable: leaving it is harmless */
+      }
+      continue;
+    }
+    if (keep.has(full)) continue;
+    await fs.rm(full, { force: true });
+    removed++;
+  }
+  return removed;
+}
+
 // ---------------------------------------------------------------------------
 // Deploy template strings — inlined so they survive tsc compilation (tsc does
 // not copy non-TS assets).  Emitted by emitHotDeployTemplates() when hot
@@ -220,7 +268,7 @@ export async function buildCommand(_args: string[]): Promise<void> {
   // Shared esbuild helpers
   const { build: esbuild } = await import('esbuild');
   const { join, resolve } = await import('node:path');
-  const { mkdir, readFile, rename } = await import('node:fs/promises');
+  const { mkdir, readFile, rename, rm, readdir } = await import('node:fs/promises');
   const { existsSync } = await import('node:fs');
   const { createHash } = await import('node:crypto');
 
@@ -319,84 +367,23 @@ export async function buildCommand(_args: string[]): Promise<void> {
   });
 
   /** Externals every server-side bundle shares: one framework copy per process. */
-  const serverRuntimeExternals = ['what-framework', 'what-framework/*', 'what-core', 'what-core/*'];
 
   /** Browser bundles: what-framework is inlined, because a browser has no resolver. */
   const browserEsmResolvePlugin = makeEsmResolvePlugin({ inlineWhatFramework: true });
   /** Server bundles: what-framework stays external, so the process holds one copy. */
   const serverEsmResolvePlugin = makeEsmResolvePlugin({ inlineWhatFramework: false });
 
-  // 3. Bundle server-mode pages
-  const serverPages = manifest.pages.filter(p => p.mode === 'server' || p.mode === 'hybrid');
-  if (serverPages.length > 0) {
-    console.log(`  Bundling ${serverPages.length} server-mode pages...`);
-    const serverPagesDir = join(root, 'dist', 'server', 'pages');
-    await mkdir(serverPagesDir, { recursive: true });
-
-    for (const page of serverPages) {
-      const absPath = resolve(root, page.filePath);
-      const outFile = page.filePath.replace(/^src\/pages\//, '').replace(/\.tsx?$/, '.js');
-      const outPath = join(serverPagesDir, outFile);
-      await mkdir(join(outPath, '..'), { recursive: true });
-
-      await esbuild({
-        entryPoints: [absPath],
-        bundle: true,
-        format: 'esm',
-        target: 'es2022',
-        platform: 'node',
-        outfile: outPath,
-        jsx: 'automatic',
-        jsxImportSource,
-        plugins: [serverEsmResolvePlugin],
-        // Server bundles keep the framework external so the process holds one
-        // copy; core's builder rewrites these files with the same externals.
-        external: serverRuntimeExternals,
-      });
-
-      console.log(`    ◈ ${page.urlPattern} → dist/server/pages/${outFile}`);
-    }
-  }
-
-  // 3b. Bundle layout files used by server-mode pages
-  if (manifest.layouts.length > 0 && serverPages.length > 0) {
-    // Only compile layouts that are actually referenced by server-mode pages
-    const usedLayoutPaths = new Set<string>();
-    for (const page of serverPages) {
-      if (page.layouts) {
-        for (const lp of page.layouts) usedLayoutPaths.add(lp);
-      }
-    }
-
-    const layoutsToCompile = manifest.layouts.filter(l => usedLayoutPaths.has(l.filePath));
-    if (layoutsToCompile.length > 0) {
-      console.log(`  Bundling ${layoutsToCompile.length} layout files...`);
-      const serverPagesDir = join(root, 'dist', 'server', 'pages');
-      await mkdir(serverPagesDir, { recursive: true });
-
-      for (const layout of layoutsToCompile) {
-        const absPath = resolve(root, layout.filePath);
-        const outFile = layout.filePath.replace(/^src\/pages\//, '').replace(/\.tsx?$/, '.js');
-        const outPath = join(serverPagesDir, outFile);
-        await mkdir(join(outPath, '..'), { recursive: true });
-
-        await esbuild({
-          entryPoints: [absPath],
-          bundle: true,
-          format: 'esm',
-          target: 'es2022',
-          platform: 'node',
-          outfile: outPath,
-          jsx: 'automatic',
-          jsxImportSource,
-          plugins: [serverEsmResolvePlugin],
-          external: serverRuntimeExternals,
-        });
-
-        console.log(`    ⊟ layout ${layout.dirPattern || '(root)'} → dist/server/pages/${outFile}`);
-      }
-    }
-  }
+  // Steps 3a and 3b used to live here: the CLI bundled every server-mode page
+  // and every layout into `dist/server/pages/`, and then core's `build()` ran
+  // `bundleServerPageModules()` over the same inputs and overwrote every one of
+  // those files. The output was byte-identical, so the only thing the CLI's
+  // copy produced was a second esbuild pass per page and per layout on every
+  // build, plus a second copy of the resolve configuration to keep in sync with
+  // core's. The `useSignal` bug shipped through exactly that kind of duplicate:
+  // one copy was fixed and the other was not.
+  //
+  // Page and layout bundling now happens once, in core. `serverEsmResolvePlugin`
+  // below is still used for the standalone entry.
 
   // 3c. Bundle browser entries for client and hybrid pages.
   // Each bundle is a generated wrapper (generateClientPageEntry) that imports
@@ -409,6 +396,10 @@ export async function buildCommand(_args: string[]): Promise<void> {
     console.log(`  Bundling ${browserPages.length} browser page entries...`);
     const clientPagesDir = join(root, 'dist', 'static', '_then', 'pages');
     await mkdir(clientPagesDir, { recursive: true });
+    // Every bundle this build writes. Anything else under the directory is a
+    // bundle from an earlier build whose content hash has since changed, and
+    // nothing references it any more.
+    const emittedBundles = new Set<string>();
 
     const { dirname, basename } = await import('node:path');
     for (const page of browserPages) {
@@ -459,10 +450,24 @@ export async function buildCommand(_args: string[]): Promise<void> {
         .slice(0, 12);
       const hashedOutFile = outFile.replace(/\.js$/, `.${bundleHash}.js`);
       await rename(outPath, join(clientPagesDir, hashedOutFile));
+      emittedBundles.add(join(clientPagesDir, hashedOutFile));
 
       const scriptPath = `/_then/pages/${hashedOutFile.replace(/\\/g, '/')}`;
       clientScripts[page.filePath] = scriptPath;
       console.log(`    ◇ ${page.urlPattern} → dist/static${scriptPath}`);
+    }
+
+    // Drop bundles left behind by earlier builds. The filename carries a
+    // content hash, so editing a page emits a new name and orphans the old
+    // one, which nothing then removes: `dist/` grew with every incremental
+    // build and shipped the dead copies to whatever you deployed to.
+    //
+    // Pruning *after* the writes rather than wiping the directory first is
+    // deliberate. A build that fails partway leaves the previous bundles
+    // intact instead of leaving nothing to serve.
+    const pruned = await pruneStaleBundles(clientPagesDir, emittedBundles, { readdir, rm });
+    if (pruned > 0) {
+      console.log(`    ✓ removed ${pruned} stale bundle${pruned === 1 ? '' : 's'} from earlier builds`);
     }
   }
 
