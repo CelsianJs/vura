@@ -30,12 +30,13 @@ jobs:
             os: macos-latest
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+          # Built on ARM runners, not cross-compiled. See the Zig note below.
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
           - target: aarch64-unknown-linux-musl
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm
           - target: x86_64-pc-windows-msvc
             os: windows-latest
 
@@ -65,34 +66,30 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools (Linux ARM64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
       - name: Install musl tools
         if: contains(matrix.target, 'musl')
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
 
-      - name: Install Zig for Linux ARM cross-linking
-        if: startsWith(matrix.target, 'aarch64-unknown-linux')
-        uses: mlugg/setup-zig@v2
+      # No Zig, and no cross-linking, for the two aarch64-linux targets.
+      #
+      # They used `napi build --zig`, which cross-linked from an x86_64 runner.
+      # rustc emits `--fix-cortex-a53-843419` for aarch64-unknown-linux-gnu (the
+      # erratum workaround is part of the target spec, not a flag anyone set),
+      # Zig's linker rejects the argument outright, and the build died with
+      # "unsupported linker arg". Nothing in this repo could turn that off: the
+      # flag comes from the target definition.
+      #
+      # GitHub's ARM runners build both targets natively, so the linker in
+      # question never runs. Same toolchain as every other row in this matrix.
 
       - name: Install napi-rs CLI
         run: npm install -g @napi-rs/cli@2.18.4
 
       - name: Build native addon
-        if: ${{ !startsWith(matrix.target, 'aarch64-unknown-linux') }}
         working-directory: packages/compiler-native
         run: napi build --platform --release --target ${{ matrix.target }}
-
-      - name: Build native addon with Zig linker
-        if: startsWith(matrix.target, 'aarch64-unknown-linux')
-        working-directory: packages/compiler-native
-        run: napi build --platform --release --target ${{ matrix.target }} --zig
 
       - name: Verify native scanner parity
         if: matrix.target == 'x86_64-unknown-linux-gnu'
