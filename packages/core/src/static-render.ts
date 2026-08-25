@@ -56,13 +56,38 @@ export async function renderStaticPages(
   const results: PageRenderResult[] = [];
 
   for (const page of buildTimePages) {
+    try {
+      const result = await renderOnePage(page, loadModule, outDir, options);
+      if (result) results.push(result);
+    } catch (err) {
+      // Name the page. Without this the CLI prints only the error's own
+      // message, so a component that throws during prerender reports e.g.
+      // "useSignal() can only be called inside a component function" with no
+      // file, no route and no stack, for a project that may have fifty pages.
+      if (err instanceof Error && !err.message.startsWith('[vura] ')) {
+        err.message = `[vura] ${page.filePath} (${page.urlPattern}) failed to render at build time: ${err.message}`;
+      }
+      throw err;
+    }
+  }
+
+  return results;
+}
+
+async function renderOnePage(
+  page: PageRoute,
+  loadModule: (filePath: string) => Promise<any>,
+  outDir: string,
+  options: StaticRenderOptions,
+): Promise<PageRenderResult | null> {
+  {
     const mod = await loadModule(page.filePath);
     const Component = mod.default;
     const pageConfig = mod.page ?? {};
 
     if (typeof Component !== 'function') {
       console.warn(`  [then] Warning: ${page.filePath} has no default export component`);
-      continue;
+      return null;
     }
 
     let bodyHtml: string;
@@ -173,15 +198,13 @@ export async function renderStaticPages(
     await mkdir(dirname(outputPath), { recursive: true });
     await writeFile(outputPath, html);
 
-    results.push({
+    return {
       urlPattern: page.urlPattern,
       filePath: page.filePath,
       html,
       outputPath,
-    });
+    };
   }
-
-  return results;
 }
 
 // ─── Client Entry Generator ───

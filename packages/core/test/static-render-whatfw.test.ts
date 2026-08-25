@@ -44,6 +44,43 @@ describe('static render uses real what-framework renderToString', () => {
     }
   });
 
+  it('names the page and route when a component throws during prerender', async () => {
+    // Before this, the CLI printed only the thrown error's own message. A hook
+    // failing during prerender reported "useSignal() can only be called inside
+    // a component function" with no file, no route and no stack, for a project
+    // that might have fifty pages.
+    const outDir = await mkdtemp(join(tmpdir(), 'vura-sr-'));
+    const pages = [{
+      filePath: 'src/pages/broken.tsx', urlPattern: '/broken', mode: 'static' as const,
+      hasLoader: false, hasGetServerData: false, config: {},
+    }];
+    const loadModule = async () => ({
+      default: () => { throw new Error('boom from the component'); },
+      page: {},
+    });
+
+    await expect(renderStaticPages(pages, loadModule, outDir)).rejects.toThrow(
+      /src\/pages\/broken\.tsx \(\/broken\) failed to render at build time: boom from the component/,
+    );
+  });
+
+  it('does not double-prefix a message that already names the page', async () => {
+    const outDir = await mkdtemp(join(tmpdir(), 'vura-sr-'));
+    const pages = [{
+      filePath: 'src/pages/loader.tsx', urlPattern: '/loader', mode: 'static' as const,
+      hasLoader: true, hasGetServerData: false, config: {},
+    }];
+    const loadModule = async () => ({
+      default: () => h('div', null, 'x'),
+      page: {},
+      loader: async () => { throw new Error('[vura] already prefixed'); },
+    });
+
+    await expect(renderStaticPages(pages, loadModule, outDir)).rejects.toThrow(
+      /^\[vura\] already prefixed$/,
+    );
+  });
+
   it('does not export builtinRenderToString anymore', async () => {
     const mod = await import('../src/static-render.js');
     expect((mod as Record<string, unknown>).builtinRenderToString).toBeUndefined();
