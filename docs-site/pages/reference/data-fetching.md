@@ -22,7 +22,7 @@ export default function Dashboard() {
 }
 ```
 
-> **These are client-side hooks.** They do not fetch during static prerender or server-mode SSR — on those render passes they return their loading state. For data that must be fetched **on the server** and rendered into the HTML, export a [`loader`](#loader--server-side-data-fetching).
+> **These are client-side hooks.** They do not fetch during static prerender or server-mode SSR: on those render passes they return their loading state. For data that must be fetched **on the server** and rendered into the HTML, export a [`loader`](#loader-server-side-data-fetching).
 
 ---
 
@@ -126,9 +126,9 @@ setQueryData('posts', (prev) => [newPost, ...(prev ?? [])]);
 
 ---
 
-## `loader` — server-side data fetching
+## `loader`: server-side data fetching
 
-A page or layout can export a `loader`. It runs **on the server, before the component renders**, and the component reads its result with `useLoaderData()`. The data is already in the HTML the browser receives — no loading state, no request waterfall, no client round trip.
+A page or layout can export a `loader`. It runs **on the server, before the component renders**, and the component reads its result with `useLoaderData()`. The data is already in the HTML the browser receives, so there is no loading state, no request waterfall, and no client round trip.
 
 ```tsx
 // src/pages/posts/[id].tsx
@@ -157,7 +157,7 @@ interface LoaderContext {
   params: Record<string, string>;              // matched dynamic segments
   url: string;                                 // the pathname
   query: Record<string, string | string[]>;    // parsed query string
-  request?: Request;                           // absent at build time — see below
+  request?: Request;                           // absent at build time (see below)
   notFound(message?): LoaderNotFoundError;     // throw it
   redirect(to, status?): LoaderRedirectError;  // throw it
 }
@@ -193,7 +193,7 @@ The layout renders `useLoaderData<typeof loader>().user`; the page renders its o
 | `server` + `revalidate` / `tags` | On cache miss. The result is part of the ISR-cached render, and `revalidateTag()` re-runs it. |
 | `static` | Once, at build time. There is no request, so `ctx.request` is `undefined` and `notFound()` / `redirect()` are build errors. |
 | `hybrid` | On the server, and the result is serialized into the page so islands hydrate from it instead of re-fetching. |
-| `client` | Not at all — use the client hooks above. |
+| `client` | Not at all. Use the client hooks above. |
 
 ### The serialized payload
 
@@ -207,7 +207,7 @@ It sits outside `<div id="app">` so it never participates in hydration, and it i
 
 ### Migrating from `getServerData`
 
-`getServerData` still works and still spreads its result into the component's props. It is now an alias for the same machinery, so its data is *also* readable through `useLoaderData()` — which means a page can migrate one line at a time:
+`getServerData` still works and still spreads its result into the component's props. It is now an alias for the same machinery, so its data is *also* readable through `useLoaderData()`, which means a page can migrate one line at a time:
 
 ```tsx
 // Before
@@ -244,7 +244,7 @@ export const page = { mode: 'client' };
 |---|---|
 | Fetch after the page loads, interactive dashboard | `useFetch` / `createResource` on a `client` (or `hybrid`) page |
 | Cached, revalidating, or shared-across-components data | `useSWR` / `useQuery` (set `mode` explicitly) |
-| Data fetched **on the server**, baked into the HTML, cached with ISR | a [`loader`](#loader--server-side-data-fetching) + `useLoaderData()` |
+| Data fetched **on the server**, baked into the HTML, cached with ISR | a [`loader`](#loader-server-side-data-fetching) + `useLoaderData()` |
 | Real-time streaming data | a [hot route](/ladder/4-hot) (WebSocket) + a client hook to render it |
 
 The two families compose: a `hybrid` page renders its `loader` data into the HTML *and* serializes it, so an island inside it starts from the server's data and keeps it fresh with `useSWR` from there.
