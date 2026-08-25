@@ -502,9 +502,13 @@ async function main() {
 ${bold('create-vura')} — Scaffold a new Vura project
 
 ${bold('Usage:')}
-  npm create vura@latest ${dim('[project-name]')}
-  pnpm create vura@latest ${dim('[project-name]')}
-  npx create-vura ${dim('[project-name]')}
+  npm create vura@latest ${dim('[path]')}
+  pnpm create vura@latest ${dim('[path]')}
+  npx create-vura ${dim('[path]')}
+
+${dim('  [path] is where the project goes: a name (my-app), a nested path')}
+${dim('  (apps/shop), an absolute path, or . for the current directory.')}
+${dim('  The package is named after the last segment.')}
 
 ${bold('Options:')}
   --dry-run      Print what would be created without writing files
@@ -528,20 +532,42 @@ ${bold('Options:')}
     }
   }
 
-  // Sanitize: lowercase, replace spaces with hyphens
-  projectName = projectName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9\-_]/g, '');
-  if (!projectName) {
-    console.log(red('  Error: Invalid project name.'));
+  // The argument is a target path, the way `npm create vite my-app` and every
+  // other scaffolder treats it: `create-vura ../apps/shop` writes to
+  // ../apps/shop, and `create-vura .` scaffolds into the current directory.
+  // Sanitizing the whole argument would delete the slashes and dots along with
+  // everything else illegal in a package name, so `create-vura /tmp/my-app`
+  // quietly produced a directory called `tmpmy-app` in the current directory,
+  // which is neither the name nor the place the user asked for.
+  const targetDir = path.resolve(process.cwd(), projectName);
+
+  // Only the package name needs sanitizing, and it comes from the last segment.
+  const packageName = path
+    .basename(targetDir)
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9\-_]/g, '');
+  if (!packageName) {
+    console.log(red(`  Error: "${projectName}" leaves no usable package name.`));
+    console.log(dim('  A package name may contain letters, digits, hyphens and underscores.'));
     process.exit(1);
   }
-
-  const targetDir = path.resolve(process.cwd(), projectName);
+  // What to print in "cd <here>". A relative path when the target is inside the
+  // current directory, the absolute path when it is not: a `cd` line made of
+  // fifteen `../` segments is not something anyone should paste.
+  const relativeToCwd = path.relative(process.cwd(), targetDir);
+  const displayPath = relativeToCwd === ''
+    ? '.'
+    : relativeToCwd.startsWith('..')
+      ? targetDir
+      : relativeToCwd;
+  projectName = packageName;
 
   // 2. Check if directory exists
   if (fs.existsSync(targetDir) && !args.dryRun) {
     const contents = fs.readdirSync(targetDir);
     if (contents.length > 0) {
-      console.log(red(`  Error: Directory "${projectName}" already exists and is not empty.`));
+      console.log(red(`  Error: Directory "${displayPath}" already exists and is not empty.`));
       process.exit(1);
     }
   }
@@ -554,7 +580,7 @@ ${bold('Options:')}
     console.log(bold(`  Would create project in: ${targetDir}\n`));
     console.log(bold('  Files:'));
     for (const filePath of Object.keys(files).sort()) {
-      console.log(green(`    ${projectName}/${filePath}`));
+      console.log(green(`    ${displayPath === '.' ? '' : displayPath + '/'}${filePath}`));
     }
     console.log();
     console.log(dim(`  Total: ${Object.keys(files).length} files`));
@@ -601,7 +627,7 @@ ${bold('Options:')}
   console.log();
   console.log(bold(green('  Done! ')) + `Your Vura project is ready.\n`);
   console.log(bold('  Next steps:\n'));
-  console.log(`    cd ${projectName}`);
+  if (displayPath !== '.') console.log(`    cd ${displayPath}`);
   console.log(`    ${pm === 'npm' ? 'npm run' : pm} dev\n`);
   console.log(dim('  Docs: https://vura.io'));
   console.log();
