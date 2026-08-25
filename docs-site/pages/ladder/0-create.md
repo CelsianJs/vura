@@ -25,7 +25,7 @@ yarn create vura my-app
 
 ## What you got
 
-Running `create-vura` emits eleven files:
+Running `create-vura` emits twelve files:
 
 ```
 my-app/
@@ -34,6 +34,7 @@ my-app/
 ├── tsconfig.json
 ├── .gitignore
 └── src/
+    ├── styles.ts          ← shared style strings the pages import
     ├── pages/
     │   ├── index.tsx      ← static home page
     │   ├── about.tsx      ← static about page
