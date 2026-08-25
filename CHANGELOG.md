@@ -1,5 +1,83 @@
 # Changelog
 
+## 0.6.1 - 2026-08-25
+
+The loaders 0.6.0 introduced did not work in a built application. They worked in
+the 25 tests that shipped with them, all of which imported the loader runtime
+directly, and in none of the four ways a real project reaches it. This release
+is that gap closed, plus the gate that would have caught it: a suite that builds
+and boots a real project and drives the whole path through HTTP.
+
+### Added
+
+- **`@celsian/vura-core/client`, a browser-safe export surface.** The package
+  root reaches `node:fs`, `node:crypto` and `node:http`, so a `client` or
+  `hybrid` page that imported `useLoaderData` from it could not be bundled for a
+  browser at all. The new subpath carries the pure exports, and the CLI
+  redirects a bare `@celsian/vura-core` import to it when bundling for the
+  browser, so the documented import path works in a page that runs on both
+  sides.
+
+### Fixed
+
+- **`useLoaderData` was unreachable from a server page.** A bare
+  `@celsian/vura-core` import inside a bundled server module resolves to a
+  runtime allowlist, and that allowlist was copy-pasted into three files with
+  0.6.0 adding the accessor to none of them. Every page using the feature failed
+  the build with `No matching export in "vura-core-runtime-shim"`. There is now
+  one list, in `packages/core/src/runtime-shim.ts`, imported by core's builder
+  and by both adapters.
+- **`useLoaderData()` inside a layout found no data in a built app.** Every page
+  and layout is bundled separately, each bundle inlines its own copy of the
+  loader runtime, and the server entry inlines all of them, so a module-scoped
+  context object meant the provider and the consumer were reading two different
+  contexts. The context is now a process singleton, so copy count stops
+  mattering.
+- **A hybrid page lost its loader data on hydrate.** The server rendered with the
+  data and serialized the payload, and the generated client entry then booted
+  the component with no provider around it. It now re-opens the same scope from
+  that payload, and still boots the bare component when a page has no loader so
+  the missing-loader error keeps naming the real problem.
+- **`dist/package.json` never declared `what-framework` in a real install.** The
+  version was read with `require('what-framework/package.json')`; that package's
+  `exports` map does not list `./package.json`, so Node refused the subpath, the
+  version came back null, and a container built from that manifest could not
+  resolve `what-framework/server`. It now reads the installed manifest off disk.
+- **Build-time page modules inlined their own copy of the framework.** A
+  `static`, `hybrid` or `client` page is imported into the CLI's own process and
+  rendered by core's `renderToString`; a second inlined copy gives it a second
+  "currently rendering component" and its own context registry, so every hook
+  the page calls reads a registry the renderer never wrote to. These bundles now
+  keep `what-framework` and `@celsian/vura-core` external, and are written to a
+  real file rather than imported as a `data:` URL, which cannot resolve bare
+  specifiers.
+
+### Documentation
+
+- `/reference/data-fetching` now states that **layouts apply to `server`-mode
+  pages**. A page rendered at build time is rendered without its layout chain
+  today, and a layout sitting in a directory of build-time pages is silently
+  skipped. Documented rather than changed, because making build-time pages
+  render their layouts also changes what a hybrid page must hydrate.
+
+### Internal
+
+- **`tests/self-host-audit/loaders.test.ts`.** Scaffolds a project, installs the
+  packed tarballs, runs `vura build`, boots `dist/server/entry.js` and asserts
+  the loader path over HTTP: a three-segment chain rendering every segment,
+  start stamps within 60 ms across three 120 ms loaders (parallel, not
+  sequential), `notFound` producing a 404 and `redirect` a 302 with a `Location`,
+  a build-time loader in the prerendered HTML, the hydration payload and its
+  client bundle, no `node:` imports in that bundle, and the pinned container
+  dependency. Every assertion in it fails against 0.6.0.
+- Two unit tests pin the process-singleton invariant without a build, by
+  importing the loader module twice under different specifiers.
+- The what-framework version-pin test used a fixture package with no `exports`
+  map, so it passed on a resolution strategy that cannot work in any real
+  install. The fixture now carries a realistic one.
+- Tracked tarball limits move: `@celsian/vura-core` 150 KB to 158 KB,
+  `@celsian/vura-cli` 50 KB to 54 KB.
+
 ## 0.6.0 - 2026-08-25
 
 ### Added
