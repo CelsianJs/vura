@@ -88,6 +88,7 @@ const REFERENCE = [
   ['/reference/logging', 'Logging'],
   ['/reference/server', 'Programmatic server'],
   ['/reference/cli', 'CLI'],
+  ['/reference/build-output', 'Build output'],
   ['/reference/adapters', 'Adapters'],
 ];
 
