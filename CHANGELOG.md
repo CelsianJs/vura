@@ -1,5 +1,61 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Streaming SSR: `export const page = { streaming: true }`.** A streamed page
+  sends its `<head>` and everything above the first `<Suspense>` boundary before
+  the body has finished rendering, so the browser starts fetching stylesheets
+  and scripts while the server is still waiting on data.
+
+  ```tsx
+  export const page = { mode: 'server', streaming: true };
+
+  export default function Dashboard() {
+    return (
+      <main>
+        <h1>Dashboard</h1>
+        <Suspense fallback={<p>Loading...</p>}>
+          <Revenue />
+        </Suspense>
+      </main>
+    );
+  }
+  ```
+
+  The loader chain still runs to completion before the first byte, so
+  `throw ctx.notFound()` and `throw ctx.redirect(...)` still choose a real
+  status. Layouts, `useLoaderData`, the serialized payload and hydration are
+  unchanged. The one exclusion is ISR: a response the server is still producing
+  cannot be stored or revalidated, so a streamed page skips the cache.
+
+  `vura dev` serves streamed pages through the same code path as a build.
+
+  Requires `what-framework` 0.13.4 (see Changed).
+
+### Changed
+
+- **`what-framework` and `what-isr` now require `^0.13.4`** (was `^0.13.2`).
+  0.13.4 fixes a resolve-pass bug that could render one `<Suspense>` boundary's
+  data inside another, which streaming depends on.
+
+### Fixed
+
+- **`vura dev --port 0` printed a URL nobody could open.** The startup banner
+  echoed the requested port rather than the one the server actually bound, so
+  `--port 0` ("pick a free port") advertised `http://127.0.0.1:0`. It now reports
+  the bound port, which is also what tells you which port you got when the one
+  you asked for was taken.
+
+- **A visitor navigating away mid-stream was logged as a render failure.**
+  Closing a tab or hitting stop during a streamed response made the enqueue that
+  followed throw `ERR_INVALID_STATE`, which was reported as
+  "stream render failed mid-document" with a stack trace. The most common
+  interruption there is was burying the real render failures the message exists
+  to surface. A lost reader is now treated as a disconnect and ends the render
+  quietly.
+
 ## 0.7.0 - 2026-08-25
 
 Two features and one bug that had been quietly breaking builds.

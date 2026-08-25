@@ -120,6 +120,16 @@ describe('A1.4 success metric', () => {
     //   registry, the id scheme and the stub boundary each exist because of a
     //   specific failure that is cheaper to explain than to rediscover.
     //   +~870 → actual 9390. Ceiling 9450 leaves ~60 headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(9450);
+    // Streaming SSR (2026-08-25): `export const page = { streaming: true }`
+    //   sends the shell before the body is rendered. No new file. static-render
+    //   splits into a `documentShell()` the buffered wrapper composes, so the
+    //   two documents cannot drift; runtime/pages.ts grows `prepareRender()`
+    //   (shared by both renders, for the same reason), `isStreamingPage()`, and
+    //   `createVuraStreamRoute()`. The stream route is mostly the reasoning for
+    //   its own shape: why the loader chain is settled before the first byte
+    //   (status is spent after it), why a lost reader is a disconnect and not a
+    //   failure, and why the transfer encoding is left to the host.
+    //   +~241 → actual 9631. Ceiling 9700 leaves ~69 headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(9700);
   });
 });

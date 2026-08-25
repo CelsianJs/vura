@@ -76,6 +76,12 @@ export default function Post({ data }) {
 
 **When to use:** pages that need data from a database or API, pages with per-user content, any page where content changes between deploys.
 
+**Streaming:** add `streaming: true` and the page sends its `<head>` and
+everything above the first `<Suspense>` boundary before the body has finished
+rendering. Worth it when a page waits on something slow and the shell is cheap.
+It cannot be combined with `revalidate`: a streamed response skips the ISR cache.
+See [Streaming](/reference/streaming).
+
 ---
 
 ## `client`
@@ -138,6 +144,7 @@ Concrete-path hybrid pages (e.g. `/landing`) do not warn — they work end-to-en
 | No JavaScript, pure content | `static` |
 | Data from a database or API at request time | `server` |
 | ISR (stale content is fine, purge on mutation) | `server` + `revalidate` + `tags` |
+| Fast first byte while waiting on slow data | `server` + `streaming` |
 | Fully interactive, authenticated | `client` |
 | Prerendered for SEO + client-side interactivity | `hybrid` |
 

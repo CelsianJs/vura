@@ -43,6 +43,8 @@ import {
   ACTION_ENDPOINT,
   createMiddlewareRunner,
   createVuraRenderRoute,
+  createVuraStreamRoute,
+  isStreamingPage,
 } from '@celsian/vura-core';
 import type {
   PageRoute,
@@ -277,6 +279,15 @@ export async function startStandaloneServer(
    */
   const devRenderRouteFor = (page: PageRoute) =>
     createVuraRenderRoute({
+      extraScripts: () => (page.mode === 'hybrid' ? [browserScriptPath(page)] : []),
+    });
+
+  /**
+   * The streaming counterpart, built from the same options as the string
+   * renderer above so the two cannot disagree about which scripts a page gets.
+   */
+  const devStreamRouteFor = (page: PageRoute) =>
+    createVuraStreamRoute({
       extraScripts: () => (page.mode === 'hybrid' ? [browserScriptPath(page)] : []),
     });
 
@@ -788,6 +799,22 @@ export async function startStandaloneServer(
               headers: req.headers as Record<string, string>,
             });
 
+            // Streaming pages take the same route in dev as in production,
+            // through the same helper and the same response writer. A dev
+            // server that renders a streamed page as a string would hide
+            // exactly the bugs streaming introduces.
+            if (method === 'GET' && isStreamingPage(runtimePage as any)) {
+              const streamed = await devStreamRouteFor(pageMatch.page)({
+                path: url.pathname,
+                query: Object.fromEntries(url.searchParams.entries()),
+                route: { path: url.pathname, page: { mode: 'server' as const }, vura: runtimePage as any },
+                params: pageMatch.params,
+                request: webReq,
+              });
+              await writeWebResponse(res, streamed);
+              return;
+            }
+
             const result = await devRenderRouteFor(pageMatch.page)({
               path: url.pathname,
               query: Object.fromEntries(url.searchParams.entries()),
@@ -921,7 +948,13 @@ export async function startStandaloneServer(
 
   await new Promise<void>((resolve) => {
     server.listen(opts.port, opts.host, () => {
-      console.log(`  Server listening on http://${opts.host}:${opts.port}\n`);
+      // The *bound* port, not the requested one. `--port 0` means "pick a free
+      // port", and printing the request back gave a URL of `:0`, which cannot
+      // be connected to. The address is also what tells you which port you got
+      // when the requested one was taken.
+      const addr = server.address();
+      const boundPort = addr && typeof addr === 'object' ? addr.port : opts.port;
+      console.log(`  Server listening on http://${opts.host}:${boundPort}\n`);
       // Warn once at startup when the user explicitly exposes the dev server beyond loopback.
       if (isLanDevHost(opts.host)) {
         console.warn(`  [vura] Dev server exposed on ${opts.host}. Only use --host for trusted LAN testing.`);

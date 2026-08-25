@@ -28,10 +28,11 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // TODO(what-fw): server.d.ts doesn't declare createRequestHandler — fix upstream, then drop this shim
 // @ts-ignore — createRequestHandler is exported at runtime, not yet in .d.ts
-import { renderToString, createRequestHandler as _createRequestHandler } from 'what-framework/server';
+import { renderToString, renderToStream, createRequestHandler as _createRequestHandler } from 'what-framework/server';
 import { h } from 'what-framework';
-import { wrapDocument } from '../static-render.js';
+import { wrapDocument, documentShell } from '../static-render.js';
 import { buildVuraCacheTagHeader } from './cache-tags.js';
+import { compilePageRoutes, matchPageRoute } from '../match.js';
 import {
   createLoaderContext,
   isLoaderNotFound,
@@ -180,6 +181,184 @@ export interface RenderRouteOptions {
   extraScripts?: (page: RuntimePage) => string[];
 }
 
+/**
+ * Everything a render needs, built once so the buffered and streaming paths
+ * cannot disagree about it.
+ *
+ * Loaders run here, before either render begins. They are route-level for a
+ * reason that has not changed: `renderToString` is synchronous, so there is
+ * nowhere inside the tree to await one. Streaming adds a *second* place data
+ * can come from (a `createResource` inside a `<Suspense>` boundary), it does
+ * not move loaders into the tree.
+ */
+async function prepareRender(
+  route: WhatPageRoute,
+  params: Record<string, string>,
+  query: Record<string, string | string[]>,
+  path: string,
+  request: Request,
+): Promise<{ vnode: unknown; pageConfig: Record<string, any>; byId: Record<string, unknown>; page: RuntimePage }> {
+  const p = route.vura;
+  const mod = p.module;
+  const pageConfig = mod.page ?? {};
+  const layouts = p.layoutModules ?? [];
+
+  const segments: LoaderSegment[] = [
+    ...layouts.map((layout, i) => ({ id: `layout:${i}`, loader: layout.loader })),
+    { id: 'page', loader: mod.loader, getServerData: mod.getServerData },
+  ];
+  const ctx = createLoaderContext({ params, url: path, query, request });
+  const { data, byId } = await runLoaderChain(segments, ctx);
+  const pageData = data[data.length - 1];
+
+  const legacyProps =
+    typeof mod.loader !== 'function' && typeof mod.getServerData === 'function' && pageData && typeof pageData === 'object'
+      ? (pageData as Record<string, unknown>)
+      : {};
+
+  let vnode: unknown = h(
+    LoaderDataProvider as any,
+    { value: pageData },
+    h(mod.default as any, { ...legacyProps, params }),
+  );
+  for (let i = layouts.length - 1; i >= 0; i--) {
+    const Layout = layouts[i]!.default;
+    if (typeof Layout === 'function') {
+      vnode = h(
+        LoaderDataProvider as any,
+        { value: data[i] },
+        h(Layout as any, { children: vnode, params }),
+      );
+    }
+  }
+
+  return { vnode, pageConfig, byId, page: p };
+}
+
+/** Does this page opt into a streamed response? */
+export function isStreamingPage(page: RuntimePage): boolean {
+  return (page.module.page ?? {}).streaming === true || page.config?.streaming === true;
+}
+
+/**
+ * Render a page as a streamed response.
+ *
+ * The document shell goes out before the body is rendered, so the browser can
+ * start fetching stylesheets and scripts while the server is still working.
+ * Anything inside a `<Suspense>` boundary is awaited and emitted in place.
+ *
+ * Two things are settled before the first byte, deliberately: the loader chain
+ * and its control flow. `notFound()` and `redirect()` have to be able to set a
+ * status, and once a byte is written the status is spent. A failure *after*
+ * that point cannot become a 500 either, so it terminates the stream and is
+ * logged; a page that wants to degrade gracefully should put an
+ * `<ErrorBoundary>` around the part that can fail.
+ */
+export function createVuraStreamRoute(options: RenderRouteOptions = {}) {
+  return async function streamRoute(routeMatch: {
+    path: string;
+    query: Record<string, string | string[]>;
+    route: WhatPageRoute;
+    params: Record<string, string>;
+    request: Request;
+  }): Promise<Response> {
+    const { route, params, query, path, request } = routeMatch;
+
+    let prepared;
+    try {
+      prepared = await prepareRender(route, params, query, path, request);
+    } catch (err) {
+      // Still before the first byte: a real status is still possible.
+      if (isLoaderNotFound(err)) {
+        return new Response('<!DOCTYPE html><html><body><h1>404 — Not Found</h1></body></html>', {
+          status: 404,
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        });
+      }
+      if (isLoaderRedirect(err)) {
+        return new Response(null, { status: err.status, headers: { Location: err.location } });
+      }
+      console.error(`[vura] streamRoute error for path "${path}":`, err);
+      return new Response('<!DOCTYPE html><html><body><h1>500 — Server Error</h1></body></html>', {
+        status: 500,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      });
+    }
+
+    const { vnode, pageConfig, byId, page } = prepared;
+    const { open, close } = documentShell({
+      title: pageConfig.title ?? 'Vura App',
+      meta: pageConfig.meta ?? [],
+      styles: pageConfig.styles ?? [],
+      scripts: [...(pageConfig.scripts ?? []), ...(options.extraScripts?.(page) ?? [])],
+      head: pageConfig.head ?? '',
+      bodyEnd: serializeLoaderPayload(byId),
+    });
+
+    const encoder = new TextEncoder();
+    // A reader that goes away mid-stream is a normal event, not a failure: the
+    // visitor navigated, closed the tab, or hit stop. Without this flag the
+    // `enqueue` that follows throws `ERR_INVALID_STATE`, and the catch below
+    // reported every such disconnect as "render failed mid-document" with a
+    // stack trace. That is noise on the most common interruption there is, and
+    // it buries the real render failures it exists to surface.
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        cancelled = true;
+      },
+      async start(controller) {
+        const write = (text: string): boolean => {
+          if (cancelled) return false;
+          try {
+            controller.enqueue(encoder.encode(text));
+            return true;
+          } catch {
+            // Lost the reader between the check and the write.
+            cancelled = true;
+            return false;
+          }
+        };
+        try {
+          if (!write(open)) return;
+          for await (const chunk of renderToStream(vnode as any)) {
+            if (chunk && !write(String(chunk))) return;
+          }
+          write(close);
+        } catch (err) {
+          if (cancelled) return;
+          // Past the point of no return: the status and part of the document
+          // are already on the wire. Close the document so the browser is not
+          // left parsing a truncated tree, and log the real error.
+          console.error(`[vura] stream render failed mid-document for "${path}":`, err);
+          write(`<!-- [vura] render failed -->${close}`);
+        } finally {
+          if (!cancelled) {
+            try {
+              controller.close();
+            } catch {
+              /* already closed by a cancel that raced us */
+            }
+          }
+        }
+      },
+    });
+
+    return new Response(body, {
+      status: 200,
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        // No content-length: the length is not known until the last chunk, and
+        // omitting it is what makes the host chunk the response. Setting
+        // `transfer-encoding` by hand instead would be wrong twice over: HTTP/2
+        // forbids the header outright, and the Lambda adapter would echo it
+        // into the response payload.
+        'x-accel-buffering': 'no',
+      },
+    });
+  };
+}
+
 export function createVuraRenderRoute(options: RenderRouteOptions = {}) {
   return async function renderRoute(routeMatch: {
     path: string;
@@ -193,52 +372,12 @@ export function createVuraRenderRoute(options: RenderRouteOptions = {}) {
     const { route, params, query, path, request } = routeMatch;
 
     try {
-      const p = route.vura;
-      const mod = p.module;
-      const pageConfig = mod.page ?? {};
-      const layouts = p.layoutModules ?? [];
-
-      // Loaders run before the render, never during it: What's renderToString
-      // is synchronous, so there is nowhere inside the tree to await. Every
-      // segment's loader runs in parallel — a layout and its page have no data
-      // dependency on each other, and serializing them would make nesting cost
-      // latency. (RFC 0001.)
-      const segments: LoaderSegment[] = [
-        ...layouts.map((layout, i) => ({ id: `layout:${i}`, loader: layout.loader })),
-        { id: 'page', loader: mod.loader, getServerData: mod.getServerData },
-      ];
-      // ctx.url is the pathname string (not a URL object) — matches legacy build.ts RENDER_PAGE_CODE
-      const ctx = createLoaderContext({ params, url: path, query, request });
-      const { data, byId } = await runLoaderChain(segments, ctx);
-      const pageData = data[data.length - 1];
-
-      // getServerData's contract was `{ ...data }` spread into props, and pages
-      // in the wild depend on it. It keeps that AND appears through
-      // useLoaderData, so a page can migrate one line at a time.
-      const legacyProps =
-        typeof mod.loader !== 'function' && typeof mod.getServerData === 'function' && pageData && typeof pageData === 'object'
-          ? (pageData as Record<string, unknown>)
-          : {};
-
-      // The component is handed to h() rather than called directly. Calling it
-      // directly runs the body outside any component context, so every What
-      // hook inside a page — useContext included, which is how useLoaderData
-      // reads its data — would throw or read nothing.
-      let vnode: unknown = h(
-        LoaderDataProvider as any,
-        { value: pageData },
-        h(mod.default as any, { ...legacyProps, params }),
+      // Loaders, props and the component tree are built by prepareRender, which
+      // the streaming path uses too. One function, so the two renders cannot
+      // disagree about what a page is.
+      const { vnode, pageConfig, byId, page: p } = await prepareRender(
+        route, params, query, path, request,
       );
-      for (let i = layouts.length - 1; i >= 0; i--) {
-        const Layout = layouts[i]!.default;
-        if (typeof Layout === 'function') {
-          vnode = h(
-            LoaderDataProvider as any,
-            { value: data[i] },
-            h(Layout as any, { children: vnode, params }),
-          );
-        }
-      }
 
       // Produce full HTML document
       const html = wrapDocument(renderToString(vnode as any), {
@@ -364,7 +503,40 @@ export function createPagesHandler(
     csrf: false,
   });
 
+  // Streaming pages are matched here rather than inside what-fw's handler,
+  // because that handler's contract is a render callback returning a complete
+  // HTML string. A streamed page has no such string, and it deliberately skips
+  // the ISR cache: a response the server is still producing is not one the
+  // cache can store or a revalidation can replace.
+  const streamingRoutes = opts.routes.filter(r => isStreamingPage(r.vura));
+  const compiledStreaming = streamingRoutes.length > 0
+    ? compilePageRoutes(streamingRoutes.map(r => r.vura))
+    : [];
+  const streamRoute = createVuraStreamRoute(
+    opts.extraScripts ? { extraScripts: opts.extraScripts } : {},
+  );
+
   return async function vuraPagesHandler(req: Request): Promise<Response> {
+    // GET only. A HEAD must not carry a body, and it falls through to the
+    // string renderer so its status and headers still match what a GET would
+    // produce, without paying for a render whose output is discarded.
+    if (compiledStreaming.length > 0 && req.method === 'GET') {
+      const url = new URL(req.url);
+      const match = matchPageRoute(compiledStreaming, url.pathname);
+      if (match) {
+        const route = streamingRoutes.find(r => r.vura.urlPattern === match.page.urlPattern)!;
+        const query: Record<string, string | string[]> = {};
+        url.searchParams.forEach((v, k) => { query[k] = v; });
+        return streamRoute({
+          path: url.pathname,
+          query,
+          route,
+          params: match.params,
+          request: req,
+        });
+      }
+    }
+
     const response = await handler(req);
     const redirect = pendingRedirects.get(req);
     if (!redirect) return response;

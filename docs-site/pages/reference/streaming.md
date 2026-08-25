@@ -24,6 +24,82 @@ The client receives bytes as the stream produces them — the server never holds
 
 ---
 
+## Streaming a page (SSR)
+
+Pages stream too, and it is a one-line opt-in. Add `streaming: true` to a page's `page` export:
+
+```tsx
+// src/pages/dashboard.tsx
+import { Suspense, createResource } from 'what-framework';
+
+export const page = { mode: 'server', streaming: true, title: 'Dashboard' };
+
+function Revenue() {
+  const [data] = createResource(() => fetch('https://api.example.com/revenue').then(r => r.json()));
+  return <p>{data()?.total}</p>;
+}
+
+export default function Dashboard() {
+  return (
+    <main>
+      <h1>Dashboard</h1>
+      <Suspense fallback={<p>Loading revenue...</p>}>
+        <Revenue />
+      </Suspense>
+    </main>
+  );
+}
+```
+
+The browser receives `<head>` and everything up to the `<Suspense>` boundary immediately, so it can start fetching your stylesheets and scripts while the server is still waiting on `api.example.com`. The boundary's content is emitted in place once its resources resolve.
+
+Without `streaming: true`, a page is rendered to a complete string and sent in one piece. Both are supported, and neither is a default you are stuck with: the flag is per page.
+
+### What is settled before the first byte
+
+The loader chain runs to completion **before** any of the document is written. That is deliberate. Once a byte is on the wire the status code is spent, so anything that needs to choose a status has to happen first:
+
+```tsx
+export const page = { mode: 'server', streaming: true };
+
+export async function loader(ctx) {
+  const post = await db.posts.find(ctx.params.id);
+  if (!post) throw ctx.notFound();   // still a real 404
+  return { post };
+}
+```
+
+`throw ctx.notFound()` and `throw ctx.redirect('/login')` behave exactly as they do on a buffered page. A loader that throws for any other reason produces a 500, with nothing of the document sent.
+
+After the first byte, that option is gone. A component that throws mid-render is caught by What, which substitutes an error comment and lets the rest of the document finish. If part of your page can fail and you want a visible fallback, wrap it in an `<ErrorBoundary>`.
+
+### What streaming does not change
+
+| | Buffered page | Streamed page |
+|---|---|---|
+| `loader` / `useLoaderData` | Yes | Yes, identical |
+| Layout chain | Yes | Yes, identical |
+| `notFound()` / `redirect()` | Yes | Yes, before the first byte |
+| Serialized loader payload | Yes | Yes, after the body |
+| Hydration of a `hybrid` page | Yes | Yes |
+| ISR caching (`revalidate`) | Yes | **No** |
+
+ISR is the one real exclusion. A response the server is still producing is not one the cache can store or a revalidation can replace, so a streamed page skips the cache entirely. If a page benefits more from being cached than from a fast first byte, leave `streaming` off.
+
+`vura dev` serves streamed pages through the same code path as a build, so what you see locally is what you deploy.
+
+### Requirements
+
+Streaming SSR needs `what-framework` 0.13.4 or newer. Earlier versions reused resource keys across resolve passes, which could render one Suspense boundary's data inside another.
+
+### Headers
+
+A streamed page sends no `content-length`, because the length is not known until the last chunk. Vura deliberately does not set `transfer-encoding` itself: HTTP/2 forbids the header, and the Lambda adapter would echo it into the response payload. Leaving it off lets each host chunk the response its own way.
+
+`x-accel-buffering: no` is sent so an nginx in front of your app does not buffer the response and undo the benefit.
+
+---
+
 ## `reply.stream(readable)`
 
 Pipe a Web `ReadableStream` to the client. Returns a `Response` you return from the handler.
