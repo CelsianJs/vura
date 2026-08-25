@@ -13,11 +13,11 @@ importers:
   .:
     dependencies:
       what-core:
-        specifier: ^0.11.7
-        version: 0.11.7
+        specifier: ^0.13.1
+        version: 0.13.1
       what-framework:
-        specifier: ^0.11.7
-        version: 0.11.7(@babel/core@7.29.7)
+        specifier: ^0.13.1
+        version: 0.13.1(@babel/core@7.29.7)
     devDependencies:
       '@types/node':
         specifier: 26.1.0
@@ -67,8 +67,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/core
       what-framework:
-        specifier: ^0.11.7
-        version: 0.11.7(@babel/core@7.29.7)
+        specifier: ^0.13.1
+        version: 0.13.1(@babel/core@7.29.7)
 
   examples/hot-server: {}
 
@@ -81,8 +81,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/core
       what-framework:
-        specifier: ^0.11.7
-        version: 0.11.7(@babel/core@7.29.7)
+        specifier: ^0.13.1
+        version: 0.13.1(@babel/core@7.29.7)
 
   examples/stress-test: {}
 
@@ -119,8 +119,8 @@ importers:
         specifier: ^0.28.1
         version: 0.28.1
       what-framework:
-        specifier: ^0.11.7
-        version: 0.11.7(@babel/core@7.29.7)
+        specifier: ^0.13.1
+        version: 0.13.1(@babel/core@7.29.7)
     devDependencies:
       '@celsian/vura-adapter-vura':
         specifier: workspace:0.5.14
@@ -155,11 +155,11 @@ importers:
         specifier: ^0.28.1
         version: 0.28.1
       what-framework:
-        specifier: ^0.11.7
-        version: 0.11.7(@babel/core@7.29.7)
+        specifier: ^0.13.1
+        version: 0.13.1(@babel/core@7.29.7)
       what-isr:
-        specifier: ^0.11.7
-        version: 0.11.7(what-server@0.11.7(what-core@0.11.7)(what-router@0.11.7(what-core@0.11.7)))
+        specifier: ^0.13.1
+        version: 0.13.1(what-server@0.13.1(what-core@0.13.1)(what-router@0.13.1(what-core@0.13.1)))
     devDependencies:
       '@types/ws':
         specifier: ^8.18.1
@@ -189,8 +189,8 @@ importers:
         specifier: ^6.0.0 || ^7.0.0 || ^8.0.0
         version: 8.2.2(@types/node@26.1.0)(esbuild@0.28.1)
       what-framework:
-        specifier: ^0.11.7
-        version: 0.11.7(@babel/core@7.29.7)
+        specifier: ^0.13.1
+        version: 0.13.1(@babel/core@7.29.7)
     devDependencies:
       '@types/ws':
         specifier: ^8.18.1
@@ -1828,36 +1828,36 @@ packages:
       jsdom:
         optional: true
 
-  what-compiler@0.11.7:
-    resolution: {integrity: sha512-seZxVNGP8TPLswS9FmycSqVNusXONdhs3ggxMmX2TBfBITmLrb11pMAkhdS3glj4JbHJA1lpUPPMffHUIEhwmw==}
+  what-compiler@0.13.1:
+    resolution: {integrity: sha512-9ys+Tv2rNGDIawojEgz0eUM8NA6FHsgsHn3rIgejiWfne0g5dkkPKUfQcbLsELFXA3qMVz1aFHekZfuM6UwOaQ==}
     peerDependencies:
       '@babel/core': ^7.0.0
-      what-core: ^0.11.7
+      what-core: ^0.13.1
 
-  what-core@0.11.7:
-    resolution: {integrity: sha512-WzQZx8rj2fyPynYQzhkd2XeNBewaUpKZPEZF1HLKgJDYfIYdvrzphV7EojJ9dBxNIxg5KC8qXcoqGzemNfclBw==}
+  what-core@0.13.1:
+    resolution: {integrity: sha512-JlM4IQrwE7brPifYVr/JBxEOFI1qsRqB/4gC7Ae3fWaRtYTMjJMCe8nPXHZdZiPEBwSY+KuBFm3keoWBn1QMGQ==}
 
-  what-framework@0.11.7:
-    resolution: {integrity: sha512-9BG3wHKajC7GPKR1TZ7PWqmYCRTOaskh47+WdG8TKYn+lHsJTQK9j9W2E81KAtIvnhktWsnx6jGbmHiOcGDs3w==}
+  what-framework@0.13.1:
+    resolution: {integrity: sha512-FFN+3gr84TqIZvzQD9BDEUBbHNxqDPFwHogRn19oPe2BGRRleF47yGTzLhq6RoTgz2ge8W7fvY1uZVgyEPTWRA==}
 
-  what-isr@0.11.7:
-    resolution: {integrity: sha512-19NDrDpNnRNW7yszo5/jFLevwjTHY4nt9D8uU2uOQsFTf5/eSQ4hUHFkXjD+tD2VeUD+hQASQUsDKlWFNhHrlQ==}
+  what-isr@0.13.1:
+    resolution: {integrity: sha512-cidFEV7WZkNjEJ1mb71XzPPbRgoYSdCZu402U+7OscP3QnOLiN9rZ6GxVosRiPNppioRidkPc7FzNtPHG3KdGw==}
     peerDependencies:
-      what-server: ^0.11.7
+      what-server: ^0.13.1
     peerDependenciesMeta:
       what-server:
         optional: true
 
-  what-router@0.11.7:
-    resolution: {integrity: sha512-hNnPUYetvVCXE0NnEkzDA9341Qw8OGZooGma2ZVdQpSJ6MRVtEw/JpfBniHLmo4YH5CVojrz8iDIW3w1aRS79w==}
+  what-router@0.13.1:
+    resolution: {integrity: sha512-oJs6iMVgUKVo6nFjbfWXc2792koCAWybkRQ+ytUQPGML/BFXfIlzfCSVAjJv8F7zFnLJ7R4E962w5tsXQ4m+mg==}
     peerDependencies:
-      what-core: ^0.11.7
+      what-core: ^0.13.1
 
-  what-server@0.11.7:
-    resolution: {integrity: sha512-AKrcrcj4E3OOc7JGK0JEXq+dqqiTzW2daNvm0PZoRSeS43EnJRvupO27Z2JwcfBcYCYmo6qKyevJhOGDOrYR2g==}
+  what-server@0.13.1:
+    resolution: {integrity: sha512-RE69BU3j0voCHFPGLcQz4OOqKNMQH1Lco4YZbXzC2MplYHdfwQSG6mcZ1Wtt8dJOb0i8+NlFojk6a25JG4m6IQ==}
     peerDependencies:
-      what-core: ^0.11.7
-      what-router: ^0.11.7
+      what-core: ^0.13.1
+      what-router: ^0.13.1
     peerDependenciesMeta:
       what-router:
         optional: true
@@ -3248,35 +3248,35 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  what-compiler@0.11.7(@babel/core@7.29.7)(what-core@0.11.7):
+  what-compiler@0.13.1(@babel/core@7.29.7)(what-core@0.13.1):
     dependencies:
       '@babel/core': 7.29.7
-      what-core: 0.11.7
+      what-core: 0.13.1
 
-  what-core@0.11.7: {}
+  what-core@0.13.1: {}
 
-  what-framework@0.11.7(@babel/core@7.29.7):
+  what-framework@0.13.1(@babel/core@7.29.7):
     dependencies:
-      what-compiler: 0.11.7(@babel/core@7.29.7)(what-core@0.11.7)
-      what-core: 0.11.7
-      what-router: 0.11.7(what-core@0.11.7)
-      what-server: 0.11.7(what-core@0.11.7)(what-router@0.11.7(what-core@0.11.7))
+      what-compiler: 0.13.1(@babel/core@7.29.7)(what-core@0.13.1)
+      what-core: 0.13.1
+      what-router: 0.13.1(what-core@0.13.1)
+      what-server: 0.13.1(what-core@0.13.1)(what-router@0.13.1(what-core@0.13.1))
     transitivePeerDependencies:
       - '@babel/core'
 
-  what-isr@0.11.7(what-server@0.11.7(what-core@0.11.7)(what-router@0.11.7(what-core@0.11.7))):
+  what-isr@0.13.1(what-server@0.13.1(what-core@0.13.1)(what-router@0.13.1(what-core@0.13.1))):
     optionalDependencies:
-      what-server: 0.11.7(what-core@0.11.7)(what-router@0.11.7(what-core@0.11.7))
+      what-server: 0.13.1(what-core@0.13.1)(what-router@0.13.1(what-core@0.13.1))
 
-  what-router@0.11.7(what-core@0.11.7):
+  what-router@0.13.1(what-core@0.13.1):
     dependencies:
-      what-core: 0.11.7
+      what-core: 0.13.1
 
-  what-server@0.11.7(what-core@0.11.7)(what-router@0.11.7(what-core@0.11.7)):
+  what-server@0.13.1(what-core@0.13.1)(what-router@0.13.1(what-core@0.13.1)):
     dependencies:
-      what-core: 0.11.7
+      what-core: 0.13.1
     optionalDependencies:
-      what-router: 0.11.7(what-core@0.11.7)
+      what-router: 0.13.1(what-core@0.13.1)
 
   whatwg-mimetype@3.0.0: {}
 

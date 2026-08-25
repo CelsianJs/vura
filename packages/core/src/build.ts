@@ -296,6 +296,12 @@ async function bundleServerEntry(
     platform: 'node',
     target: 'node20',
     outfile,
+    // esbuild anchors every path it touches to its working directory, which
+    // defaults to the cwd captured when the module was first loaded — not the
+    // cwd at call time. buildProject takes projectRoot precisely because the
+    // caller need not be sitting in it (the platform build service calls this
+    // programmatically), so anchor explicitly.
+    absWorkingDir: projectRoot,
     external: NODE_EXTERNAL_BUILTINS,
     plugins: [vuraCoreSelfResolvePlugin()],
     nodePaths: [
@@ -747,6 +753,7 @@ async function bundleRouteModule(
     outfile,
     jsx: 'automatic',
     jsxImportSource: '@celsian/vura-core',
+    absWorkingDir: projectRoot,
     nodePaths: [join(projectRoot, 'node_modules'), join(process.cwd(), 'node_modules')],
     plugins: [vuraCoreSelfResolvePlugin()],
     external: externalList,
@@ -774,6 +781,7 @@ async function bundleTaskEntry(
     target: 'es2022',
     platform: 'neutral',
     outfile,
+    absWorkingDir: projectRoot,
     nodePaths: [join(projectRoot, 'node_modules'), join(process.cwd(), 'node_modules')],
     plugins: [vuraCoreSelfResolvePlugin()],
     external: [...NODE_EXTERNAL_BUILTINS],

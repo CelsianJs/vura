@@ -11,6 +11,6 @@
   "devDependencies": {
     "@celsian/vura-cli": "workspace:*",
     "@celsian/vura-core": "workspace:*",
-    "what-framework": "^0.11.7"
+    "what-framework": "^0.13.1"
   }
 }

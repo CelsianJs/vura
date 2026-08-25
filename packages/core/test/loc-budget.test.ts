@@ -79,6 +79,13 @@ describe('A1.4 success metric', () => {
     //   serverless). generateTaskEntry template grew (header protocol + envelope
     //   + docs) + bundleTaskEntry helper in build.ts, envelope `error` field in
     //   runtime/tasks.ts. +~101 → actual 7401. Ceiling 7450 leaves ~49 headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(7450);
+    // What 0.13 upgrade (2026-08-25): jsx-runtime.ts stopped hand-rolling a
+    //   vnode and now re-exports What's runtime (the hand-rolled one emitted
+    //   `type` where What reads `tag`, so every hybrid page server-rendered
+    //   `<undefined>`); the replacement is mostly the comment explaining that.
+    //   Plus `absWorkingDir: projectRoot` on the three esbuild calls in build.ts
+    //   so a programmatic buildProject() no longer resolves against the caller's
+    //   cwd. +~61 → actual 7462. Ceiling 7500 leaves ~38 headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(7500);
   });
 });

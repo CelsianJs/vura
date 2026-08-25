@@ -69,29 +69,38 @@ const nativeImport = (specifier: string): Promise<any> => import(/* @vite-ignore
 const moduleSourceToDataUrl = (source: string): string => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 
 /**
- * Emit Dockerfile and fly.toml into dist/ when the project has hot routes.
- * Also writes/merges dist/package.json so that `npm install --omit=dev` in the
- * Docker build pulls the right runtime deps (ws when WS routes are present).
+ * Write dist/package.json.
+ *
+ * `npm install --omit=dev` inside the Docker build resolves against this file,
+ * so it has to list every bare specifier the emitted bundles still import at
+ * runtime. Two do:
+ *
+ *   - `what-framework`, because API and page route modules are bundled with it
+ *     kept external (see bundleRouteModule's `keepWhatFwExternal`). Without the
+ *     dependency the container starts and dies on the first request to any API
+ *     route with `ERR_MODULE_NOT_FOUND: what-framework/server`. It was only ever
+ *     absent from this file, never from the imports.
+ *   - `ws`, when the project has WebSocket routes.
+ *
+ * It is pinned to the version the project actually resolved, so the container
+ * runs the What the app was built and tested against rather than whatever
+ * `latest` is on deploy day.
+ *
+ * This runs for EVERY build. It used to run only for projects with hot routes,
+ * which is unrelated to whether the bundles import anything.
  */
-async function emitHotDeployTemplates(
+async function emitDeployPackageJson(
   distDir: string,
-  appName: string,
+  projectRoot: string,
   hasWsRoutes: boolean,
 ): Promise<void> {
   const { writeFile, readFile, mkdir } = await import('node:fs/promises');
   const { existsSync } = await import('node:fs');
   const { join } = await import('node:path');
+  const { createRequire } = await import('node:module');
 
   await mkdir(distDir, { recursive: true });
 
-  // Dockerfile
-  await writeFile(join(distDir, 'Dockerfile'), DOCKERFILE_HOT, 'utf8');
-
-  // fly.toml — replace {{APP_NAME}} placeholder
-  const flyToml = FLY_TOML_TMPL.replace('{{APP_NAME}}', appName);
-  await writeFile(join(distDir, 'fly.toml'), flyToml, 'utf8');
-
-  // dist/package.json — create or merge
   const pkgPath = join(distDir, 'package.json');
   let existing: Record<string, unknown> = {};
   if (existsSync(pkgPath)) {
@@ -102,13 +111,55 @@ async function emitHotDeployTemplates(
     }
   }
 
-  const merged: Record<string, unknown> = { ...existing, type: 'module' };
-  if (hasWsRoutes) {
-    const existingDeps = (existing.dependencies as Record<string, string> | undefined) ?? {};
-    merged.dependencies = { ...existingDeps, ws: '8.18.0' };
+  const deps: Record<string, string> = { ...((existing.dependencies as Record<string, string>) ?? {}) };
+
+  const whatVersion = resolveWhatFrameworkVersion(createRequire(join(projectRoot, 'package.json')));
+  if (whatVersion) {
+    deps['what-framework'] = whatVersion;
+  } else {
+    console.warn(
+      '  Warning: could not resolve what-framework in this project, so dist/package.json ' +
+      'does not declare it. A container build will fail to resolve `what-framework/server` ' +
+      'from the emitted API route bundles.',
+    );
   }
 
+  if (hasWsRoutes) deps.ws = '8.18.0';
+
+  const merged: Record<string, unknown> = { ...existing, type: 'module' };
+  if (Object.keys(deps).length > 0) merged.dependencies = deps;
+
   await writeFile(pkgPath, JSON.stringify(merged, null, 2) + '\n', 'utf8');
+}
+
+/** The exact what-framework version installed in the project, or null. */
+function resolveWhatFrameworkVersion(projectRequire: NodeJS.Require): string | null {
+  try {
+    const manifest = projectRequire('what-framework/package.json') as { version?: string };
+    return typeof manifest.version === 'string' ? manifest.version : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Emit Dockerfile and fly.toml into dist/ when the project has hot routes.
+ */
+async function emitHotDeployTemplates(
+  distDir: string,
+  appName: string,
+): Promise<void> {
+  const { writeFile, mkdir } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+
+  await mkdir(distDir, { recursive: true });
+
+  // Dockerfile
+  await writeFile(join(distDir, 'Dockerfile'), DOCKERFILE_HOT, 'utf8');
+
+  // fly.toml — replace {{APP_NAME}} placeholder
+  const flyToml = FLY_TOML_TMPL.replace('{{APP_NAME}}', appName);
+  await writeFile(join(distDir, 'fly.toml'), flyToml, 'utf8');
 }
 
 export async function buildCommand(_args: string[]): Promise<void> {
@@ -408,15 +459,20 @@ export async function buildCommand(_args: string[]): Promise<void> {
 
   // 9. Emit hot deploy templates when the project has hot routes
   const hotRoutes = manifest.api.filter(r => r.kind === 'hot');
+  const hasWsRoutes = hotRoutes.some(r => r.hasWebsocket === true);
+  const distDir = join(root, 'dist');
+
+  // Always: the emitted bundles import `what-framework` at runtime whether or
+  // not the project has hot routes.
+  await emitDeployPackageJson(distDir, root, hasWsRoutes);
+
   if (hotRoutes.length > 0) {
     const { basename } = await import('node:path');
     const rawName = basename(root);
     // sanitize to lowercase [a-z0-9-], truncate to Fly's ~30-char DNS label limit,
     // then strip any trailing dashes introduced by truncation
     const appName = rawName.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30).replace(/-+$/, '') || 'vura-app';
-    const hasWsRoutes = hotRoutes.some(r => r.hasWebsocket === true);
-    const distDir = join(root, 'dist');
-    await emitHotDeployTemplates(distDir, appName, hasWsRoutes);
+    await emitHotDeployTemplates(distDir, appName);
     console.log(`  Emitted dist/Dockerfile, dist/fly.toml, dist/package.json (app: ${appName}${hasWsRoutes ? ', ws: true' : ''})`);
   }
 

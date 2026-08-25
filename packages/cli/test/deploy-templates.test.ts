@@ -133,8 +133,41 @@ export async function GET(_req: Request): Promise<Response> {
 
     await runBuild(root);
 
-    // No dist/package.json for serverless-only (no hot routes → no template emission)
-    expect(existsSync(join(root, 'dist', 'package.json')), 'dist/package.json should NOT exist for serverless-only').toBe(false);
+    // dist/package.json is written for EVERY build, not just hot ones: the
+    // emitted route bundles keep `what-framework` external, so the file has to
+    // declare it or `npm install --omit=dev` in the container produces an image
+    // that dies on the first request. `ws` is the part that is hot-only.
+    const pkgPath = join(root, 'dist', 'package.json');
+    expect(existsSync(pkgPath), 'dist/package.json should exist for serverless-only').toBe(true);
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    expect(pkg.type).toBe('module');
+    expect(pkg.dependencies?.ws, 'ws is only needed by websocket hot routes').toBeUndefined();
+  }, 15000);
+
+  it('pins what-framework in dist/package.json to the version the project resolved', async () => {
+    const root = mkdtempSync(join(TMPDIR, 'vura-deploy-whatver-'));
+    tempRoots.add(root);
+    mkdirSync(join(root, 'src', 'api'), { recursive: true });
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }) + '\n');
+    // A version string that exists nowhere else, so this can only pass by
+    // reading the copy installed in THIS project.
+    mkdirSync(join(root, 'node_modules', 'what-framework'), { recursive: true });
+    writeFileSync(
+      join(root, 'node_modules', 'what-framework', 'package.json'),
+      JSON.stringify({ name: 'what-framework', version: '9.9.9-fixture', type: 'module' }) + '\n',
+    );
+    writeFileSync(join(root, 'src', 'api', 'health.ts'), `
+export async function GET(_req: Request): Promise<Response> {
+  return new Response('ok');
+}
+`);
+
+    await runBuild(root);
+
+    const pkg = JSON.parse(readFileSync(join(root, 'dist', 'package.json'), 'utf8'));
+    // Pinned, not a range: the container must run the What the app was built
+    // and tested against, not whatever `latest` is on deploy day.
+    expect(pkg.dependencies?.['what-framework']).toBe('9.9.9-fixture');
   }, 15000);
 
   it('includes ws pinned to exact 8.18.0 in dist/package.json when hot route has websocket', async () => {
