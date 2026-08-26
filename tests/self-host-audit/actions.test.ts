@@ -204,9 +204,11 @@ describe('V5: errors cross the real bundle boundary intact', () => {
   });
 
   it('keeps a thrown notFound() a 404 from an API route as well', async () => {
-    // Vura's HttpError is not Celsian's, so Celsian's instanceof branch misses
-    // it and the status survives on the structural `error.statusCode` fallback.
-    // Pinned because it is a dependency's behaviour holding up a documented one.
+    // Vura's HttpError is not Celsian's, so Celsian's `instanceof` branch
+    // misses it and its default handler would make this a 500. Vura registers
+    // a trailing onError hook that recognises its own errors by brand and
+    // answers with their status. Pinned because it runs through the real
+    // bundle split, where `instanceof` fails against Vura's own class too.
     const res = await fetch(`${base()}/api/boom`);
     expect(res.status).toBe(404);
     expect((await res.json() as { error: string }).error).toBe('No such thing');

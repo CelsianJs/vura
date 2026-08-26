@@ -65,7 +65,7 @@ export async function POST(req: CelsianRequest, reply: CelsianReply) {
   // req.parsedQuery is the validated+coerced query ({ page: number }) —
   // z.coerce turned the raw "2" string into a real number.
   const { page } = req.parsedQuery as { page: number };
-  // req.query stays the raw strings (e.g. req.query.page === '2').
+  // req.query holds the same validated values (req.query.page === 2).
   const order = await db.orders.create(req.parsedBody);
   return reply.status(201).json(order);
 }
@@ -75,8 +75,11 @@ export async function POST(req: CelsianRequest, reply: CelsianReply) {
 `req.parsedBody` is the validated, typed body. Query params work the same
 way: invalid requests get a 400, and the validated+coerced result is on
 `req.parsedQuery` (numbers from `z.coerce` arrive as real numbers).
-`req.query` is left untouched — it always holds the
-raw string values from the URL. `zod` is a
+Once a query schema has run, `req.query` holds those same validated values:
+reading the ergonomic property never hands back input that skipped the schema
+you declared. `req.parsedQuery` is the explicitly-typed alias. Routes with no
+query schema are unaffected, and `req.query` there is the raw strings from the
+URL, as always. `zod` is a
 peer dependency — install it once per project (`npm install zod`). Any
 Zod-compatible library works.
 

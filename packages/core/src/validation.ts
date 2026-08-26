@@ -253,11 +253,14 @@ export function validateRequest<
   req.parsedBody = result.data!.body;
   // body is shadowed via defineProperty by applyThenCompat; use cast for legacy compat path
   (req as any).body = result.data!.body;
-  // Match the Node/celsian runtime: req.query keeps the raw strings, the
-  // validated+coerced result is surfaced on req.parsedQuery — but only when
-  // the schema actually declares a query (mirrors the adapter templates).
+  // Match the celsian runtime: once a query schema has run, `req.query` holds
+  // the validated+coerced output, not the raw strings. Reading the ergonomic
+  // property must never hand back input that skipped the schema you declared.
+  // `req.parsedQuery` is the explicitly-typed alias. Only assigned when the
+  // schema actually declares a query (mirrors the adapter templates).
   if (schema.query) {
     req.parsedQuery = result.data!.query;
+    (req as any).query = result.data!.query;
   }
   req.params = result.data!.params as Record<string, string>;
   return null;

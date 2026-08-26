@@ -407,7 +407,10 @@ function validateRequest(req, schema) {
   if (schema.query) {
     const result = schema.query.safeParse(req.query);
     if (!result.success) errors.push(validationIssues('query', result.error));
-    else req.parsedQuery = result.data;
+    // Match the celsian runtime: the validated+coerced output replaces
+    // req.query, so reading it never hands back input that skipped the schema.
+    // req.parsedQuery is the explicitly-typed alias.
+    else { req.parsedQuery = result.data; req.query = result.data; }
   }
   if (schema.params) {
     const result = schema.params.safeParse(req.params);
@@ -496,7 +499,13 @@ export default {
       if (responseBody === null) result = await handlerFn(req, reply);
     } catch (error) {
       hadError = true;
-      statusCode = error && error.statusCode ? error.statusCode : 500;
+      // Only an error Vura constructed may choose its own status. A library
+      // error that happens to carry a statusCode must not be able to pick one
+      // and, by picking a non-500, opt itself out of the sanitisation below —
+      // that is how a connection string ends up on the wire. The brand is
+      // Symbol.for-keyed because every bundle inlines its own copy of core, so
+      // an instanceof check is false for exactly the errors this must allow.
+      statusCode = error && error[Symbol.for('vura.http-error')] === true && error.statusCode ? error.statusCode : 500;
       const handled = await runOnError(error, req, reply, lifecycleHooks.onError);
       if (!handled.handled && responseBody === null) {
         responseBody = JSON.stringify({

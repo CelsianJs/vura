@@ -130,6 +130,18 @@ describe('A1.4 success metric', () => {
     //   (status is spent after it), why a lost reader is a disconnect and not a
     //   failure, and why the transfer encoding is left to the host.
     //   +~241 → actual 9631. Ceiling 9700 leaves ~69 headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(9700);
+    // Celsian 0.6 alignment (2026-08-25): Vura now decides the HTTP status of
+    //   its own errors instead of relying on the host framework to infer one.
+    //   0.6 stopped honouring a bare `error.statusCode` (a driver error must
+    //   not pick its own status), which flattened every `throw notFound()` from
+    //   an API route to a 500. errors.ts gains a `Symbol.for` brand and
+    //   `isHttpError()` — a brand rather than `instanceof`, because each server
+    //   bundle inlines its own copy of core — and api-app.ts registers a
+    //   trailing onError hook that answers with the error's own status. Most of
+    //   the addition is the comment recording why a structural check would
+    //   re-open the hole Celsian just closed, and the same brand gate in the
+    //   generated serverless entry, which had the identical hole. +~76 →
+    //   actual 9707. Ceiling 9760 leaves ~53 headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(9760);
   });
 });

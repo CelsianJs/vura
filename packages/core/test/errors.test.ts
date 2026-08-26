@@ -17,6 +17,7 @@ import {
   setGlobalErrorHandler,
   getGlobalErrorHandler,
   reportError,
+  isHttpError,
 } from '../src/errors.js';
 import type { ThenReply } from '../src/handler.js';
 import { createLogger } from '../src/logger.js';
@@ -395,5 +396,66 @@ describe('ErrorCode constants', () => {
     expect(ErrorCode.HANDLER_ERROR).toBe('HANDLER_ERROR');
     expect(ErrorCode.HOOK_ERROR).toBe('HOOK_ERROR');
     expect(ErrorCode.CONFIG_ERROR).toBe('CONFIG_ERROR');
+  });
+});
+
+describe('cross-bundle HttpError identity', () => {
+  // Every server bundle inlines its own copy of core, so an HttpError thrown
+  // by dist/server/api/x.js is a different class object from the one the
+  // runtime that formats it closes over. These tests stand in for that split
+  // by building an error that is structurally an HttpError but is not an
+  // instance of *this* module's class.
+  function foreignCopyOfHttpError(statusCode: number, message: string): Error {
+    class HttpError extends Error {
+      readonly [Symbol.for('vura.http-error')] = true;
+      readonly statusCode = statusCode;
+      readonly code = 'NOT_FOUND';
+      constructor() {
+        super(message);
+        this.name = 'HttpError';
+      }
+      toJSON(isDev: boolean) {
+        return { error: !isDev && statusCode >= 500 ? 'Internal Server Error' : message, code: this.code };
+      }
+    }
+    return new HttpError();
+  }
+
+  it('brands every HttpError with the registry symbol', () => {
+    const err = notFound('gone') as unknown as Record<symbol, unknown>;
+    expect(err[Symbol.for('vura.http-error')]).toBe(true);
+  });
+
+  it('isHttpError recognises an HttpError from another copy of core', () => {
+    const foreign = foreignCopyOfHttpError(404, 'No such thing');
+    expect(foreign instanceof HttpError).toBe(false);
+    expect(isHttpError(foreign)).toBe(true);
+  });
+
+  it('formatErrorResponse keeps the status of a cross-bundle HttpError', () => {
+    const foreign = foreignCopyOfHttpError(404, 'No such thing');
+    const { statusCode, body } = formatErrorResponse(foreign, 'production');
+    expect(statusCode).toBe(404);
+    expect(body.error).toBe('No such thing');
+  });
+
+  it('rejects a library error that merely carries a numeric statusCode', () => {
+    // The reason the check is a brand and not `typeof e.statusCode === 'number'`:
+    // a driver error must not be able to pick its own status or skip the
+    // production message sanitisation that lives in HttpError.toJSON.
+    const driverError = Object.assign(new Error('connect ECONNREFUSED 10.0.0.4:5432'), {
+      statusCode: 400,
+      code: 'ECONNREFUSED',
+    });
+    expect(isHttpError(driverError)).toBe(false);
+    const { statusCode, body } = formatErrorResponse(driverError, 'production');
+    expect(statusCode).toBe(500);
+    expect(JSON.stringify(body)).not.toContain('10.0.0.4');
+  });
+
+  it('is not a plain enumerable property, so it never reaches the wire', () => {
+    const err = notFound('gone');
+    expect(Object.keys(err)).not.toContain('vura.http-error');
+    expect(JSON.stringify(err.toJSON(true))).not.toContain('vura.http-error');
   });
 });

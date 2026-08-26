@@ -194,6 +194,8 @@ export {
   getGlobalErrorHandler,
   reportError,
   getErrorMode,
+  isHttpError,
+  VURA_HTTP_ERROR,
 } from './errors.js';
 
 export type {

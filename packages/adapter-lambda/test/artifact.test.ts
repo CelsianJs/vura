@@ -165,7 +165,55 @@ console.log(JSON.stringify({ invalid, blocked, ok }));
   }
 });
 
-it('query coercion: handler sees coerced req.parsedQuery while req.query stays raw strings', async () => {
+it('lets only Vura errors choose their own status', async () => {
+  // A library error that happens to carry a statusCode must not pick its own
+  // HTTP status: picking a non-500 also opts it out of the sanitisation below,
+  // which is how a connection string reaches the client.
+  const root = mkdtempSync(join(tmpdir(), 'vura-lambda-status-'));
+  try {
+    mkdirSync(join(root, 'src', 'api'), { recursive: true });
+    writeFileSync(join(root, 'src', 'api', 'echo.ts'), `import { notFound } from '@celsian/vura-core';
+
+export async function GET() {
+  throw notFound('No such thing');
+}
+export async function POST() {
+  const err = new Error('connect ECONNREFUSED postgres://admin:hunter2@db.internal:5432');
+  err.statusCode = 400;
+  throw err;
+}
+`);
+
+    const outDir = join(root, 'dist');
+    await lambdaAdapter().buildEnd({
+      serverEntry: join(outDir, 'server', 'entry.js'),
+      clientDir: join(outDir, 'client'),
+      manifest: manifest([route({ methods: ['GET', 'POST'] })]),
+      projectRoot: root,
+      outDir,
+    });
+
+    const result = runModuleJson(join(outDir, 'lambda', 'api_echo_get', 'index.js'), `
+function event(method) { return {
+  version: '2.0', routeKey: method + ' /api/echo', rawPath: '/api/echo', rawQueryString: '',
+  headers: { host: 'example.com' },
+  isBase64Encoded: false,
+  requestContext: { domainName: 'example.com', http: { method, path: '/api/echo' } },
+}; }
+const deliberate = await mod.handler(event('GET'), {});
+const accidental = await mod.handler(event('POST'), {});
+console.log(JSON.stringify({ deliberate, accidental }));
+`);
+    expect(result.deliberate.statusCode).toBe(404);
+    expect(result.accidental.statusCode).toBe(500);
+    expect(result.accidental.body).not.toContain('hunter2');
+    expect(result.accidental.body).not.toContain('db.internal');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('query coercion: the validated output lands on both req.parsedQuery and req.query', async () => {
   const root = mkdtempSync(join(tmpdir(), 'vura-lambda-query-'));
   try {
     mkdirSync(join(root, 'src', 'api'), { recursive: true });
@@ -216,10 +264,12 @@ console.log(JSON.stringify({ ok, invalid }));
 `);
     expect(result.ok.statusCode).toBe(200);
     const okBody = JSON.parse(result.ok.body);
-    // req.query is untouched — raw string from the event
-    expect(okBody.rawPage).toBe('2');
-    expect(okBody.rawType).toBe('string');
-    // coerced result lands on req.parsedQuery (matches the Node/celsian runtime)
+    // req.query is the validated output, not the raw string from the event:
+    // reading the ergonomic property must not hand back input that skipped the
+    // schema (matches the celsian runtime).
+    expect(okBody.rawPage).toBe(2);
+    expect(okBody.rawType).toBe('number');
+    // the same value is on req.parsedQuery, the explicitly-typed alias
     expect(okBody.parsedQuery).toEqual({ page: 2 });
     expect(okBody.parsedType).toBe('number');
     // req.validated.query still carries the coerced data

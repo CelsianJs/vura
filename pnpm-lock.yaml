@@ -143,11 +143,11 @@ importers:
   packages/core:
     dependencies:
       '@celsian/core':
-        specifier: ^0.5.2
-        version: 0.5.4
+        specifier: ^0.6.1
+        version: 0.6.1(ws@8.21.0)
       '@celsian/jwt':
-        specifier: ^0.5.2
-        version: 0.5.4
+        specifier: ^0.6.1
+        version: 0.6.1(ws@8.21.0)
       '@celsian/vura-compiler':
         specifier: workspace:0.7.0
         version: link:../compiler
@@ -268,16 +268,21 @@ packages:
     resolution: {integrity: sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg==}
     engines: {node: '>=6.9.0'}
 
-  '@celsian/core@0.5.4':
-    resolution: {integrity: sha512-cfcWUcmWhqUcXuJkyA5I/rSLuUCQ1NguNHpkV3Uh9hDQP5cRPuPUeJpOAs6b+9qUF4U7eGf5SLUS2BqsDzuyGw==}
+  '@celsian/core@0.6.1':
+    resolution: {integrity: sha512-b2pzs41cAKNQaIi1zzDf3pVfMf/Rm2iKXhYwmmWgrwgx0TWeYbYSHJkLl/kQM5WNmII1q7aKPdP0WtSZFPUBvw==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      ws: ^8.18.0
+    peerDependenciesMeta:
+      ws:
+        optional: true
+
+  '@celsian/jwt@0.6.1':
+    resolution: {integrity: sha512-qE+LcpwehBYikfcqO4LuIyu+Up/6F1v2zvsHCpWmTgCU3PHHX/Um7/9wYMnEuN8bL1WcVCyRKLyDHd2TtDSdSA==}
     engines: {node: '>=20'}
 
-  '@celsian/jwt@0.5.4':
-    resolution: {integrity: sha512-2+UNXcJppjDuxOulCSDuFBJRqJbbhYCAL/MGoJV9jMNCEMtV8whnqOA0XvLjZu8f3xab7mNDblH91vBT2awJqg==}
-    engines: {node: '>=20'}
-
-  '@celsian/schema@0.5.4':
-    resolution: {integrity: sha512-xq5OeL++gO6Dau7W69yFAEmQAMbKoLJiSIUQtJitePERbR8UXGL8vBoyqzR2nmngsnuqGh5KPXc1GI6JSrhjcQ==}
+  '@celsian/schema@0.6.1':
+    resolution: {integrity: sha512-ZWCr3S+adLxzW329/sHGYqNovZwVIcnAKMWahGx1fj78mmrinnxaJPYJgDGsInzgIrkFyc3m2bINcF7P1ahM3g==}
     engines: {node: '>=20'}
     peerDependencies:
       '@sinclair/typebox': '>=0.30.0'
@@ -2012,24 +2017,27 @@ snapshots:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
 
-  '@celsian/core@0.5.4':
+  '@celsian/core@0.6.1(ws@8.21.0)':
     dependencies:
-      '@celsian/schema': 0.5.4
+      '@celsian/schema': 0.6.1
+    optionalDependencies:
+      ws: 8.21.0
     transitivePeerDependencies:
       - '@sinclair/typebox'
       - valibot
       - zod
 
-  '@celsian/jwt@0.5.4':
+  '@celsian/jwt@0.6.1(ws@8.21.0)':
     dependencies:
-      '@celsian/core': 0.5.4
+      '@celsian/core': 0.6.1(ws@8.21.0)
       jose: 6.2.3
     transitivePeerDependencies:
       - '@sinclair/typebox'
       - valibot
+      - ws
       - zod
 
-  '@celsian/schema@0.5.4': {}
+  '@celsian/schema@0.6.1': {}
 
   '@cloudflare/kv-asset-handler@0.5.0': {}
 

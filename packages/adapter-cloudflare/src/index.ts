@@ -300,9 +300,10 @@ function validateRequest(req, schema) {
   if (schema.query) {
     const r = schema.query.safeParse(req.query);
     if (!r.success) errors.push(validationIssues('query', r.error));
-    // Match the Node/celsian runtime: req.query keeps the raw strings,
-    // the validated+coerced result is surfaced on req.parsedQuery.
-    else req.parsedQuery = r.data;
+    // Match the celsian runtime: the validated+coerced output replaces
+    // req.query, so reading it never hands back input that skipped the schema.
+    // req.parsedQuery is the explicitly-typed alias.
+    else { req.parsedQuery = r.data; req.query = r.data; }
   }
   if (schema.params) {
     const r = schema.params.safeParse(req.params);
@@ -392,7 +393,10 @@ export default {
       result = await handlerFn(req, reply);
     } catch (err) {
       hadError = true;
-      statusCode = err && err.statusCode ? err.statusCode : 500;
+      // Only an error Vura constructed may choose its own status — see the
+      // note in core's generateFunctionEntry. Brand-keyed rather than an
+      // instanceof check because each bundle inlines its own copy of core.
+      statusCode = err && err[Symbol.for('vura.http-error')] === true && err.statusCode ? err.statusCode : 500;
       const errorResult = await runOnError(err, req, reply, routeHooks);
       if (!errorResult.handled && responseBody === null) {
         responseBody = JSON.stringify({ error: statusCode === 500 ? 'Internal Server Error' : (errorResult.error?.message || 'Request failed') });

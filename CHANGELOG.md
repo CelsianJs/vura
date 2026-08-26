@@ -36,6 +36,22 @@
 
 ### Changed
 
+- **`@celsian/core` and `@celsian/jwt` now require `^0.6.1`** (was `^0.5.2`).
+  0.6 fixes plugin hooks never running for an un-prefixed `app.register()`,
+  adds a durable task queue, and validates a bare `schema.response`. Two of its
+  changes reach Vura's own contract and are described below.
+
+- **After a query schema runs, `req.query` holds the validated output.** It used
+  to keep the raw strings from the URL, with the coerced values only on
+  `req.parsedQuery`. Reading the ergonomic property therefore handed back input
+  that had skipped the schema you declared: `req.query.page` was the
+  attacker-controlled string even on a route that validated `page` as a positive
+  integer. `req.parsedQuery` is unchanged and is still the explicitly-typed
+  alias. Routes that declare no query schema are unaffected — `req.query` there
+  is the raw strings, as always. This follows Celsian 0.6.0, and Vura's own
+  runtimes (the Node server, the Lambda adapter and the Cloudflare adapter) were
+  changed to match so every runtime behaves the same way.
+
 - **`what-framework` and `what-isr` now require `^0.13.4`** (was `^0.13.2`).
   0.13.4 fixes a resolve-pass bug that could render one `<Suspense>` boundary's
   data inside another, which streaming depends on.
@@ -50,6 +66,36 @@
   duplicate: one copy was fixed and the other was not.
 
 ### Fixed
+
+- **A `throw notFound()` from an API route is a 404 again.** Celsian 0.6 stopped
+  reading a bare `error.statusCode` when deciding a status, deliberately: a
+  database driver error that happens to carry `statusCode: 400` must not be able
+  to pick its own HTTP status and skip the sanitisation that keeps its message
+  off the wire. Vura's `HttpError` is a different class from Celsian's, so it
+  was landing on that path and every deliberate 404, 403 or 409 thrown from an
+  API route was flattened into a 500.
+
+  Vura now decides the status of its own errors instead of relying on the host
+  framework to infer one. `HttpError` carries a `Symbol.for('vura.http-error')`
+  brand and a new `isHttpError()` recognises it — a brand rather than
+  `instanceof`, because each server bundle inlines its own copy of core, so an
+  error thrown by `dist/server/api/x.js` is not an instance of the class the
+  code formatting it closes over. Errors Vura did not construct are untouched
+  and still take Celsian's sanitised 500 path.
+
+  `formatErrorResponse()` gained the same brand check, which fixes the same
+  silent flattening on any path that formats an error from another bundle.
+
+- **A library error could pick its own HTTP status in a serverless function.**
+  The generated serverless entry, the Lambda adapter and the Cloudflare adapter
+  all took any `error.statusCode` at face value. A database driver error that
+  carries `statusCode: 400` therefore chose a 400, and because the sanitisation
+  in those runtimes only applies to a 500, its message went out with it — a
+  connection string on the wire. This is the hole Celsian closed in 0.6 and the
+  reason a deliberate `notFound()` needed the brand above; all three runtimes
+  now gate on it too, so every runtime agrees on which errors may choose a
+  status. Vura's own `HttpError` (and everything from `notFound()`,
+  `forbidden()` and the other factories) is unaffected.
 
 - **`vura build` shipped every bundle it had ever built.** Client and hybrid
   page bundles carry a content hash in the filename, so editing a page emits a
