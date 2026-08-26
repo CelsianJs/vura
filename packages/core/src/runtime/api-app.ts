@@ -13,6 +13,7 @@
 import { createApp, type CelsianApp, type CelsianRequest, type CelsianReply } from '@celsian/core';
 import { dispatchAction, issueActionToken, type ActionRequestLike } from './actions.js';
 import { applyThenCompat } from '../compat.js';
+import { getErrorMode, isHttpError } from '../errors.js';
 import type { ApiRoute, HttpMethod } from '../manifest.js';
 
 export interface RuntimeApiRoute extends ApiRoute {
@@ -93,6 +94,7 @@ export function createApiApp(opts: ApiAppOptions): CelsianApp {
   // logging and we don't want console noise in unit tests.
   const app = createApp({ logger: false });
 
+
   // ─── Global hooks ───
   // addHook lifecycle names verified against celsian/packages/core/src/types.ts
   // lines 26-34: onRequest, preParsing, preValidation, preHandler,
@@ -113,6 +115,28 @@ export function createApiApp(opts: ApiAppOptions): CelsianApp {
     // onError signature: (error, request, reply) — cast matches OnErrorHandler
     app.addHook('onError', fn as (err: Error, req: CelsianRequest, reply: CelsianReply) => void | Promise<void>);
   }
+
+  // Vura owns the HTTP status of its own errors rather than relying on the host
+  // framework to infer one. Celsian's default handler recognises only
+  // `instanceof HttpError` against *its* class and gives everything else a 500
+  // — deliberately, so that a driver error carrying `statusCode: 400` cannot
+  // pick its own status or skip production sanitisation. A Vura `HttpError` is
+  // a different class (a different package, and a different inlined copy per
+  // server bundle, so `instanceof` fails even against Vura's own), and without
+  // this hook a `throw notFound()` from an API route left as a 500.
+  //
+  // Registered last, so a user's own onError hooks still get first refusal;
+  // returning a non-Response falls through to Celsian's default handler, so
+  // Celsian's errors, validation failures and unknown throws are untouched.
+  // Only errors Vura itself constructed carry the brand, and the decision
+  // about which messages are safe to send stays inside the error's `toJSON`.
+  app.addHook('onError', ((error: Error) => {
+    if (!isHttpError(error)) return undefined;
+    return new Response(JSON.stringify(error.toJSON(getErrorMode() === 'development')), {
+      status: error.statusCode,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    });
+  }) as unknown as (err: Error, req: CelsianRequest, reply: CelsianReply) => void);
 
   // Wrap each vura onResponse hook to receive a synthesized third arg:
   //   { statusCode: reply.statusCode, durationMs: Date.now() - __vuraStart, hadError: false }

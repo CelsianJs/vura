@@ -52,6 +52,14 @@ export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode] | string
 // ─── HTTP Error Class ───
 
 /**
+ * Registry-keyed brand stamped on every `HttpError`. Exported so that a
+ * hand-rolled error can opt into the same handling, and so tests can assert
+ * the brand is present.
+ */
+export const VURA_HTTP_ERROR = Symbol.for('vura.http-error');
+
+
+/**
  * Structured HTTP error with code, status, and optional details.
  * Throw this from handlers for clean error responses.
  *
@@ -61,6 +69,19 @@ export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode] | string
  * ```
  */
 export class HttpError extends Error {
+  /**
+   * Cross-bundle identity brand.
+   *
+   * `instanceof HttpError` is false for exactly the errors it is meant to
+   * recognise: every server bundle inlines its own copy of core, so an
+   * HttpError thrown by `dist/server/api/x.js` is a different class object
+   * from the one `dist/server/entry.js` closes over. A `Symbol.for` key is
+   * the same symbol in every copy, so the brand survives the split.
+   *
+   * Use `isHttpError()` rather than reading this directly.
+   */
+  public readonly [VURA_HTTP_ERROR] = true;
+
   public readonly statusCode: number;
   public readonly code: ErrorCodeValue;
   public readonly details?: unknown;
@@ -104,6 +125,22 @@ export class HttpError extends Error {
 
     return body;
   }
+}
+
+/**
+ * Is this a Vura `HttpError`, including one built by a different inlined copy
+ * of core?
+ *
+ * Brand-based rather than `instanceof` (see `VURA_HTTP_ERROR`), and
+ * deliberately narrower than "has a numeric `statusCode`": a database driver
+ * error carrying `statusCode: 400` must not be able to pick its own HTTP
+ * status or skip production sanitisation.
+ */
+export function isHttpError(error: unknown): error is HttpError {
+  return (
+    error instanceof Error &&
+    (error as { [VURA_HTTP_ERROR]?: unknown })[VURA_HTTP_ERROR] === true
+  );
 }
 
 // ─── Convenience Error Factories ───
@@ -170,8 +207,9 @@ export function formatErrorResponse(
 ): { statusCode: number; body: Record<string, unknown> } {
   const isDev = (mode ?? getErrorMode()) === 'development';
 
-  // HttpError — use its structured data
-  if (error instanceof HttpError) {
+  // HttpError — use its structured data. Branded rather than `instanceof`, so
+  // an HttpError that crossed a server-bundle boundary is still recognised.
+  if (isHttpError(error)) {
     return {
       statusCode: error.statusCode,
       body: error.toJSON(isDev),

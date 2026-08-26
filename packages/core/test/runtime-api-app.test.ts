@@ -126,7 +126,7 @@ describe('createApiApp', () => {
     expect(res.status).toBe(200);
   });
 
-  it('query coercion: handler sees coerced req.parsedQuery while req.query stays raw strings', async () => {
+  it('query coercion: both req.parsedQuery and req.query hold the validated output', async () => {
     let captured: { parsedQuery: unknown; rawPage: unknown } | undefined;
     const coerceRoute = {
       urlPattern: '/api/x', methods: ['GET'] as const, kind: 'serverless' as const,
@@ -145,8 +145,9 @@ describe('createApiApp', () => {
     // Coerced result is surfaced on req.parsedQuery — a real number, not a string
     expect(captured?.parsedQuery).toEqual({ page: 2 });
     expect(typeof (captured?.parsedQuery as any).page).toBe('number');
-    // Raw query is untouched — still the original string
-    expect(captured?.rawPage).toBe('2');
+    // …and req.query is the same validated output, not the raw string. Reading
+    // the ergonomic property must not hand back input that skipped the schema.
+    expect(captured?.rawPage).toBe(2);
   });
 
   it('query coercion: invalid query → 400, handler never runs', async () => {
@@ -180,5 +181,80 @@ describe('createApiApp', () => {
     const app = createApiApp({ routes: [getBodyRoute as any] });
     await app.handle(new Request('http://localhost/api/bodycheck'));
     expect(capturedBody).toBeUndefined();
+  });
+});
+
+describe('createApiApp error handling', () => {
+  // The Celsian app underneath is a separate package with its own HttpError
+  // class, and Vura server bundles each inline their own copy of core, so the
+  // error that arrives is never `instanceof` anything the host recognises.
+  // These build that error the way the runtime really sees it.
+  function crossBundleHttpError(statusCode: number, message: string, code = 'NOT_FOUND'): Error {
+    return Object.assign(new Error(message), {
+      [Symbol.for('vura.http-error')]: true,
+      name: 'HttpError',
+      statusCode,
+      code,
+      toJSON: (isDev: boolean) => ({
+        error: !isDev && statusCode >= 500 ? 'Internal Server Error' : message,
+        code,
+      }),
+    });
+  }
+
+  const throwingRoute = (error: unknown) => ({
+    urlPattern: '/api/boom', methods: ['GET'] as const, kind: 'serverless' as const,
+    filePath: 'src/api/boom.ts', config: {},
+    module: { GET: async () => { throw error; } },
+  });
+
+  it('keeps the status of a thrown HttpError instead of flattening it to 500', async () => {
+    const app = createApiApp({ routes: [throwingRoute(crossBundleHttpError(404, 'No such thing')) as any] });
+    const res = await app.handle(new Request('http://localhost/api/boom'));
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'No such thing', code: 'NOT_FOUND' });
+  });
+
+  it('answers application/json', async () => {
+    const app = createApiApp({ routes: [throwingRoute(crossBundleHttpError(409, 'Already exists', 'CONFLICT')) as any] });
+    const res = await app.handle(new Request('http://localhost/api/boom'));
+    expect(res.status).toBe(409);
+    expect(res.headers.get('content-type')).toContain('application/json');
+  });
+
+  it('leaves an unbranded error a sanitised 500', async () => {
+    // A driver error carrying a numeric statusCode must not pick its own status.
+    const driverError = Object.assign(new Error('connect ECONNREFUSED 10.0.0.4:5432'), { statusCode: 400 });
+    const app = createApiApp({ routes: [throwingRoute(driverError) as any] });
+    const res = await app.handle(new Request('http://localhost/api/boom'));
+    expect(res.status).toBe(500);
+  });
+
+  it('gives a user onError hook first refusal', async () => {
+    let saw: unknown;
+    const app = createApiApp({
+      routes: [throwingRoute(crossBundleHttpError(404, 'No such thing')) as any],
+      globalHooks: {
+        onError: [((err: unknown) => {
+          saw = err;
+          return new Response('handled by the app', { status: 418 });
+        }) as any],
+      },
+    });
+    const res = await app.handle(new Request('http://localhost/api/boom'));
+    expect(res.status).toBe(418);
+    expect(await res.text()).toBe('handled by the app');
+    expect((saw as Error).message).toBe('No such thing');
+  });
+
+  it('still runs an observing onError hook that returns nothing', async () => {
+    let seen = 0;
+    const app = createApiApp({
+      routes: [throwingRoute(crossBundleHttpError(404, 'No such thing')) as any],
+      globalHooks: { onError: [(() => { seen += 1; }) as any] },
+    });
+    const res = await app.handle(new Request('http://localhost/api/boom'));
+    expect(seen).toBe(1);
+    expect(res.status).toBe(404);
   });
 });

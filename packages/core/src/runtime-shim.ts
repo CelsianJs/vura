@@ -57,7 +57,7 @@ export function vuraCoreRuntimeShimContents(options: RuntimeShimOptions = {}): s
   const ext = (mod: string) => coreModuleExt(mod, packageDir);
   const lines = [
     `export { defineConfig } from './config.${ext('config')}';`,
-    `export { HttpError, ErrorCode, badRequest, unauthorized, forbidden, notFound, methodNotAllowed, conflict, rateLimited, internalError, serviceUnavailable, formatErrorResponse, sendErrorResponse, renderErrorPage, setGlobalErrorHandler, getGlobalErrorHandler, reportError, getErrorMode } from './errors.${ext('errors')}';`,
+    `export { HttpError, ErrorCode, badRequest, unauthorized, forbidden, notFound, methodNotAllowed, conflict, rateLimited, internalError, serviceUnavailable, formatErrorResponse, sendErrorResponse, renderErrorPage, setGlobalErrorHandler, getGlobalErrorHandler, reportError, getErrorMode, isHttpError, VURA_HTTP_ERROR } from './errors.${ext('errors')}';`,
     `export { defineSchema, validate, withValidation, validateRequest } from './validation.${ext('validation')}';`,
     `export { HookRegistry, createHookRegistry, getHookRegistry, setDefaultHookRegistry, executeWithHooks } from './hooks.${ext('hooks')}';`,
   ];

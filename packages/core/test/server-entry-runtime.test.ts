@@ -255,6 +255,60 @@ export function DELETE(_req, reply) {
     }
   }, 10000);
 
+  it('lets only Vura errors choose their own status in a serverless function', async () => {
+    // The serverless entry used to take any `error.statusCode` at face value.
+    // A driver error that happens to carry one could then pick its own HTTP
+    // status, and picking a non-500 also opted it out of the message
+    // sanitisation — putting a connection string on the wire. Celsian closed
+    // the same hole in 0.6; the generated runtimes had to follow, or the same
+    // route would answer differently on a hot server and on a function.
+    const routeSource = `
+import { notFound } from '@celsian/vura-core';
+
+export function GET() {
+  throw notFound('No such thing');
+}
+export function POST() {
+  const err = new Error('connect ECONNREFUSED postgres://admin:hunter2@db.internal:5432');
+  err.statusCode = 400;
+  err.code = 'ECONNREFUSED';
+  throw err;
+}
+`;
+    const root = createTempProject();
+    writeModule(root, 'src/api/boom.ts', routeSource);
+    const route = {
+      filePath: 'src/api/boom.ts',
+      urlPattern: '/api/boom',
+      methods: ['GET', 'POST'],
+      kind: 'serverless' as const,
+      config: {},
+    };
+    const manifest: RouteManifest = {
+      api: [route],
+      pages: [],
+      layouts: [],
+      timestamp: new Date().toISOString(),
+    };
+
+    // Build so the function entry resolves @celsian/vura-core through the same
+    // runtime shim a real deploy uses — that is what makes the thrown error a
+    // different class object from the one the entry closes over.
+    const built = await build(manifest, {}, root);
+    const fnEntry = built.functions.find(f => f.route.filePath === 'src/api/boom.ts');
+    expect(fnEntry).toBeDefined();
+    const mod = await import(/* @vite-ignore */ pathToFileURL(fnEntry!.entryPath).href);
+
+    const deliberate = await mod.default.fetch(new Request('http://example.com/api/boom'));
+    expect(deliberate.status).toBe(404);
+
+    const accidental = await mod.default.fetch(new Request('http://example.com/api/boom', { method: 'POST' }));
+    const body = await accidental.text();
+    expect(accidental.status).toBe(500);
+    expect(body).not.toContain('hunter2');
+    expect(body).not.toContain('db.internal');
+  }, 30000);
+
   it('serves server pages marked stream as chunked full HTML responses', async () => {
     const root = createTempProject();
     // Phase B: write page source to src/ so build() bundles it into dist/server/pages/

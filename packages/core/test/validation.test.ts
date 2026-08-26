@@ -354,7 +354,7 @@ describe('validateRequest', () => {
     expect((req as any).validated).toBeUndefined();
   });
 
-  it('puts coerced query on req.parsedQuery and leaves req.query raw', () => {
+  it('puts the coerced query on both req.parsedQuery and req.query', () => {
     const coercingQuery = createMockSchema<{ page: number }>(data => {
       const n = Number((data as Record<string, unknown>).page);
       if (Number.isNaN(n)) return { success: false, error: 'Expected number' };
@@ -365,9 +365,11 @@ describe('validateRequest', () => {
 
     const error = validateRequest(req, schema);
     expect(error).toBeNull();
-    // raw query untouched — still the original string
-    expect(req.query).toEqual({ page: '2' });
-    // coerced result on parsedQuery (matches Node/celsian runtime)
+    // req.query is the validated output, not the raw string: reading the
+    // ergonomic property must not hand back input that skipped the schema
+    // (matches the celsian runtime).
+    expect(req.query).toEqual({ page: 2 });
+    // parsedQuery is the explicitly-typed alias
     expect(req.parsedQuery).toEqual({ page: 2 });
     expect(typeof (req.parsedQuery as { page: number }).page).toBe('number');
     // validated.query carries the coerced data
