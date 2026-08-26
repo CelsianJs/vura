@@ -29,7 +29,7 @@
     "@types/ws": "^8.5.14",
     "esbuild": "^0.28.1",
     "happy-dom": "^20.10.2",
-    "typescript": "^6.0.0",
+    "typescript": "^7.0.2",
     "vite": "^8.2.2",
     "vitest": "^4.1.10",
     "wrangler": "^4.125.0",
@@ -40,7 +40,7 @@
       "workerd"
     ],
     "overrides": {
-      "@types/node": "26.1.0",
+      "@types/node": "26.2.0",
       "js-yaml": "^4.3.1"
     }
   },
