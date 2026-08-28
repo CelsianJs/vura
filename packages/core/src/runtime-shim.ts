@@ -12,6 +12,12 @@
  * page that used the headline feature of that release failed to build with
  * `No matching export in "vura-core-runtime-shim"`. One list, imported three
  * times, cannot drift like that.
+ *
+ * One list can still fall behind the docs, and it did: eleven documented
+ * symbols across logging, auth, tasks and streaming were unusable in a built
+ * app for a full release cycle. `test/runtime-shim.test.ts` now bundles every
+ * `@celsian/vura-core` import the docs show, so a symbol becomes covered when
+ * somebody documents it rather than when somebody remembers this file.
  */
 
 import { existsSync } from 'node:fs';
@@ -60,6 +66,10 @@ export function vuraCoreRuntimeShimContents(options: RuntimeShimOptions = {}): s
     `export { HttpError, ErrorCode, badRequest, unauthorized, forbidden, notFound, methodNotAllowed, conflict, rateLimited, internalError, serviceUnavailable, formatErrorResponse, sendErrorResponse, renderErrorPage, setGlobalErrorHandler, getGlobalErrorHandler, reportError, getErrorMode, isHttpError, VURA_HTTP_ERROR } from './errors.${ext('errors')}';`,
     `export { defineSchema, validate, withValidation, validateRequest } from './validation.${ext('validation')}';`,
     `export { HookRegistry, createHookRegistry, getHookRegistry, setDefaultHookRegistry, executeWithHooks } from './hooks.${ext('hooks')}';`,
+    // enqueue reaches the task broker over `fetch` and imports nothing but
+    // errors.ts, so it is safe in a Worker and a Lambda alike. The Node-built-in
+    // groups below are not.
+    `export { enqueue } from './enqueue.${ext('enqueue')}';`,
   ];
 
   if (options.includeServerRuntime !== false) {
@@ -77,6 +87,14 @@ export function vuraCoreRuntimeShimContents(options: RuntimeShimOptions = {}): s
       `export { createVuraCache, revalidatePath, revalidateTag } from './runtime/cache.${ext('runtime/cache')}';`,
       `export { buildWhatRoutes, createPagesHandler, createVuraRenderRoute, createVuraStreamRoute, isStreamingPage } from './runtime/pages.${ext('runtime/pages')}';`,
       `export { runTaskOnce, buildTaskEnvelope } from './runtime/tasks.${ext('runtime/tasks')}';`,
+      // The three groups below are documented public API that a server file is
+      // told to import, and each reaches a Node built-in: logger and auth take
+      // node:crypto, streaming takes node:fs. That keeps them out of the base
+      // group, which the Cloudflare adapter bundles with `platform: 'neutral'`
+      // and no Node externals, where a built-in import fails to resolve at all.
+      `export { Logger, ChildLogger, getLogger, createLogger, setDefaultLogger } from './logger.${ext('logger')}';`,
+      `export { cookieSession, jwt, createJWTGuard } from './auth.${ext('auth')}';`,
+      `export { streamResponse, createSSEChannel, streamFile, getMimeType, parseRangeHeader } from './streaming.${ext('streaming')}';`,
     );
   }
 
