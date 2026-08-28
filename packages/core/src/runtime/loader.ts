@@ -248,6 +248,98 @@ export async function runLoaderChain(
 export const LOADER_PAYLOAD_ID = '__VURA_LOADER__';
 
 /**
+ * Name the first value under `path` that a JSON round-trip would not preserve,
+ * or null when the whole tree survives one.
+ *
+ * Surviving a round-trip is the exact correctness property a hybrid page needs.
+ * The server renders from the live object and the browser hydrates from
+ * `JSON.parse` of this payload, so a value that comes back different is two
+ * different renders wearing one component.
+ *
+ * `JSON.stringify` does not enforce that on its own. It throws only on cycles
+ * and BigInt: a function it silently *drops*, and a class instance it silently
+ * *flattens* to a plain object. A loader returning `{ fn }` therefore served a
+ * 200 whose payload had quietly lost the key the server had just rendered from,
+ * and one returning a class instance shipped the fields without the methods.
+ * Both are what this walk refuses, and both are what the error message has
+ * always promised it refused.
+ *
+ * Three allowances are deliberate:
+ *
+ *  - `Date` comes back as an ISO string rather than a Date. It is the one
+ *    documented exception. Timestamps are the most common non-primitive in
+ *    loader data, and rejecting them would break working apps over an idiom
+ *    every JSON API already relies on.
+ *  - `undefined` as an object property is dropped by JSON, and a dropped key
+ *    and a key holding `undefined` read identically (`data.x === undefined` on
+ *    both sides), so it costs nothing. Inside an array it becomes `null`, which
+ *    is a different value, so that one is refused.
+ *  - The same object reached twice is fine. JSON has never preserved identity
+ *    and `{ author: user, editor: user }` is ordinary data. Only a true cycle,
+ *    which cannot be written at all, is an error, so `ancestors` holds the
+ *    current path rather than everything visited.
+ *
+ * The walk costs one extra traversal of a payload `JSON.stringify` is about to
+ * traverse anyway, and loader payloads are inlined into the document, so they
+ * are small by construction.
+ */
+function findUnserializable(value: unknown, path: string, ancestors: Set<object>): string | null {
+  if (value === null) return null;
+
+  switch (typeof value) {
+    case 'string':
+    case 'boolean':
+      return null;
+    case 'number':
+      // NaN and Infinity are written as null, which is a different value.
+      return Number.isFinite(value) ? null : `\`${path}\` is ${String(value)}, which JSON writes as null`;
+    case 'function':
+      return `\`${path}\` is a function`;
+    case 'symbol':
+      return `\`${path}\` is a symbol`;
+    case 'bigint':
+      return `\`${path}\` is a bigint`;
+    case 'undefined':
+      // Allowed as an object property; the array branch below refuses it.
+      return null;
+  }
+
+  const obj = value as object;
+  if (ancestors.has(obj)) return `\`${path}\` closes a circular reference`;
+  if (obj instanceof Date) return null;
+
+  if (Array.isArray(obj)) {
+    ancestors.add(obj);
+    for (let i = 0; i < obj.length; i++) {
+      // A hole and an explicit undefined both come back as null.
+      if (obj[i] === undefined) return `\`${path}[${i}]\` is undefined, which JSON writes as null inside an array`;
+      const found = findUnserializable(obj[i], `${path}[${i}]`, ancestors);
+      if (found) return found;
+    }
+    ancestors.delete(obj);
+    return null;
+  }
+
+  // Anything carrying its own prototype is a class instance: after a round-trip
+  // its fields survive and its methods are gone, so the browser hydrates from
+  // an object that only looks like the one the server rendered.
+  // `Object.create(null)` has no prototype and is plain data.
+  const proto = Object.getPrototypeOf(obj) as object | null;
+  if (proto !== Object.prototype && proto !== null) {
+    const name = (obj as { constructor?: { name?: string } }).constructor?.name;
+    return `\`${path}\` is a ${name ?? 'class'} instance`;
+  }
+
+  ancestors.add(obj);
+  for (const [key, item] of Object.entries(obj)) {
+    const found = findUnserializable(item, `${path}.${key}`, ancestors);
+    if (found) return found;
+  }
+  ancestors.delete(obj);
+  return null;
+}
+
+/**
  * Serialize loader data into a `<script type="application/json">` tag.
  *
  * `application/json` rather than executable JS, so the payload is inert data
@@ -259,13 +351,28 @@ export const LOADER_PAYLOAD_ID = '__VURA_LOADER__';
  */
 export function serializeLoaderPayload(byId: Record<string, unknown>): string {
   if (Object.keys(byId).length === 0) return '';
+
+  for (const [segmentId, data] of Object.entries(byId)) {
+    const problem = findUnserializable(data, segmentId, new Set());
+    if (problem) {
+      throw new Error(
+        `[vura] loader data is not JSON-serializable: ${problem}. ` +
+          'Loaders must return plain data: no functions, class instances, or circular references. ' +
+          'A Date is allowed and reaches the browser as an ISO string.',
+      );
+    }
+  }
+
   let json: string;
   try {
     json = JSON.stringify(byId);
   } catch (err) {
+    // The walk above names everything this catch used to be the only guard
+    // for. It stays as a backstop for what a walk cannot see, such as a
+    // property getter or a `toJSON` that throws on its own.
     throw new Error(
       `[vura] loader data is not JSON-serializable (${(err as Error).message}). ` +
-        'Loaders must return plain data — no functions, class instances, or circular references.',
+        'Loaders must return plain data: no functions, class instances, or circular references.',
     );
   }
   if (json === undefined) return '';

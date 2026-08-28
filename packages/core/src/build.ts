@@ -23,7 +23,7 @@
  * serverless/adapter invocation paths.
  */
 
-import { writeFile, mkdir, readFile, rm } from 'node:fs/promises';
+import { writeFile, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -618,6 +618,67 @@ export default {
 `;
 }
 
+// ─── Stale output pruning ───
+
+/**
+ * Remove everything under `dir` that this build did not write.
+ *
+ * `dist` is generated, but nothing generated it *afresh*: every emitter here
+ * writes the artifacts for the routes and pages that exist now and leaves
+ * whatever an earlier build wrote for routes and pages that do not. Delete
+ * `src/api/thing.ts` and rebuild and `dist/functions/api_thing/`,
+ * `dist/server/api/thing.js` and the adapter's copy all survive, unreferenced
+ * by the regenerated entry and manifest but still shipped by anything that
+ * deploys `dist` wholesale. `dist` accreted deleted code until somebody ran
+ * `rm -rf` by hand.
+ *
+ * Pruning *after* the writes rather than wiping the directory first is
+ * deliberate, and is the same choice `pruneStaleBundles` already made for the
+ * hashed client bundles. A build that fails partway then leaves the previous
+ * output intact instead of leaving nothing to serve or deploy: the worst case
+ * is the stale artifact this function exists to remove, which is where we
+ * started, rather than an empty `dist`.
+ *
+ * Empty directories left behind by a removed route are removed too. `fs` is
+ * injected so the behaviour can be tested without touching a disk.
+ *
+ * @returns how many files were removed.
+ */
+export async function pruneStaleOutputs(
+  dir: string,
+  keep: Set<string>,
+  fs: {
+    readdir: (p: string, o: { withFileTypes: true }) => Promise<Array<{ name: string; isDirectory: () => boolean }>>;
+    rm: (p: string, o?: { recursive?: boolean; force?: boolean }) => Promise<void>;
+  } = { readdir: readdir as never, rm: rm as never },
+): Promise<number> {
+  let removed = 0;
+  let entries: Array<{ name: string; isDirectory: () => boolean }>;
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return 0; // this build wrote nothing here, so there is nothing to reconcile
+  }
+
+  for (const entry of entries) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      removed += await pruneStaleOutputs(full, keep, fs);
+      try {
+        const rest = await fs.readdir(full, { withFileTypes: true });
+        if (rest.length === 0) await fs.rm(full, { recursive: true, force: true });
+      } catch {
+        /* raced or unreadable: leaving it is harmless */
+      }
+      continue;
+    }
+    if (keep.has(full)) continue;
+    await fs.rm(full, { force: true });
+    removed++;
+  }
+  return removed;
+}
+
 // ─── Build Orchestrator ───
 
 export interface BuildResult {
@@ -649,34 +710,42 @@ export async function build(
   await mkdir(serverDir, { recursive: true });
   await mkdir(functionsDir, { recursive: true });
 
+  // Every file this build writes under dist/server and dist/functions. What is
+  // left over in those trees afterwards belongs to a route or page that has
+  // since been deleted, and is swept at the end of this function.
+  const serverWritten = new Set<string>();
+  const functionsWritten = new Set<string>();
+
   // Function and task artifacts are ESM .js files. Keep the entire subtree
   // self-describing for Node 20 and tools that do not perform syntax-based
   // module detection.
   await writeFile(join(functionsDir, 'package.json'), JSON.stringify({ type: 'module' }, null, 2) + '\n');
+  functionsWritten.add(join(functionsDir, 'package.json'));
 
   // Bundle API modules for the generated hot server. The generated server is
   // plain ESM and imports `dist/server/api/**/*.js`, so TypeScript source
   // routes must be transpiled even when callers use the core build API
   // directly instead of going through the CLI.
-  await bundleServerApiModules(manifest, projectRoot, serverDir);
+  await bundleServerApiModules(manifest, projectRoot, serverDir, serverWritten);
 
   // Bundle server-mode page modules (dist/server/pages/**/*.js).
   // The thin server entry imports these at `./pages/...`; they must exist
   // before bundleServerEntry is called so esbuild can resolve them.
-  await bundleServerPageModules(manifest, projectRoot, serverDir);
+  await bundleServerPageModules(manifest, projectRoot, serverDir, serverWritten);
 
   // Bundle project middleware (dist/server/middleware.js), next to the entry
   // that imports it.
-  await bundleMiddlewareModule(manifest, projectRoot, serverDir);
+  await bundleMiddlewareModule(manifest, projectRoot, serverDir, serverWritten);
 
   // Bundle server actions (dist/server/actions/**/*.js), next to the entry that
   // imports them.
-  await bundleServerActionModules(manifest, projectRoot, serverDir);
+  await bundleServerActionModules(manifest, projectRoot, serverDir, serverWritten);
 
   // Generated route/page artifacts use ESM .js output. Make the dist/server
   // subtree self-describing so Node treats those files as modules even when
   // the source project has no package.json or defaults to CommonJS.
   await writeFile(join(serverDir, 'package.json'), JSON.stringify({ type: 'module' }, null, 2) + '\n');
+  serverWritten.add(join(serverDir, 'package.json'));
 
   // 1. Generate server entry (with global hooks detection)
   const globalHooksFile = findGlobalHooksFile(projectRoot);
@@ -689,6 +758,8 @@ export async function build(
   await writeFile(thinSourcePath, serverEntryCode);
   const serverEntryPath = join(serverDir, 'entry.js');
   await bundleServerEntry(thinSourcePath, serverEntryPath, projectRoot);
+  serverWritten.add(thinSourcePath);
+  serverWritten.add(serverEntryPath);
 
   // 2. Generate function entries for serverless routes
   const functions: BuildResult['functions'] = [];
@@ -711,6 +782,9 @@ export async function build(
     await writeFile(entryPath, entryCode);
     await bundleRouteModule(route, projectRoot, join(funcDir, 'route.js'), 'neutral');
     if (globalHooksBundle) await writeFile(join(funcDir, 'hooks.js'), globalHooksBundle);
+    functionsWritten.add(entryPath);
+    functionsWritten.add(join(funcDir, 'route.js'));
+    if (globalHooksBundle) functionsWritten.add(join(funcDir, 'hooks.js'));
 
     functions.push({ route, entryPath });
   }
@@ -734,6 +808,9 @@ export async function build(
     await writeFile(sourcePath, entryCode);
     const entryPath = join(funcDir, 'index.js');
     await bundleTaskEntry(sourcePath, entryPath, projectRoot);
+    functionsWritten.add(join(funcDir, 'route.js'));
+    functionsWritten.add(sourcePath);
+    functionsWritten.add(entryPath);
 
     taskEntries.push({ route, entryPath });
   }
@@ -743,6 +820,13 @@ export async function build(
     join(outDir, 'manifest.json'),
     JSON.stringify(manifest, null, 2),
   );
+
+  // 4b. Reconcile dist/server and dist/functions with what this build emitted.
+  // Runs before the adapter so the adapter sees the same tree a fresh build
+  // would have produced. See pruneStaleOutputs for why it sweeps rather than
+  // wipes first.
+  await pruneStaleOutputs(serverDir, serverWritten);
+  await pruneStaleOutputs(functionsDir, functionsWritten);
 
   // 5. Run adapter if configured
   if (config.adapter) {
@@ -837,6 +921,7 @@ async function bundleServerApiModules(
   manifest: RouteManifest,
   projectRoot: string,
   serverDir: string,
+  written: Set<string>,
 ): Promise<void> {
   if (manifest.api.length === 0) return;
 
@@ -864,6 +949,7 @@ async function bundleServerApiModules(
     // Server API modules are imported by the server entry which bundles
     // what-framework — keep it external here to avoid double-bundling.
     await bundleRouteModule({ filePath }, projectRoot, outPath, 'node', true);
+    written.add(outPath);
   }
 }
 
@@ -877,6 +963,7 @@ async function bundleMiddlewareModule(
   manifest: RouteManifest,
   projectRoot: string,
   serverDir: string,
+  written: Set<string>,
 ): Promise<void> {
   if (!manifest.middleware) return;
   const absPath = join(projectRoot, manifest.middleware);
@@ -890,6 +977,7 @@ async function bundleMiddlewareModule(
     'node',
     true,
   );
+  written.add(join(serverDir, 'middleware.js'));
 }
 
 /**
@@ -904,6 +992,7 @@ async function bundleServerActionModules(
   manifest: RouteManifest,
   projectRoot: string,
   serverDir: string,
+  written: Set<string>,
 ): Promise<void> {
   const actions = manifest.actions ?? [];
   if (actions.length === 0) return;
@@ -922,6 +1011,7 @@ async function bundleServerActionModules(
     await mkdir(dirname(outPath), { recursive: true });
 
     await bundleRouteModule({ filePath: mod.filePath }, projectRoot, outPath, 'node', true);
+    written.add(outPath);
   }
 }
 
@@ -929,6 +1019,7 @@ async function bundleServerPageModules(
   manifest: RouteManifest,
   projectRoot: string,
   serverDir: string,
+  written: Set<string>,
 ): Promise<void> {
   const serverPages = manifest.pages.filter(p => p.mode === 'server' || p.mode === 'hybrid');
   const layoutPaths = new Set<string>();
@@ -960,6 +1051,7 @@ async function bundleServerPageModules(
     // Pages import @celsian/vura-core (jsx-runtime) and what-framework — keep
     // what-framework external so it's not double-bundled (server entry bundles it).
     await bundleRouteModule({ filePath }, projectRoot, outPath, 'node', true);
+    written.add(outPath);
   }
 }
 

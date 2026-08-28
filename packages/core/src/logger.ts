@@ -12,9 +12,51 @@
  *   THEN_LOG_LEVEL — Minimum log level (debug | info | warn | error). Default: info
  *   THEN_LOG_FORMAT — Output format (json | pretty). Default: auto (json in production, pretty in dev)
  *   NODE_ENV — When "production", defaults to json format
+ *
+ * This module imports nothing. That is a requirement, not a coincidence: the
+ * docs show `getLogger()` in `src/api/_hooks.ts` and in route handlers, and a
+ * route handler is bundled per function by the Cloudflare and Lambda adapters.
+ * Cloudflare bundles with esbuild's `platform: 'neutral'` and no Node externals,
+ * where `import { randomUUID } from 'node:crypto'` does not resolve at all
+ * ("Could not resolve node:crypto"), so the logger had to be kept out of the
+ * adapter half of the runtime shim and `getLogger` was unusable in exactly the
+ * files the docs put it in. It used node:crypto for one thing: a request id.
+ * `crypto.randomUUID()` from Web Crypto does the same job and exists in every
+ * runtime Vura supports, so the constraint is gone rather than documented.
+ *
+ * `process` gets the same treatment. A Worker has no `process` global unless
+ * `nodejs_compat` is on, and this file reads three env vars and writes to
+ * stdout, so an unguarded read is a TypeError the first time anything
+ * constructs a Logger. Both accesses go through the helpers below.
  */
 
-import { randomUUID } from 'node:crypto';
+/** The `process` global, where the runtime has one. Workers do not. */
+interface ProcessLike {
+  env?: Record<string, string | undefined>;
+  stdout?: { write?: (output: string) => void };
+}
+
+function nodeProcess(): ProcessLike | undefined {
+  // Reading a missing property off globalThis is undefined; reading a missing
+  // bare identifier is a ReferenceError. That is the whole reason for this.
+  return (globalThis as { process?: ProcessLike }).process;
+}
+
+function env(name: string): string | undefined {
+  return nodeProcess()?.env?.[name];
+}
+
+/** stdout where there is one, console where there is not. */
+function defaultWrite(output: string): void {
+  const write = nodeProcess()?.stdout?.write;
+  if (write) {
+    write.call(nodeProcess()!.stdout, output);
+    return;
+  }
+  // Workers have no stdout; console.log is what reaches `wrangler tail`. Each
+  // entry already ends in a newline and console.log adds its own.
+  console.log(output.endsWith('\n') ? output.slice(0, -1) : output);
+}
 
 // ─── Types ───
 
@@ -72,14 +114,14 @@ export class Logger {
   private writeFn: (output: string) => void;
 
   constructor(config: LoggerConfig = {}) {
-    const envLevel = process.env.THEN_LOG_LEVEL as LogLevel | undefined;
-    const envFormat = process.env.THEN_LOG_FORMAT as LogFormat | undefined;
-    const isProduction = process.env.NODE_ENV === 'production';
+    const envLevel = env('THEN_LOG_LEVEL') as LogLevel | undefined;
+    const envFormat = env('THEN_LOG_FORMAT') as LogFormat | undefined;
+    const isProduction = env('NODE_ENV') === 'production';
 
     const level = config.level ?? envLevel ?? 'info';
     this.minLevel = LOG_LEVELS[level] ?? LOG_LEVELS.info;
     this.format = config.format ?? envFormat ?? (isProduction ? 'json' : 'pretty');
-    this.writeFn = config.write ?? ((s: string) => process.stdout.write(s));
+    this.writeFn = config.write ?? defaultWrite;
   }
 
   debug(msg: string, data?: Record<string, unknown>): void {
@@ -99,10 +141,13 @@ export class Logger {
   }
 
   /**
-   * Generate a new request ID using crypto.randomUUID().
+   * Generate a new request ID using Web Crypto's crypto.randomUUID().
+   *
+   * Web Crypto rather than node:crypto so this module resolves in a Worker
+   * bundle; see the note at the top of the file.
    */
   generateRequestId(): string {
-    return randomUUID();
+    return crypto.randomUUID();
   }
 
   /**

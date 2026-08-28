@@ -18,10 +18,18 @@ ${body}`;
   return JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', source], { encoding: 'utf8' }));
 }
 
-// Mock fs so adapter.buildEnd doesn't write to disk
+// Mock fs so adapter.buildEnd doesn't write to disk.
+//
+// readdir/rm are here for the stale-bundle sweep buildEnd runs over
+// dist/cloudflare/routes. An empty readdir means "the directory holds nothing
+// this build did not write", so the sweep is a no-op and these tests keep
+// asserting only on what writeFile was asked to write. The sweep's real
+// behaviour needs a real filesystem and is proven in stale-route-pruning.test.ts.
 vi.mock('node:fs/promises', () => ({
   writeFile: vi.fn(async () => {}),
   mkdir: vi.fn(async () => undefined),
+  readdir: vi.fn(async () => []),
+  rm: vi.fn(async () => undefined),
 }));
 
 

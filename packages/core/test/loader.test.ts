@@ -149,6 +149,129 @@ describe('serializeLoaderPayload', () => {
     expect(() => serializeLoaderPayload({ page: circular })).toThrow(/not JSON-serializable/);
   });
 
+  // ── The half of the promise that was not kept ──
+  //
+  // The message above has always said "no functions, class instances, or
+  // circular references". Only the circular half was true. `JSON.stringify`
+  // drops a function and flattens a class instance without a word, so the page
+  // served a 200, the server rendered from the live object, and the browser
+  // hydrated from a payload missing exactly the thing the server had used.
+  // Each case below therefore asserts a throw where the shipped code returned
+  // a `<script>` tag.
+  describe('refuses what a JSON round-trip would change', () => {
+    it('refuses a function, naming the path to it', () => {
+      expect(() => serializeLoaderPayload({ page: { label: 'x', fn: () => 'live' } }))
+        .toThrow(/`page\.fn` is a function/);
+    });
+
+    it('refuses a function nested inside plain data', () => {
+      expect(() => serializeLoaderPayload({ page: { user: { profile: { render: () => null } } } }))
+        .toThrow(/`page\.user\.profile\.render` is a function/);
+    });
+
+    it('refuses a function inside an array', () => {
+      expect(() => serializeLoaderPayload({ page: { rows: [{ ok: true }, { go: () => 1 }] } }))
+        .toThrow(/`page\.rows\[1\]\.go` is a function/);
+    });
+
+    it('refuses a class instance, whose methods do not survive the round-trip', () => {
+      class Post {
+        constructor(public title: string) {}
+        shout() { return this.title.toUpperCase(); }
+      }
+      expect(() => serializeLoaderPayload({ page: { post: new Post('hello') } }))
+        .toThrow(/`page\.post` is a Post instance/);
+    });
+
+    it('refuses a Map, which JSON writes as an empty object', () => {
+      expect(() => serializeLoaderPayload({ page: { index: new Map([['a', 1]]) } }))
+        .toThrow(/`page\.index` is a Map instance/);
+    });
+
+    it('refuses a Set, for the same reason', () => {
+      expect(() => serializeLoaderPayload({ page: { tags: new Set(['a']) } }))
+        .toThrow(/`page\.tags` is a Set instance/);
+    });
+
+    it('refuses an Error, which loses its message', () => {
+      expect(() => serializeLoaderPayload({ page: { err: new Error('boom') } }))
+        .toThrow(/`page\.err` is an? Error instance/);
+    });
+
+    it('refuses a cycle reached through an array', () => {
+      const node: Record<string, unknown> = { name: 'a' };
+      node.children = [node];
+      expect(() => serializeLoaderPayload({ page: { node } }))
+        .toThrow(/`page\.node\.children\[0\]` closes a circular reference/);
+    });
+
+    it('refuses a bigint', () => {
+      expect(() => serializeLoaderPayload({ page: { id: 1n } })).toThrow(/`page\.id` is a bigint/);
+    });
+
+    it('refuses a symbol', () => {
+      expect(() => serializeLoaderPayload({ page: { tag: Symbol('t') } })).toThrow(/`page\.tag` is a symbol/);
+    });
+
+    it('refuses NaN and Infinity, which JSON writes as null', () => {
+      expect(() => serializeLoaderPayload({ page: { n: NaN } })).toThrow(/`page\.n` is NaN/);
+      expect(() => serializeLoaderPayload({ page: { n: Infinity } })).toThrow(/`page\.n` is Infinity/);
+    });
+
+    it('checks every segment, not only the first', () => {
+      expect(() => serializeLoaderPayload({ 'layout:0': { ok: 1 }, page: { fn: () => 1 } }))
+        .toThrow(/`page\.fn` is a function/);
+    });
+  });
+
+  // ── The half that must keep working ──
+  //
+  // A guard that rejects ordinary data is worse than the bug it replaces, so
+  // the allowances are pinned as tightly as the refusals.
+  describe('allows what a JSON round-trip preserves', () => {
+    it('allows plain objects, arrays, null and nesting', () => {
+      const html = serializeLoaderPayload({
+        page: { list: [1, 'two', null, { deep: [true] }], nested: { s: 'x' } },
+      });
+      expect(html).toContain('"deep"');
+    });
+
+    it('allows a Date, which reaches the browser as an ISO string', () => {
+      const html = serializeLoaderPayload({ page: { when: new Date(0) } });
+      expect(html).toContain('1970-01-01T00:00:00.000Z');
+    });
+
+    it('allows an object created with a null prototype', () => {
+      const bare = Object.create(null) as Record<string, unknown>;
+      bare.a = 1;
+      expect(() => serializeLoaderPayload({ page: { bare } })).not.toThrow();
+    });
+
+    it('allows undefined as an object property, which reads as undefined on both sides', () => {
+      // JSON drops the key. `data.maybe === undefined` before and after, so
+      // there is nothing for the two renders to disagree about.
+      const html = serializeLoaderPayload({ page: { kept: 1, maybe: undefined } });
+      expect(html).toContain('"kept"');
+      expect(html).not.toContain('maybe');
+    });
+
+    it('refuses undefined inside an array, where it would come back as null', () => {
+      // The one place undefined changes value rather than disappearing.
+      expect(() => serializeLoaderPayload({ page: { rows: [1, undefined, 2] } }))
+        .toThrow(/`page\.rows\[1\]` is undefined/);
+    });
+
+    it('allows the same object reached twice, which is sharing and not a cycle', () => {
+      const user = { name: 'kirby' };
+      expect(() => serializeLoaderPayload({ page: { author: user, editor: user } })).not.toThrow();
+    });
+
+    it('allows the same object reached twice from inside an array', () => {
+      const tag = { id: 1 };
+      expect(() => serializeLoaderPayload({ page: { rows: [{ tag }, { tag }] } })).not.toThrow();
+    });
+  });
+
   it('round-trips through readLoaderPayload', () => {
     const payload = { page: { post: { title: 'Hello </script>' } }, 'layout:0': { user: 'kirby' } };
     const html = serializeLoaderPayload(payload);

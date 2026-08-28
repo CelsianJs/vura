@@ -217,7 +217,14 @@ Every render writes the loader data into the document:
 <script id="__VURA_LOADER__" type="application/json">{"page":{"post":{…}}}</script>
 ```
 
-It sits outside `<div id="app">` so it never participates in hydration, and it is `application/json` rather than executable JavaScript. Loader data must be JSON-serializable: returning a class instance, a function, or a circular structure fails the render with a message saying so.
+It sits outside `<div id="app">` so it never participates in hydration, and it is `application/json` rather than executable JavaScript.
+
+Loader data must survive a JSON round-trip unchanged, because the server renders from your object and the browser hydrates from `JSON.parse` of this payload. Anything that would come back different fails the render with a message naming the exact path, for example ``loader data is not JSON-serializable: `page.post` is a Post instance``. That covers functions, class instances (including `Map`, `Set` and `Error`), circular references, symbols, bigints, and `NaN` / `Infinity`.
+
+Two things are deliberately allowed:
+
+- **`Date`** is the one exception. It arrives in the browser as an ISO string, not a `Date`, so parse it if you need date methods on the client.
+- **`undefined` as an object property.** JSON drops the key, and a missing key and a key holding `undefined` both read as `undefined`, so the two renders cannot disagree. Inside an **array** `undefined` would come back as `null`, which is a different value, so that is refused.
 
 ### Migrating from `getServerData`
 
