@@ -27,25 +27,25 @@
   "devDependencies": {
     "@types/node": ">=20 <27",
     "@types/ws": "^8.5.14",
-    "esbuild": "^0.28.1",
-    "happy-dom": "^20.10.2",
+    "esbuild": "^0.28.2",
+    "happy-dom": "^20.11.13",
     "typescript": "^6.0.0",
     "vite": "^8.2.2",
-    "vitest": "^4.1.10",
-    "wrangler": "^4.125.0",
-    "ws": "^8.18.0"
+    "vitest": "^4.1.11",
+    "wrangler": "^4.127.1",
+    "ws": "^8.21.3"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
       "workerd"
     ],
     "overrides": {
-      "@types/node": "26.1.0",
+      "@types/node": "26.4.0",
       "js-yaml": "^4.3.1"
     }
   },
   "dependencies": {
-    "what-core": "^0.13.2",
+    "what-core": "^0.13.4",
     "what-framework": "^0.13.4"
   },
   "license": "MIT",

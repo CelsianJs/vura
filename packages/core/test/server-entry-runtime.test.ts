@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { Buffer } from 'node:buffer';
 import { tmpdir } from 'node:os';
 import { build, generateFunctionEntry } from '../src/build.js';
+import { reservePort } from './reserve-port.js';
 import type { RouteManifest } from '../src/manifest.js';
 
 const childProcesses = new Set<ChildProcess>();
@@ -27,9 +28,6 @@ function writeModule(root: string, relPath: string, source: string): void {
   writeFileSync(fullPath, source);
 }
 
-function pickPort(): number {
-  return 12000 + Math.floor(Math.random() * 40000);
-}
 
 async function startGeneratedServer(
   root: string,
@@ -47,7 +45,7 @@ async function bootBuiltEntry(
   root: string,
   env: Record<string, string> = {},
 ): Promise<{ process: ChildProcess; port: number }> {
-  const port = pickPort();
+  const port = await reservePort();
   const child = fork(entryPath, [], {
     cwd: join(root, 'dist', 'server'),
     stdio: 'pipe',
