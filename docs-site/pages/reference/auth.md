@@ -2,6 +2,8 @@
 
 Vura ships two authentication helpers from `@celsian/vura-core`: **signed cookie sessions** for stateful, browser-based logins, and **JWT** helpers for stateless bearer-token APIs. Both are thin, dependency-light building blocks — you own the login logic.
 
+> **Node runtimes only.** These helpers sign with `node:crypto`'s synchronous HMAC, which the Cloudflare and Lambda adapters cannot bundle into a per-function artifact. Importing `cookieSession`, `jwt` or `createJWTGuard` from a file those adapters bundle (an `src/api/` route, or `src/api/_hooks.ts`) fails the build with `No matching export in "vura-core-runtime-shim:@celsian/vura-core"`. They work on the hot server and anywhere else Node runs. On a Worker, use a Web Crypto library or verify tokens at the edge.
+
 ---
 
 ## Cookie sessions

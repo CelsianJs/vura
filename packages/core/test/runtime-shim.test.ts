@@ -170,10 +170,70 @@ describe('the @celsian/vura-core runtime shim', () => {
       packageDir: CORE_PACKAGE_DIR,
       includeServerRuntime: false,
     });
-    for (const nodeBackedModule of ['logger', 'auth', 'streaming', 'runtime/server']) {
+    for (const nodeBackedModule of ['auth', 'streaming', 'runtime/server']) {
       expect(functionBundle).not.toContain(`./${nodeBackedModule}.`);
     }
-    // enqueue is pure fetch, so it belongs in both.
+    // enqueue is pure fetch and the logger now imports nothing at all, so both
+    // belong in the adapter half too.
     expect(functionBundle).toContain('enqueue');
+    expect(functionBundle).toContain('getLogger');
   });
+
+  it('bundles the adapter half for a Worker with no Node built-ins left in it', async () => {
+    // The list above is a claim about what the group *contains*. This is the
+    // claim it stands for: esbuild resolving that group the way the Cloudflare
+    // adapter does. `platform: 'neutral'` with no externals is the exact
+    // configuration under which `import { randomUUID } from 'node:crypto'`
+    // fails with "Could not resolve node:crypto", which is what kept getLogger
+    // out of the group and out of `src/api/_hooks.ts` with it.
+    const dir = mkdtempSync(join(tmpdir(), 'vura-shim-worker-'));
+    try {
+      const entry = join(dir, 'entry.ts');
+      writeFileSync(
+        entry,
+        `import { getLogger, createLogger, enqueue, badRequest } from '@celsian/vura-core';\n` +
+          `export default [getLogger, createLogger, enqueue, badRequest];\n`,
+      );
+
+      const { build: esbuild } = await import('esbuild');
+      const result = await esbuild({
+        entryPoints: [entry],
+        bundle: true,
+        write: false,
+        format: 'esm',
+        target: 'es2022',
+        platform: 'neutral',
+        external: ['what-framework', 'what-framework/*'],
+        logLevel: 'silent',
+        plugins: [
+          {
+            name: 'vura-core-runtime-shim',
+            setup(build: any) {
+              build.onResolve({ filter: /^@celsian\/vura-core$/ }, () => ({
+                path: '@celsian/vura-core',
+                namespace: 'vura-core-runtime-shim',
+              }));
+              build.onLoad({ filter: /.*/, namespace: 'vura-core-runtime-shim' }, () => ({
+                loader: 'js',
+                resolveDir: CORE_PACKAGE_DIR,
+                contents: vuraCoreRuntimeShimContents({
+                  packageDir: CORE_PACKAGE_DIR,
+                  includeServerRuntime: false,
+                }),
+              }));
+            },
+          },
+        ],
+      });
+
+      // A bundle that resolved is not proof on its own: a leftover `node:`
+      // import would have failed the build, so check the output as well and
+      // the assertion stays true if the externals ever loosen.
+      const output = result.outputFiles![0]!.text;
+      expect(output).not.toMatch(/from\s*["']node:/);
+      expect(output).toContain('randomUUID');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

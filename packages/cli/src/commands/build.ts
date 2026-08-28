@@ -12,7 +12,7 @@
  * 9. Emit hot deploy templates (Dockerfile, fly.toml, package.json) when hot routes present
  */
 
-import { buildManifest, build, renderStaticPages, generateClientPageEntry, vuraBrowserResolvePlugin, vuraActionsStubPlugin } from '@celsian/vura-core';
+import { buildManifest, build, renderStaticPages, generateClientPageEntry, vuraBrowserResolvePlugin, vuraActionsStubPlugin, pruneStaleOutputs } from '@celsian/vura-core';
 import { createRequire } from 'node:module';
 import { existsSync, readFileSync } from 'node:fs';
 import { join as pathJoin, resolve as pathResolve, relative } from 'node:path';
@@ -27,9 +27,11 @@ import { loadConfig } from '../config-loader.js';
  * `dist/static/_then/pages` grew with every incremental build and the dead
  * copies shipped to whatever the project deployed to.
  *
- * Recursive, because pages nest (`loaders/island.js`). Empty directories left
- * behind by a deleted page are removed too. `fs` is injected so this can be
- * tested without touching a disk.
+ * The sweep itself now lives in core as `pruneStaleOutputs`, because the same
+ * accretion happens to `dist/server`, `dist/functions` and each adapter's own
+ * output directory, and four copies of a recursive delete is four chances to
+ * fix one and not the others. This wrapper is the client-bundle name and the
+ * client-bundle reason; the behaviour is shared.
  */
 export async function pruneStaleBundles(
   dir: string,
@@ -39,32 +41,7 @@ export async function pruneStaleBundles(
     rm: (p: string, o?: { recursive?: boolean; force?: boolean }) => Promise<void>;
   },
 ): Promise<number> {
-  let removed = 0;
-  let entries: Array<{ name: string; isDirectory: () => boolean }>;
-  try {
-    entries = await fs.readdir(dir, { withFileTypes: true });
-  } catch {
-    return 0; // nothing was written here
-  }
-
-  for (const entry of entries) {
-    const full = pathJoin(dir, entry.name);
-    if (entry.isDirectory()) {
-      removed += await pruneStaleBundles(full, keep, fs);
-      // The page that lived here is gone; do not leave the empty shell.
-      try {
-        const rest = await fs.readdir(full, { withFileTypes: true });
-        if (rest.length === 0) await fs.rm(full, { recursive: true, force: true });
-      } catch {
-        /* raced or unreadable: leaving it is harmless */
-      }
-      continue;
-    }
-    if (keep.has(full)) continue;
-    await fs.rm(full, { force: true });
-    removed++;
-  }
-  return removed;
+  return pruneStaleOutputs(dir, keep, fs);
 }
 
 // ---------------------------------------------------------------------------

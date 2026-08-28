@@ -12,6 +12,8 @@ log.error('payment failed', { orderId: 'o_42', code: 'CARD_DECLINED' });
 
 Every log call takes a message and an optional data object. The data is merged into the structured entry — in JSON mode it becomes top-level fields; in pretty mode it's appended inline.
 
+The logger runs on every target Vura builds for. It imports nothing, takes its request IDs from Web Crypto and writes to `process.stdout` where there is one and `console.log` where there is not, so `getLogger()` works the same in a hot route, a Lambda function and a Cloudflare Worker. On a Worker its output is what `wrangler tail` shows.
+
 ---
 
 ## Levels

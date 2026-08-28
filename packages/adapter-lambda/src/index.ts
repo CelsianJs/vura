@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { vuraCoreRuntimeShimContents, serverlessRevalidateStubs } from '@celsian/vura-core';
+import { vuraCoreRuntimeShimContents, serverlessRevalidateStubs, pruneStaleOutputs } from '@celsian/vura-core';
 import type { ThenAdapter, AdapterBuildContext } from '@celsian/vura-core';
 import type { ApiRoute, HttpMethod } from '@celsian/vura-core';
 
@@ -695,6 +695,10 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
 
       // Build function descriptors — one per route+method combination
       const samFunctions: SamFunction[] = [];
+      // Every file this build writes under dist/lambda. Anything else there
+      // belongs to a route deleted since an earlier build: template.yaml no
+      // longer points at it, but `sam deploy` still uploads the directory.
+      const emitted = new Set<string>();
 
       for (const route of serverlessRoutes) {
         const routeDirName = route.urlPattern
@@ -715,6 +719,7 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
           await writeFile(join(funcDir, 'package.json'), JSON.stringify({ type: 'module' }) + '\n');
           await writeFile(join(funcDir, 'index.js'), handlerCode);
           await bundleRouteModule(route, ctx.projectRoot, join(funcDir, 'route.js'));
+          for (const f of ['package.json', 'index.js', 'route.js']) emitted.add(join(funcDir, f));
 
           samFunctions.push({
             name: funcName,
@@ -745,6 +750,7 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
         await writeFile(join(funcDir, 'package.json'), JSON.stringify({ type: 'module' }) + '\n');
         await writeFile(join(funcDir, 'index.js'), handlerCode);
         await bundleRouteModule(route, ctx.projectRoot, join(funcDir, 'route.js'));
+        for (const f of ['package.json', 'index.js', 'route.js']) emitted.add(join(funcDir, f));
 
         const funcName = 'Task' + route.urlPattern
           .replace(/^\/api\//, '')
@@ -774,6 +780,9 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
       // Write samconfig.toml
       const samConfig = generateSamConfig(stackName, region);
       await writeFile(join(outDir, 'samconfig.toml'), samConfig);
+
+      // Sweep last, so a build that failed partway keeps its previous output.
+      await pruneStaleOutputs(lambdaDir, emitted);
     },
   };
 }

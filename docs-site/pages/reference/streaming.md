@@ -4,6 +4,8 @@ Vura API routes are handlers that receive `(req, reply)` and return a `Response`
 
 The `reply` object your handler already receives has everything you need. No extra imports.
 
+> **The named helpers are Node-only.** Returning a `Response` wrapping a `ReadableStream`, as below, works on every target. The named exports further down this page (`streamResponse`, `createSSEChannel`, `streamFile`, `getMimeType`, `parseRangeHeader`) reach `node:fs` and cannot be bundled into a Cloudflare or Lambda per-function artifact; importing one there fails the build with `No matching export in "vura-core-runtime-shim:@celsian/vura-core"`. Use them on the hot server, and the plain `Response` form everywhere else.
+
 ```ts
 // src/api/feed.ts
 import type { CelsianRequest, CelsianReply } from '@celsian/vura-core';

@@ -16,7 +16,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { vuraCoreRuntimeShimContents, serverlessRevalidateStubs } from '@celsian/vura-core';
+import { vuraCoreRuntimeShimContents, serverlessRevalidateStubs, pruneStaleOutputs } from '@celsian/vura-core';
 import type { ThenAdapter, AdapterBuildContext } from '@celsian/vura-core';
 import type { RouteManifest, ApiRoute } from '@celsian/vura-core';
 
@@ -542,9 +542,20 @@ export function cloudflareAdapter(options: CloudflareAdapterOptions): ThenAdapte
         // Generate worker entry (include task routes for scheduled handler)
         const entry = generateWorkerEntry(routes, projectRoot, workerDir, taskRoutes);
         await writeFile(join(workerDir, 'entry.js'), entry);
+        const routesDir = join(workerDir, 'routes');
+        const emitted = new Set<string>();
         for (const route of [...routes, ...taskRoutes]) {
-          await bundleRouteModule(route, projectRoot, join(workerDir, 'routes', routeModuleFileName(route)));
+          const outfile = join(routesDir, routeModuleFileName(route));
+          await bundleRouteModule(route, projectRoot, outfile);
+          emitted.add(outfile);
         }
+
+        // A route deleted from src/ leaves its bundle here: entry.js stops
+        // importing it and wrangler.toml is regenerated, so it is dead weight
+        // rather than a live endpoint, but it still ships to Cloudflare with
+        // everything else in this directory. Sweeping after the writes leaves a
+        // build that failed partway with its previous, working output.
+        await pruneStaleOutputs(routesDir, emitted);
       }
     },
   };

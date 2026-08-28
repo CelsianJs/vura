@@ -38,6 +38,9 @@ export {
   generateServerEntry,
   generateFunctionEntry,
   generateTaskEntry,
+  // Adapters emit per-route artifacts into their own output directory and hit
+  // the same accretion problem core's build() does, so they share the sweep.
+  pruneStaleOutputs,
 } from './build.js';
 
 export type {

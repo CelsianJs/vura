@@ -169,6 +169,23 @@ describe('A1.4 success metric', () => {
     // The two landed within hours of each other and each raised this ceiling on
     //   its own branch, so the number here is measured against both rather than
     //   inherited from either. Actual 9985, ceiling 10050.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(10050);
+    // 0.8.0 audit close-out (2026-08-28), on top of the two above:
+    //   runtime/loader.ts gains findUnserializable (+109). The guard only ever
+    //   caught the circular half of what its own message promised, because
+    //   JSON.stringify silently drops a function and silently flattens a class
+    //   instance, so a page returning one served a 200 whose payload had lost
+    //   the key the server rendered from. build.ts gains pruneStaleOutputs and
+    //   the keep-sets the emitters feed it (+102), because nothing removed the
+    //   artifacts of a deleted route and `dist` accreted dead code across
+    //   builds; the comment there records why it sweeps after the writes rather
+    //   than wiping first. logger.ts drops its node:crypto import for
+    //   crypto.randomUUID and guards `process` (+59), which is what made
+    //   getLogger buildable in a Worker at all, and runtime-shim.ts moves it to
+    //   the group both adapters bundle (+21). +~291.
+    // THREE branches now, not two. Each measured its own ceiling against a base
+    //   the others had already moved, so every one of those numbers is stale on
+    //   main. Measured after the rebase: actual 10241, ceiling 10300.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(10300);
+
   });
 });

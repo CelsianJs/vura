@@ -70,6 +70,13 @@ export function vuraCoreRuntimeShimContents(options: RuntimeShimOptions = {}): s
     // errors.ts, so it is safe in a Worker and a Lambda alike. The Node-built-in
     // groups below are not.
     `export { enqueue } from './enqueue.${ext('enqueue')}';`,
+    // The logger used to sit in the server group because it took node:crypto
+    // for a request id, which does not resolve under the Cloudflare adapter's
+    // `platform: 'neutral'`. That made `getLogger` unbuildable in a route
+    // handler and in `src/api/_hooks.ts`, which are the two places the docs
+    // show it. logger.ts now imports nothing and reads `process` defensively,
+    // so it belongs here with the rest of the runtime-neutral surface.
+    `export { Logger, ChildLogger, getLogger, createLogger, setDefaultLogger } from './logger.${ext('logger')}';`,
   ];
 
   if (options.includeServerRuntime !== false) {
@@ -87,12 +94,14 @@ export function vuraCoreRuntimeShimContents(options: RuntimeShimOptions = {}): s
       `export { createVuraCache, revalidatePath, revalidateTag } from './runtime/cache.${ext('runtime/cache')}';`,
       `export { buildWhatRoutes, createPagesHandler, createVuraRenderRoute, createVuraStreamRoute, isStreamingPage } from './runtime/pages.${ext('runtime/pages')}';`,
       `export { runTaskOnce, buildTaskEnvelope } from './runtime/tasks.${ext('runtime/tasks')}';`,
-      // The three groups below are documented public API that a server file is
-      // told to import, and each reaches a Node built-in: logger and auth take
-      // node:crypto, streaming takes node:fs. That keeps them out of the base
-      // group, which the Cloudflare adapter bundles with `platform: 'neutral'`
-      // and no Node externals, where a built-in import fails to resolve at all.
-      `export { Logger, ChildLogger, getLogger, createLogger, setDefaultLogger } from './logger.${ext('logger')}';`,
+      // The two groups below are documented public API that a server file is
+      // told to import, and each reaches a Node built-in: auth takes
+      // node:crypto for a synchronous HMAC, streaming takes node:fs. That keeps
+      // them out of the base group, which the Cloudflare adapter bundles with
+      // `platform: 'neutral'` and no Node externals, where a built-in import
+      // fails to resolve at all. Unlike the logger's request id, neither has a
+      // Web-platform equivalent that is a drop-in: Web Crypto's HMAC is async
+      // and there is no Worker filesystem to stream from.
       `export { cookieSession, jwt, createJWTGuard } from './auth.${ext('auth')}';`,
       `export { streamResponse, createSSEChannel, streamFile, getMimeType, parseRangeHeader } from './streaming.${ext('streaming')}';`,
     );
