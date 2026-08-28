@@ -281,3 +281,53 @@ console.log(JSON.stringify({ ok, invalid }));
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+/**
+ * The Cloudflare half of this pair lives in
+ * packages/adapter-cloudflare/test/artifact.test.ts. Both adapters emit the same
+ * warn-only stub from one shared definition; keeping a test on each side means
+ * one of them losing it is a failure rather than a silent build break for
+ * whichever target the project happens to try second.
+ */
+describe('lambdaAdapter ISR revalidation stubs', () => {
+  it('builds a route that imports revalidateTag, and warns when it runs', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'vura-lambda-revalidate-'));
+    try {
+      mkdirSync(join(root, 'src', 'api'), { recursive: true });
+      writeFileSync(join(root, 'src', 'api', 'purge.ts'), `import { revalidateTag, revalidatePath } from '@celsian/vura-core';
+
+export async function POST() {
+  await revalidateTag('posts');
+  await revalidatePath('/posts');
+  return { ok: true };
+}
+`);
+
+      const outDir = join(root, 'dist');
+      const ctx: AdapterBuildContext = {
+        serverEntry: join(outDir, 'server', 'entry.js'),
+        clientDir: join(outDir, 'client'),
+        manifest: manifest([route({ filePath: 'src/api/purge.ts', urlPattern: '/api/purge' })]),
+        projectRoot: root,
+        outDir,
+      };
+      await lambdaAdapter().buildEnd(ctx);
+
+      const bundledRoutePath = join(outDir, 'lambda', 'api_purge_post', 'route.js');
+      expect(existsSync(bundledRoutePath)).toBe(true);
+
+      const result = runModuleJson(bundledRoutePath, `const warnings = [];
+console.warn = (...args) => { warnings.push(args.join(' ')); };
+const body = await mod.POST();
+console.log(JSON.stringify({ body, warnings }));
+`);
+      expect(result.body).toEqual({ ok: true });
+      expect(result.warnings).toEqual([
+        '[vura] revalidateTag("posts") is a no-op inside Lambda functions today — call your cache host\'s /__vura/revalidate webhook instead.',
+        '[vura] revalidatePath("/posts") is a no-op inside Lambda functions today — call your cache host\'s /__vura/revalidate webhook instead.',
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

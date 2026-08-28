@@ -20,8 +20,8 @@ dist/
   package.json          { "type": "module" } + pinned runtime dependencies
 ```
 
-`dist/server/entry.js` is what `vura start` runs, and what a Dockerfile's
-`CMD` points at. `dist/static/` is what a CDN serves.
+Run the server with `node dist/server/entry.js`; that is what a Dockerfile's
+`CMD` points at too. `dist/static/` is what a CDN serves.
 
 ---
 

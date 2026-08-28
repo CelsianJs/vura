@@ -15,7 +15,7 @@
 
 import type { ThenRequest, ThenReply } from './handler.js';
 import type { Logger, ChildLogger } from './logger.js';
-import { HttpError } from './errors.js';
+import { isHttpError } from './errors.js';
 
 // ─── Types ───
 
@@ -293,8 +293,12 @@ export async function executeWithHooks(
     hadError = true;
     const error = err instanceof Error ? err : new Error(String(err));
 
-    // Extract status code from HttpError, default to 500
-    statusCode = error instanceof HttpError ? error.statusCode : 500;
+    // Extract status code from HttpError, default to 500.
+    // Branded check, not instanceof: a programmatic server bundles its route
+    // modules separately, so an HttpError thrown by a route is a different
+    // class object from the one this module closes over and instanceof
+    // flattened every deliberate status into a 500.
+    statusCode = isHttpError(error) ? error.statusCode : 500;
 
     // 3. onError hooks
     const errorResult = await registry.runOnError(

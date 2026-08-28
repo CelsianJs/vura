@@ -25,22 +25,43 @@ import {
   createFastlyCDN,
 } from 'what-isr';
 
-// These three symbols exist at runtime but are absent from what-framework/server.d.ts@0.11.1.
+// These four symbols exist at runtime but are absent from what-framework/server.d.ts@0.11.1.
 // @ts-ignore
 import { setRevalidationHandler } from 'what-framework/server';
+// @ts-ignore
+import { getRevalidationHandler } from 'what-framework/server';
 // @ts-ignore
 import { revalidatePath as _whatRevalidatePath } from 'what-framework/server';
 // @ts-ignore
 import { revalidateTag as _whatRevalidateTag } from 'what-framework/server';
 
 // ---------------------------------------------------------------------------
-// Init guard — tracks whether createVuraCache has been called.
+// Init guard
 // ---------------------------------------------------------------------------
 
-let _cacheInitialized = false;
+/**
+ * Is a cache engine bound to what-framework's revalidation registry?
+ *
+ * This asks the registry rather than tracking a `let` of our own. A built
+ * server inlines its own copy of this module into every route bundle, so a
+ * module-scoped flag is one slot per bundle: `createVuraCache()` set the
+ * entry's slot and an API route calling `revalidateTag()` read its own, saw
+ * `false`, and logged "no cache is bound; this is a no-op" over a purge that
+ * had in fact worked. An operator reading production logs was told their
+ * invalidations were broken while they were landing.
+ *
+ * what-framework's registry is already keyed on `Symbol.for` on globalThis for
+ * exactly this reason, so it is the one thing in the process that knows the
+ * answer. Asking it is also correct for a handler bound by any route, including
+ * a `setRevalidationHandler()` call the app made itself, which the flag never
+ * saw.
+ */
+function hasBoundCache(): boolean {
+  return getRevalidationHandler() != null;
+}
 
 // ---------------------------------------------------------------------------
-// Public re-exports — delegate to what-framework's registry (module singleton).
+// Public re-exports: delegate to what-framework's registry (one per process).
 // createVuraCache populates the registry via setRevalidationHandler.
 // App code (and tests) can also call setRevalidationHandler directly to swap
 // in a different handler (e.g. a spy in tests).
@@ -50,11 +71,11 @@ let _cacheInitialized = false;
  * Invalidate a cached path.
  *
  * @precondition createVuraCache() must be called first (or setRevalidationHandler
- * called directly) to bind a live cache engine. If called before either, a warning
- * is emitted and the call is a no-op unless the registry has a handler by other means.
+ * called directly) to bind a live cache engine. The warning fires only when the
+ * registry really is empty, so seeing it means the call was genuinely a no-op.
  */
 export async function revalidatePath(path: string, options?: Record<string, unknown>): Promise<void> {
-  if (!_cacheInitialized) {
+  if (!hasBoundCache()) {
     console.warn('[vura] revalidatePath/Tag called before createVuraCache() — no cache is bound; this is a no-op');
   }
   return _whatRevalidatePath(path, options);
@@ -64,11 +85,11 @@ export async function revalidatePath(path: string, options?: Record<string, unkn
  * Invalidate all cached entries tagged with `tag`.
  *
  * @precondition createVuraCache() must be called first (or setRevalidationHandler
- * called directly) to bind a live cache engine. If called before either, a warning
- * is emitted and the call is a no-op unless the registry has a handler by other means.
+ * called directly) to bind a live cache engine. The warning fires only when the
+ * registry really is empty, so seeing it means the call was genuinely a no-op.
  */
 export async function revalidateTag(tag: string, options?: Record<string, unknown>): Promise<void> {
-  if (!_cacheInitialized) {
+  if (!hasBoundCache()) {
     console.warn('[vura] revalidatePath/Tag called before createVuraCache() — no cache is bound; this is a no-op');
   }
   return _whatRevalidateTag(tag, options);
@@ -151,15 +172,14 @@ export function createVuraCache(config: VuraCacheConfig) {
   // Wire into what-framework's revalidation registry so both vura's own
   // revalidatePath/revalidateTag and what-framework server-side action
   // invalidation delegate to this engine.
-  // NOTE: module-level singleton in what-framework — last createVuraCache() wins; one cache per process.
-  if (_cacheInitialized) {
-    console.warn('[vura] createVuraCache() called more than once — the previous cache is no longer bound to revalidatePath/revalidateTag');
+  // NOTE: one registry per process in what-framework, so the last binding wins; one cache per process.
+  if (hasBoundCache()) {
+    console.warn('[vura] a cache was already bound to revalidatePath/revalidateTag; the previous one no longer receives invalidations');
   }
   setRevalidationHandler({
     revalidatePath: engine.revalidatePath,
     revalidateTag: engine.revalidateTag,
   });
-  _cacheInitialized = true;
 
   // --- webhook ---
   // Default what-isr header is 'x-what-revalidate-secret'; vura brands its own.

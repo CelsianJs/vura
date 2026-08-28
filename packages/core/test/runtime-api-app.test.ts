@@ -258,3 +258,119 @@ describe('createApiApp error handling', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('createApiApp onResponse on the error path', () => {
+  /**
+   * Celsian answers a throwing request out of `handleError` and returns without
+   * reaching its onResponse stage, so an access log or a metrics counter
+   * written as an onResponse hook recorded every success and silently omitted
+   * every failure. Vura drives the hooks itself when the request errors.
+   */
+  function brandedHttpError(statusCode: number, message: string, code = 'NOT_FOUND'): Error {
+    return Object.assign(new Error(message), {
+      [Symbol.for('vura.http-error')]: true,
+      name: 'HttpError',
+      statusCode,
+      code,
+      toJSON: () => ({ error: message, code }),
+    });
+  }
+
+  const throwingRoute = (error: unknown) => ({
+    urlPattern: '/api/boom', methods: ['GET'] as const, kind: 'serverless' as const,
+    filePath: 'src/api/boom.ts', config: {},
+    module: { GET: async () => { throw error; } },
+  });
+
+  type Info = { statusCode: number; durationMs: number; hadError: boolean };
+
+  function appWithRecorder(routes: unknown[], extraHooks: Record<string, unknown[]> = {}) {
+    const seen: Info[] = [];
+    const app = createApiApp({
+      routes: routes as any,
+      globalHooks: {
+        ...extraHooks,
+        onResponse: [(_req: any, _reply: any, info: Info) => { seen.push(info); }],
+      } as any,
+    });
+    return { app, seen };
+  }
+
+  // Celsian fires its onResponse stage without awaiting, so a success-path
+  // assertion needs a tick before it can read the recorder.
+  const flush = () => new Promise((r) => setTimeout(r, 20));
+
+  it('runs them for a handler that throws a plain error, with the 500 that was sent', async () => {
+    const { app, seen } = appWithRecorder([throwingRoute(new Error('kaboom'))]);
+    const res = await app.handle(new Request('http://localhost/api/boom'));
+    await flush();
+    expect(res.status).toBe(500);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].statusCode).toBe(500);
+    expect(seen[0].hadError).toBe(true);
+    expect(seen[0].durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('reports the status of a thrown HttpError, not a blanket 500', async () => {
+    const { app, seen } = appWithRecorder([throwingRoute(brandedHttpError(404, 'No such thing'))]);
+    const res = await app.handle(new Request('http://localhost/api/boom'));
+    await flush();
+    expect(res.status).toBe(404);
+    expect(seen).toEqual([expect.objectContaining({ statusCode: 404, hadError: true })]);
+  });
+
+  it('reports the status an onError hook chose when that hook answers the request', async () => {
+    // A hook returning a Response ends Celsian's error chain, so the hooks
+    // behind it never run. The reported status has to be the one that shipped.
+    const { app, seen } = appWithRecorder(
+      [throwingRoute(brandedHttpError(404, 'No such thing'))],
+      { onError: [() => new Response('handled by the app', { status: 418 })] },
+    );
+    const res = await app.handle(new Request('http://localhost/api/boom'));
+    await flush();
+    expect(res.status).toBe(418);
+    expect(seen).toEqual([expect.objectContaining({ statusCode: 418, hadError: true })]);
+  });
+
+  it('runs them for a schema validation failure', async () => {
+    const rejectingSchema = {
+      parse: () => { throw new Error('Expected number'); },
+      safeParse: () => ({
+        success: false as const,
+        error: { issues: [{ path: ['page'], message: 'Expected number' }] },
+      }),
+    };
+    const route = {
+      urlPattern: '/api/paged', methods: ['GET'] as const, kind: 'serverless' as const,
+      filePath: 'src/api/paged.ts', config: {},
+      module: { GET: async (_req: any, reply: any) => reply.json({}), schema: { query: rejectingSchema } },
+    };
+    const { app, seen } = appWithRecorder([route]);
+    const res = await app.handle(new Request('http://localhost/api/paged?page=nope'));
+    await flush();
+    expect(res.status).toBe(400);
+    expect(seen).toEqual([expect.objectContaining({ statusCode: 400, hadError: true })]);
+  });
+
+  it('fires exactly once per request, on either path', async () => {
+    const okRoute = {
+      urlPattern: '/api/ok', methods: ['GET'] as const, kind: 'serverless' as const,
+      filePath: 'src/api/ok.ts', config: {},
+      module: { GET: async (_req: any, reply: any) => reply.json({ ok: true }) },
+    };
+    const { app, seen } = appWithRecorder([okRoute, throwingRoute(new Error('kaboom'))]);
+    await app.handle(new Request('http://localhost/api/ok'));
+    await app.handle(new Request('http://localhost/api/boom'));
+    await flush();
+    expect(seen.map((i) => [i.statusCode, i.hadError])).toEqual([[200, false], [500, true]]);
+  });
+
+  it('an onResponse hook that throws does not change the error response', async () => {
+    const app = createApiApp({
+      routes: [throwingRoute(brandedHttpError(404, 'No such thing')) as any],
+      globalHooks: { onResponse: [() => { throw new Error('logger broke'); }] as any },
+    });
+    const res = await app.handle(new Request('http://localhost/api/boom'));
+    expect(res.status).toBe(404);
+  });
+});

@@ -16,7 +16,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { vuraCoreRuntimeShimContents } from '@celsian/vura-core';
+import { vuraCoreRuntimeShimContents, serverlessRevalidateStubs } from '@celsian/vura-core';
 import type { ThenAdapter, AdapterBuildContext } from '@celsian/vura-core';
 import type { RouteManifest, ApiRoute } from '@celsian/vura-core';
 
@@ -56,6 +56,7 @@ function vuraCoreRuntimeShimPlugin() {
           packageDir: CORE_PACKAGE_DIR,
           // Workers bundles carry no Node server runtime.
           includeServerRuntime: false,
+          extra: serverlessRevalidateStubs('Workers'),
         }),
       }));
     },

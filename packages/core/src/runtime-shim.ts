@@ -104,6 +104,37 @@ export function vuraCoreRuntimeShimContents(options: RuntimeShimOptions = {}): s
 }
 
 /**
+ * The `revalidateTag` / `revalidatePath` a per-function serverless bundle gets
+ * in place of the real ISR runtime.
+ *
+ * `runtimeLabel` names the runtime in the warning, e.g. `'Lambda functions'`.
+ *
+ * A function bundle has no local ISR cache, and importing the real
+ * `runtime/cache` module would drag what-framework into every artifact. Both
+ * adapters therefore ship warn-only stubs, and only Lambda had them: the same
+ * project built for Lambda and hard-failed for Workers with
+ *
+ *   No matching export in "vura-core-runtime-shim:@celsian/vura-core"
+ *   for import "revalidateTag"
+ *
+ * which is the same drift this module was created to end. One definition,
+ * imported twice, cannot fall out of step the way two copies did.
+ */
+export function serverlessRevalidateStubs(runtimeLabel: string): string {
+  const advice = JSON.stringify(
+    `is a no-op inside ${runtimeLabel} today — call your cache host's /__vura/revalidate webhook instead.`,
+  );
+  return [
+    'export async function revalidateTag(tag) {',
+    `  console.warn('[vura] revalidateTag("' + tag + '") ' + ${advice});`,
+    '}',
+    'export async function revalidatePath(path) {',
+    `  console.warn('[vura] revalidatePath("' + path + '") ' + ${advice});`,
+    '}',
+  ].join('\n');
+}
+
+/**
  * esbuild plugin: make `@celsian/vura-core` browser-safe inside a client or
  * hybrid page bundle.
  *

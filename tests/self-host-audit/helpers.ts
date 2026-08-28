@@ -594,6 +594,68 @@ export function GET(_req: CelsianRequest, _reply: CelsianReply) {
 `;
 
 /**
+ * src/api/_hooks.ts: the conventional global hooks file, plus a global error
+ * handler registered the way the errors reference documents it.
+ *
+ * Every marker is printed to stdout so the audit can read the real server's
+ * output rather than a stand-in. Three separate defects hid behind this file
+ * having no fixture: onResponse never ran for a failed request, a handler
+ * registered here was invisible to `reportError()` called from a route, and a
+ * route-side `revalidateTag()` printed a "this is a no-op" warning over a purge
+ * that worked.
+ */
+const GLOBAL_HOOKS = `import { setGlobalErrorHandler, reportError } from '@celsian/vura-core';
+import type { CelsianRequest, CelsianReply } from '@celsian/vura-core';
+
+setGlobalErrorHandler((error: Error) => {
+  console.log('AUDIT-GLOBAL-HANDLER ' + error.message);
+});
+
+export const onError = [
+  (error: Error) => {
+    console.log('AUDIT-ONERROR ' + error.message);
+    // The all-inside-_hooks.ts shape the docs show. This one always worked:
+    // handler and caller share the entry bundle's copy of core.
+    reportError(error, { path: 'from-hooks' });
+  },
+];
+
+export const onResponse = [
+  (req: CelsianRequest, _reply: CelsianReply, info: { statusCode: number; durationMs: number; hadError: boolean }) => {
+    console.log(
+      'AUDIT-ONRESPONSE ' + new URL(req.url).pathname +
+      ' status=' + info.statusCode + ' hadError=' + info.hadError,
+    );
+  },
+];
+`;
+
+/** src/api/explode.ts: an unbranded throw, so the response is a sanitised 500. */
+const EXPLODE_API = `import type { CelsianRequest, CelsianReply } from '@celsian/vura-core';
+
+export const route = { kind: 'serverless' };
+
+export function GET(_req: CelsianRequest, _reply: CelsianReply) {
+  throw new Error('audit-explosion');
+}
+`;
+
+/**
+ * src/api/report.ts: calls reportError() from a route bundle, which is a
+ * different copy of core from the one src/api/_hooks.ts registered into.
+ */
+const REPORT_API = `import { reportError } from '@celsian/vura-core';
+import type { CelsianRequest, CelsianReply } from '@celsian/vura-core';
+
+export const route = { kind: 'serverless' };
+
+export function GET(_req: CelsianRequest, reply: CelsianReply) {
+  reportError(new Error('AUDIT-REPORTED-FROM-ROUTE'), { path: '/api/report' });
+  return reply.json({ reported: true });
+}
+`;
+
+/**
  * Pages that call `useSignal()` — one per rendered mode.
  *
  * The audit's other fixtures all hold state in a module-level `signal()`, which
@@ -721,6 +783,12 @@ async function _scaffoldAndBuild(): Promise<{
   await writeFile(join(dir, 'src', 'pages', 'todos.tsx'), ACTIONS_PAGE);
   await writeFile(join(dir, 'src', 'pages', 'todos-node16.tsx'), ACTIONS_PAGE_NODE16);
   await writeFile(join(dir, 'src', 'api', 'boom.ts'), BOOM_API);
+
+  // The conventional global hooks file, and the routes that exercise it from a
+  // separately-bundled copy of core.
+  await writeFile(join(dir, 'src', 'api', '_hooks.ts'), GLOBAL_HOOKS);
+  await writeFile(join(dir, 'src', 'api', 'explode.ts'), EXPLODE_API);
+  await writeFile(join(dir, 'src', 'api', 'report.ts'), REPORT_API);
 
   // Pages using a component-context hook, one per rendered mode.
   await mkdir(join(dir, 'src', 'pages', 'hooks'), { recursive: true });

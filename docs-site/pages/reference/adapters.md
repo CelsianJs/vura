@@ -87,7 +87,13 @@ export async function GET(req, reply) {
 }
 ```
 
-**`revalidateTag` on Cloudflare:** calling `revalidateTag()` inside a Worker function reaches the `/__vura/revalidate` webhook of your Node cache host (if you have one running separately). Workers have no local ISR cache. This is the same pattern as Lambda — see below.
+**`revalidateTag` on Cloudflare (warn-only stub):** Worker bundles include a `revalidateTag`/`revalidatePath` shim that logs a warning instead of calling a cache engine:
+
+```
+[vura] revalidateTag("posts") is a no-op inside Workers today — call your cache host's /__vura/revalidate webhook instead.
+```
+
+Workers have no local ISR cache, and pulling the full `what-isr` runtime into every Worker bundle would inflate it for no gain. To invalidate ISR cache from a Worker, make an HTTP POST to your Node server's `/__vura/revalidate` endpoint with the `x-vura-revalidate-secret` header. This is the same stub the Lambda adapter emits; see below.
 
 ---
 
@@ -126,15 +132,17 @@ dist/
     api_hello_get/      ← one directory per route+method
       index.js
       route.js
-    template.yaml       ← SAM template with API Gateway + Lambda functions
-    samconfig.toml      ← SAM deploy defaults (stack name, region, resolve_s3)
+  template.yaml         ← SAM template with API Gateway + Lambda functions
+  samconfig.toml        ← SAM deploy defaults (stack name, region, resolve_s3)
 ```
+
+The two SAM files sit in `dist/`, beside `lambda/` rather than inside it, because the template's `CodeUri` paths are written relative to it (`lambda/api_hello_get/`).
 
 Deploy with AWS SAM:
 
 ```sh
-sam validate --template dist/lambda/template.yaml --lint
-sam build --template dist/lambda/template.yaml
+sam validate --template dist/template.yaml --lint
+sam build --template dist/template.yaml
 sam deploy --guided
 ```
 

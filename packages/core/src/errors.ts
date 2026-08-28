@@ -337,7 +337,7 @@ export function renderErrorPage(
   } = {},
 ): ErrorBoundaryResult {
   const mode = options.mode ?? getErrorMode();
-  const statusCode = error instanceof HttpError ? error.statusCode : 500;
+  const statusCode = isHttpError(error) ? error.statusCode : 500;
 
   // Try custom handler first
   if (options.customHandler) {
@@ -369,7 +369,27 @@ export type GlobalErrorHandler = (
   context: { method?: string; path?: string; requestId?: string },
 ) => void;
 
-let _globalErrorHandler: GlobalErrorHandler | null = null;
+/**
+ * The handler is held on `globalThis` under a registered symbol, not in a
+ * module-scoped `let`.
+ *
+ * A built server does not contain one copy of this module. Every page, API
+ * route and action is bundled separately and each bundle inlines its own copy
+ * of the runtime, so a module-scoped binding is one slot per bundle rather
+ * than one per process. An app that registers its handler in
+ * `src/api/_hooks.ts` writes the entry bundle's slot; `reportError()` called
+ * from a route or an action then read a different slot, found nothing, and
+ * dropped the report without a trace. `Symbol.for` returns the same key in
+ * every copy, which is the scope a process-wide reporting handler actually
+ * has. Same fix as the actions registry and the loader context.
+ */
+const GLOBAL_ERROR_HANDLER_KEY = Symbol.for('vura.errorHandler');
+
+interface ErrorHandlerGlobal {
+  [GLOBAL_ERROR_HANDLER_KEY]?: GlobalErrorHandler | null;
+}
+
+const globalStore = globalThis as unknown as ErrorHandlerGlobal;
 
 /**
  * Register a global error handler for uncaught handler errors.
@@ -377,14 +397,14 @@ let _globalErrorHandler: GlobalErrorHandler | null = null;
  * Useful for error reporting services (Sentry, etc.).
  */
 export function setGlobalErrorHandler(handler: GlobalErrorHandler): void {
-  _globalErrorHandler = handler;
+  globalStore[GLOBAL_ERROR_HANDLER_KEY] = handler;
 }
 
 /**
  * Get the current global error handler.
  */
 export function getGlobalErrorHandler(): GlobalErrorHandler | null {
-  return _globalErrorHandler;
+  return globalStore[GLOBAL_ERROR_HANDLER_KEY] ?? null;
 }
 
 /**
@@ -400,7 +420,7 @@ export function reportError(
   if (logger) {
     logger.error('unhandled error', {
       error: error.message,
-      code: error instanceof HttpError ? error.code : 'UNKNOWN',
+      code: isHttpError(error) ? error.code : 'UNKNOWN',
       ...(context.requestId ? { requestId: context.requestId } : {}),
       ...(context.method ? { method: context.method } : {}),
       ...(context.path ? { path: context.path } : {}),
@@ -408,9 +428,10 @@ export function reportError(
   }
 
   // Report to global handler
-  if (_globalErrorHandler) {
+  const handler = getGlobalErrorHandler();
+  if (handler) {
     try {
-      _globalErrorHandler(error, context);
+      handler(error, context);
     } catch {
       // Global handler itself threw — absorb it
     }

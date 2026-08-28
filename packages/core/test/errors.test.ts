@@ -458,4 +458,59 @@ describe('cross-bundle HttpError identity', () => {
     expect(Object.keys(err)).not.toContain('vura.http-error');
     expect(JSON.stringify(err.toJSON(true))).not.toContain('vura.http-error');
   });
+
+  it('renderErrorPage keeps the status of a cross-bundle HttpError', () => {
+    // Latent rather than live: nothing in a generated server calls
+    // renderErrorPage today. It bites a programmatic custom server, where an
+    // `instanceof` read flattened a deliberate 404 into a 500 error page.
+    const foreign = foreignCopyOfHttpError(404, 'No such thing');
+    expect(renderErrorPage(foreign, { mode: 'production' }).statusCode).toBe(404);
+  });
+
+  it('reportError logs the code of a cross-bundle HttpError', () => {
+    const output: string[] = [];
+    const logger = createLogger({ format: 'json', write: (line) => output.push(line) });
+    reportError(foreignCopyOfHttpError(404, 'No such thing'), {}, logger);
+    expect(JSON.parse(output[0]).code).toBe('NOT_FOUND');
+  });
+});
+
+describe('the global error handler survives the bundle split', () => {
+  /**
+   * A built server holds one copy of core per bundle, so a module-scoped
+   * binding is one slot per bundle. `vi.resetModules()` plus a second import
+   * is the same shape in a test: two module instances, one process. The
+   * handler an app registers in `src/api/_hooks.ts` lands in the entry copy,
+   * and before the fix a `reportError()` from a route or an action read a
+   * different copy, found nothing and dropped the report silently.
+   */
+  async function twoCopies() {
+    const entryCopy = await import('../src/errors.js');
+    vi.resetModules();
+    const routeCopy = await import('../src/errors.js');
+    expect(routeCopy).not.toBe(entryCopy);
+    return { entryCopy, routeCopy };
+  }
+
+  afterEach(() => {
+    setGlobalErrorHandler(null as any);
+  });
+
+  it('a handler registered in one copy is visible from another', async () => {
+    const { entryCopy, routeCopy } = await twoCopies();
+    const handler = vi.fn();
+    entryCopy.setGlobalErrorHandler(handler);
+    expect(routeCopy.getGlobalErrorHandler()).toBe(handler);
+  });
+
+  it('reportError from another copy reaches that handler', async () => {
+    const { entryCopy, routeCopy } = await twoCopies();
+    const handler = vi.fn();
+    entryCopy.setGlobalErrorHandler(handler);
+
+    const err = new Error('from a route bundle');
+    routeCopy.reportError(err, { path: '/api/report' });
+
+    expect(handler).toHaveBeenCalledWith(err, { path: '/api/report' });
+  });
 });

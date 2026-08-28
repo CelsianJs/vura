@@ -49,6 +49,7 @@ export type {
 // `@celsian/vura-core` import to the same set of exports.
 export {
   vuraCoreRuntimeShimContents,
+  serverlessRevalidateStubs,
   vuraBrowserResolvePlugin,
   coreModuleExt,
   CORE_PACKAGE_DIR,
