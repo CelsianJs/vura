@@ -99,16 +99,22 @@ jobs:
       # `cannot find type WatcherHandle`, which reads like a source error and is
       # not one. Resolving the CLI from the workspace makes the two versions
       # impossible to drift apart.
-      # musl needs rustc's self-contained linking objects. The napi 3 CLI picks
-      # `<arch>-linux-musl-gcc` as the linker driver, which then looks for the
-      # system `libgcc_s.so.1` that a musl sysroot does not ship, and the
-      # aarch64 leg died with "cannot find libgcc_s.so.1". `link-self-contained`
-      # makes rustc supply its own, which is what the napi 2 CLI effectively did
-      # for us before. Scoped to musl so the other five targets are untouched.
+      # musl needs three things the napi 2 CLI was arranging for us before.
+      #
+      # `-crt-static` off is the standard napi-rs musl setting: the addon has to
+      # be dlopen-able by a musl Node. That in turn makes rustc link libgcc
+      # dynamically, so the link line carries `-lgcc_s`, and the aarch64 musl
+      # sysroot ships no `libgcc_s.so.1`. `link-self-contained` supplies rustc's
+      # own CRT objects, and `-static-libgcc` is what actually resolves the
+      # symbol, by linking libgcc into the addon instead of looking for the
+      # shared object that is not there.
+      #
+      # Scoped to musl by matrix target, so the other five are untouched.
+      # x86_64-musl passes with or without this.
       - name: Build native addon
         working-directory: packages/compiler-native
         env:
-          RUSTFLAGS: ${{ contains(matrix.target, 'musl') && '-C target-feature=-crt-static -C link-self-contained=yes' || '' }}
+          RUSTFLAGS: ${{ contains(matrix.target, 'musl') && '-C target-feature=-crt-static -C link-self-contained=yes -C link-arg=-static-libgcc' || '' }}
         run: pnpm exec napi build --platform --release --target ${{ matrix.target }}
 
       - name: Verify native scanner parity
