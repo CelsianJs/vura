@@ -8,6 +8,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { build } from '../src/build.js';
+import { reservePort } from './reserve-port.js';
 import { buildManifest } from '../src/manifest.js';
 import type { RouteManifest, PageRoute } from '../src/manifest.js';
 import type { ThenConfig } from '../src/config.js';
@@ -522,7 +523,7 @@ describe('smoke-build: live server integration', () => {
       timestamp: new Date().toISOString(),
     };
 
-    port = 10000 + Math.floor(Math.random() * 50000);
+    port = await reservePort();
 
     // build() bundles route modules from src/ and produces dist/server/entry.js
     const buildResult = await build(manifest, {}, projectRoot);

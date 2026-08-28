@@ -5,6 +5,7 @@ import { request } from 'node:http';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { build } from '../src/build.js';
+import { reservePort } from './reserve-port.js';
 import type { RouteManifest } from '../src/manifest.js';
 
 const childProcesses = new Set<ChildProcess>();
@@ -14,10 +15,6 @@ function writeFile(root: string, relPath: string, source: string): void {
   const fullPath = join(root, relPath);
   mkdirSync(dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, source);
-}
-
-function pickPort(): number {
-  return 16000 + Math.floor(Math.random() * 30000);
 }
 
 async function httpGet(port: number, path: string): Promise<{ statusCode: number; body: string }> {
@@ -33,7 +30,7 @@ async function httpGet(port: number, path: string): Promise<{ statusCode: number
 }
 
 async function startServer(root: string, manifest: RouteManifest): Promise<{ port: number; child: ChildProcess }> {
-  const port = pickPort();
+  const port = await reservePort();
   // Phase B: use build() to produce a bundled, self-contained entry.js
   const buildResult = await build(manifest, {}, root);
   const entryPath = buildResult.serverEntry;
