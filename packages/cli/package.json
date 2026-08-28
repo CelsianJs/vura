@@ -1,6 +1,6 @@
 {
   "name": "@celsian/vura-cli",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Vura CLI \u2014 build and deploy full-stack apps",
   "type": "module",
   "bin": {
@@ -20,12 +20,12 @@
     "prepack": "pnpm run build"
   },
   "dependencies": {
-    "@celsian/vura-core": "workspace:0.7.0",
+    "@celsian/vura-core": "workspace:0.8.0",
     "esbuild": "^0.28.2",
     "what-framework": "^0.13.4"
   },
   "peerDependencies": {
-    "@celsian/vura-adapter-vura": "0.7.0",
+    "@celsian/vura-adapter-vura": "0.8.0",
     "ws": "^8.0.0"
   },
   "peerDependenciesMeta": {
@@ -37,7 +37,7 @@
     }
   },
   "devDependencies": {
-    "@celsian/vura-adapter-vura": "workspace:0.7.0",
+    "@celsian/vura-adapter-vura": "workspace:0.8.0",
     "@types/ws": "^8.18.1",
     "ws": "^8.21.3"
   },

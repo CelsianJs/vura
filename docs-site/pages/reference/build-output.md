@@ -78,11 +78,19 @@ throw notFound('No such user');
 if (err instanceof HttpError) { … }   // false, for the error above
 ```
 
-Vura handles this internally for the errors it raises, and Celsian's error
-handler reads `error.statusCode` structurally, so a thrown `HttpError` reaches
-the client with the right status. But if you write your own error class and
-compare it with `instanceof` across a page and an API route, it will not match.
-Compare a discriminant field instead:
+Vura handles this internally for the errors it raises: every `HttpError` carries
+a `Symbol.for('vura.http-error')` brand, and Vura recognises its own errors by
+that brand rather than by `instanceof`, so a thrown `HttpError` reaches the
+client with the right status from any bundle. A registry symbol is the same
+symbol in every copy, which is exactly what a class is not.
+
+The reverse also holds: an error Vura did not construct does not carry the
+brand, so a library error that happens to have a `statusCode` field cannot pick
+its own HTTP status. It gets a sanitised 500.
+
+If you write your own error class and compare it with `instanceof` across a page
+and an API route, it will not match. Compare a discriminant field instead, or
+use a registry symbol the way Vura does:
 
 ```ts
 export class AppError extends Error {
