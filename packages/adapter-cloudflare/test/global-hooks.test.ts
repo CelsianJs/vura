@@ -256,20 +256,38 @@ console.log(JSON.stringify({
     const root = mkdtempSync(join(tmpdir(), 'vura-cf-hooksunbuildable-'));
     try {
       mkdirSync(join(root, 'src', 'api'), { recursive: true });
-      // cookieSession is the auth reference's own example of a hook that
-      // cannot be bundled here: it signs with node:crypto's synchronous HMAC,
-      // so it sits outside the allowlist a neutral-platform worker bundle
-      // gets. That page already tells the reader importing it from
-      // src/api/_hooks.ts "fails the build" — which was not true while the
-      // adapter never bundled the file at all. This pins the claim.
-      writeFileSync(join(root, 'src', 'api', '_hooks.ts'), `import { cookieSession } from '@celsian/vura-core';
-export const onRequest = [cookieSession({ secret: 'x'.repeat(32) })];
-`);
+      // This used to use cookieSession, which was then the auth reference's own
+      // example of a hook that could not be bundled here. It can be now: it
+      // stopped importing node:crypto and @celsian/core, and it is on the
+      // allowlist. So the example moved rather than the test, to two cases that
+      // carry different information.
+      //
+      // A direct Node built-in is the permanent one — a Worker has no
+      // filesystem, and no change to Vura will make `import 'node:fs'` in a
+      // hooks file work.
+      //
+      // createJWTGuard is the documented one, and it is deliberately hostage to
+      // an upstream package: it reaches @celsian/jwt, which imports
+      // @celsian/core, whose root is a Node HTTP server. The auth reference
+      // tells the reader this fails the build, so the claim is pinned here. If
+      // @celsian/core ever publishes a subpath for its errors this assertion
+      // goes red, which is the correct outcome: it means the docs are now
+      // wrong and createJWTGuard can move to the adapter half.
       writeFileSync(join(root, 'src', 'api', 'secret.ts'), `export function GET(_req: any, reply: any) { return reply.json({ ok: true }); }\n`);
 
-      await expect(buildWorker(root, [route()])).rejects.toThrow(
-        /global hooks file src\/api\/_hooks\.ts could not be bundled for Cloudflare Workers/,
-      );
+      for (const hooks of [
+        `import { readFileSync } from 'node:fs';
+export const onRequest = [() => { readFileSync('/etc/passwd'); }];
+`,
+        `import { createJWTGuard } from '@celsian/vura-core';
+export const onRequest = [createJWTGuard({ secret: 'x'.repeat(32) } as any)];
+`,
+      ]) {
+        writeFileSync(join(root, 'src', 'api', '_hooks.ts'), hooks);
+        await expect(buildWorker(root, [route()]), hooks).rejects.toThrow(
+          /global hooks file src\/api\/_hooks\.ts could not be bundled for Cloudflare Workers/,
+        );
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

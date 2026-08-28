@@ -1,13 +1,28 @@
-// @celsian/vura-core — Auth helpers: onRequest hook factory for signed cookie sessions + @celsian/jwt re-exports (A2.7)
+// @celsian/vura-core — Auth helpers: onRequest hook factory for signed cookie sessions (A2.7)
 //
-// Persistence mechanism — dual seam (synchronous HMAC via node:crypto):
+// This module has no Node built-ins and no package dependencies, and that is a
+// requirement rather than an accident. `cookieSession` is on the runtime-shim
+// allowlist the Cloudflare and Lambda adapters bundle with esbuild's
+// `platform: 'neutral'`, where an import of `node:crypto` — or of
+// `@celsian/core`, whose package root is a Node HTTP server — does not resolve
+// and takes the whole build down with it. The signing and cookie primitives
+// live in ./signed-cookie.ts, which explains at length why they are hand-rolled
+// and synchronous. The short version is that the commit seam below is a Proxy
+// trap, and a Proxy trap cannot await Web Crypto.
+//
+// `jwt` and `createJWTGuard` are re-exported from ./auth-jwt.ts, not from here.
+// They come from `@celsian/jwt`, which imports `@celsian/core`, so anything
+// importing them inherits that Node dependency; keeping them in a separate
+// module is what lets `cookieSession` be bundled for a Worker without them.
+//
+// Persistence mechanism — dual seam (synchronous HMAC, see ./signed-cookie.ts):
 //
 //   SEAM 1 — Proxy on reply.headers (covers celsian's auto-serialize plain-object/string paths):
 //     app.ts:856-868 builds the response by spreading reply.headers:
 //       { "content-type": ..., ...reply.headers }
 //     We override reply.headers to return a Proxy of the underlying headers dict.
 //     The Proxy's ownKeys/getOwnPropertyDescriptor/get traps inject 'set-cookie' iff
-//     session changed vs the onRequest snapshot — computed synchronously via createHmac.
+//     session changed vs the onRequest snapshot — computed synchronously via signPayload.
 //     Refs: app.ts:856-868 (auto-serialize spread), reply.ts:48-50 (reply.headers getter)
 //
 //   SEAM 2 — Synchronous method wrapping (covers reply.json / reply.html / reply.send):
@@ -21,10 +36,17 @@
 //   the wrapping entirely; Set-Cookie is NOT emitted in that case (celsian app.ts:852-853 takes
 //   the instanceof Response branch before header merging).
 
-export { jwt, createJWTGuard } from '@celsian/jwt';
-
-import { createHmac, timingSafeEqual } from 'node:crypto';
-import { serializeCookie, parseCookies } from '@celsian/core';
+import {
+  decodePayload,
+  encodePayload,
+  parseCookieHeader,
+  serializeSessionCookie,
+  signPayload,
+  verifyPayload,
+} from './signed-cookie.js';
+// Type-only, so esbuild erases it before it can be resolved. The runtime shape
+// is identical to SessionCookieOptions in ./signed-cookie.ts; the alias is kept
+// so the published `CookieSessionOpts.cookie` type does not change.
 import type { CookieOptions } from '@celsian/core';
 
 // ─── Public types ───────────────────────────────────────────────────────────
@@ -52,24 +74,6 @@ const MIN_SECRET_LEN = 32;
 const MAX_COOKIE_BYTES = 4096;
 /** Keys stripped on both read (incoming cookie) and write (outgoing session data). */
 const PROTO_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-
-// ─── Synchronous HMAC helpers (node:crypto — zero external deps) ────────────
-
-function signSync(secret: string, payload: string): string {
-  return createHmac('sha256', secret).update(payload).digest('base64url');
-}
-
-function verifySync(secret: string, payload: string, sig: string): boolean {
-  try {
-    const expected = signSync(secret, payload);
-    const a = Buffer.from(expected);
-    const b = Buffer.from(sig);
-    if (a.length !== b.length) return false;
-    return timingSafeEqual(a, b);
-  } catch {
-    return false;
-  }
-}
 
 // ─── cookieSession ─────────────────────────────────────────────────────────
 
@@ -122,7 +126,7 @@ export function cookieSession(opts: CookieSessionOpts): (req: any, reply: any) =
         ? (req.headers.get('cookie') ?? '')
         : (req.headers?.cookie ?? '');
 
-    const cookies = parseCookies(cookieHeader);
+    const cookies = parseCookieHeader(cookieHeader);
     const raw: string | undefined = cookies[cookieName];
 
     let data: Record<string, unknown> = Object.create(null);
@@ -133,10 +137,10 @@ export function cookieSession(opts: CookieSessionOpts): (req: any, reply: any) =
       if (dotIdx !== -1) {
         const payload = raw.slice(0, dotIdx);
         const sig = raw.slice(dotIdx + 1);
-        const valid = verifySync(secret, payload, sig);
+        const valid = verifyPayload(secret, payload, sig);
         if (valid) {
           try {
-            const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));
+            const parsed = JSON.parse(decodePayload(payload));
             // Prototype safety: null-prototype copy, strip poisoning keys on read
             data = Object.create(null);
             for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
@@ -165,10 +169,10 @@ export function cookieSession(opts: CookieSessionOpts): (req: any, reply: any) =
       const current = JSON.stringify(safe);
       if (current === originalJson) return undefined; // unchanged — no Set-Cookie
 
-      const encodedPayload = Buffer.from(current, 'utf-8').toString('base64url');
-      const sig = signSync(secret, encodedPayload);
+      const encodedPayload = encodePayload(current);
+      const sig = signPayload(secret, encodedPayload);
       const signed = `${encodedPayload}.${sig}`;
-      const serialized = serializeCookie(cookieName, signed, cookieOpts);
+      const serialized = serializeSessionCookie(cookieName, signed, cookieOpts);
 
       if (serialized.length > MAX_COOKIE_BYTES) {
         console.warn(
@@ -188,59 +192,73 @@ export function cookieSession(opts: CookieSessionOpts): (req: any, reply: any) =
     //
     // Override the reply.headers instance property so it returns the Proxy
     // instead of the inner closure dict (reply.ts:48-50).
-    const innerHeaders: Record<string, string> = reply.headers;
+    //
+    // A reply without a `headers` record gets seam 2 only. Vura's own three
+    // generated entries (Cloudflare, Lambda, core's dist/functions/) all expose
+    // one and are held to it by their adapter tests — they did not, which is
+    // how `new Proxy(undefined, ...)` came to be the first thing this hook did
+    // on a Worker, throwing before any handler ran. The guard is for a
+    // hand-rolled reply from outside Vura: losing the plain-object commit path
+    // is bad, and taking down every request in the app's authorization hook is
+    // worse.
+    const innerHeaders: Record<string, string> | undefined =
+      reply.headers && typeof reply.headers === 'object' ? reply.headers : undefined;
 
-    const headersProxy = new Proxy(innerHeaders, {
-      ownKeys(target) {
-        const keys = Reflect.ownKeys(target);
-        const sc = computeSetCookie();
-        if (sc !== undefined && !keys.includes('set-cookie')) {
-          keys.push('set-cookie');
-        }
-        return keys;
-      },
+    if (innerHeaders) installHeaderProxy(innerHeaders);
 
-      has(target, key) {
-        if (key === 'set-cookie') return computeSetCookie() !== undefined;
-        return Reflect.has(target, key);
-      },
-
-      get(target, key, receiver) {
-        if (key === 'set-cookie') return computeSetCookie();
-        return Reflect.get(target, key, receiver);
-      },
-
-      getOwnPropertyDescriptor(target, key) {
-        if (key === 'set-cookie') {
+    function installHeaderProxy(headers: Record<string, string>): void {
+      const headersProxy = new Proxy(headers, {
+        ownKeys(target) {
+          const keys = Reflect.ownKeys(target);
           const sc = computeSetCookie();
-          if (sc === undefined) return undefined;
-          return { value: sc, enumerable: true, configurable: true, writable: true };
-        }
-        return Reflect.getOwnPropertyDescriptor(target, key);
-      },
+          if (sc !== undefined && !keys.includes('set-cookie')) {
+            keys.push('set-cookie');
+          }
+          return keys;
+        },
 
-      set(target, key, value, receiver) {
-        return Reflect.set(target, key, value, receiver);
-      },
+        has(target, key) {
+          if (key === 'set-cookie') return computeSetCookie() !== undefined;
+          return Reflect.has(target, key);
+        },
 
-      deleteProperty(target, key) {
-        return Reflect.deleteProperty(target, key);
-      },
-    });
+        get(target, key, receiver) {
+          if (key === 'set-cookie') return computeSetCookie();
+          return Reflect.get(target, key, receiver);
+        },
 
-    Object.defineProperty(reply, 'headers', {
-      get() { return headersProxy; },
-      configurable: true,
-      enumerable: true,
-    });
+        getOwnPropertyDescriptor(target, key) {
+          if (key === 'set-cookie') {
+            const sc = computeSetCookie();
+            if (sc === undefined) return undefined;
+            return { value: sc, enumerable: true, configurable: true, writable: true };
+          }
+          return Reflect.getOwnPropertyDescriptor(target, key);
+        },
+
+        set(target, key, value, receiver) {
+          return Reflect.set(target, key, value, receiver);
+        },
+
+        deleteProperty(target, key) {
+          return Reflect.deleteProperty(target, key);
+        },
+      });
+
+      Object.defineProperty(reply, 'headers', {
+        get() { return headersProxy; },
+        configurable: true,
+        enumerable: true,
+      });
+    }
 
     // ── SEAM 2: Synchronous method wrapping ───────────────────────────────
     // reply.json/html/send spread the closure-private `headers` variable directly
     // (reply.ts:70-116), bypassing reply.headers and the Proxy above. We wrap each
     // method to call reply.header('set-cookie', ...) before delegating, so the
     // cookie value lands in the inner headers dict before the spread fires.
-    // Now that signing is synchronous (node:crypto), the wrappers are fully sync —
-    // no async/await, no change to the return type.
+    // Signing is synchronous on every runtime (see ./signed-cookie.ts), so the
+    // wrappers are fully sync — no async/await, no change to the return type.
     function commitToReplyHeader(): void {
       const sc = computeSetCookie();
       if (sc !== undefined) reply.header('set-cookie', sc);

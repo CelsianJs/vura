@@ -11,8 +11,15 @@
 
 import { createReadStream } from 'node:fs';
 import { stat, realpath } from 'node:fs/promises';
-import { extname, resolve, normalize } from 'node:path';
+import { resolve, normalize } from 'node:path';
 import { Readable } from 'node:stream';
+
+// Re-exported rather than defined here so that the two helpers which need no
+// filesystem can be bundled for Cloudflare and Lambda while this module, which
+// does, stays out of those bundles. ./streaming-headers.ts says why the split
+// falls where it does.
+export { getMimeType, parseRangeHeader } from './streaming-headers.js';
+import { getMimeType, parseRangeHeader } from './streaming-headers.js';
 
 // ─── Types ───
 
@@ -289,90 +296,6 @@ export function createSSEChannel(
 }
 
 // ─── File Streaming ───
-
-/**
- * Common MIME types for file streaming.
- */
-const MIME_TYPES: Record<string, string> = {
-  '.html': 'text/html',
-  '.css': 'text/css',
-  '.js': 'application/javascript',
-  '.mjs': 'application/javascript',
-  '.json': 'application/json',
-  '.xml': 'application/xml',
-  '.txt': 'text/plain',
-  '.csv': 'text/csv',
-  '.md': 'text/markdown',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.svg': 'image/svg+xml',
-  '.webp': 'image/webp',
-  '.ico': 'image/x-icon',
-  '.avif': 'image/avif',
-  '.mp4': 'video/mp4',
-  '.webm': 'video/webm',
-  '.mp3': 'audio/mpeg',
-  '.ogg': 'audio/ogg',
-  '.wav': 'audio/wav',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
-  '.ttf': 'font/ttf',
-  '.otf': 'font/otf',
-  '.pdf': 'application/pdf',
-  '.zip': 'application/zip',
-  '.gz': 'application/gzip',
-  '.wasm': 'application/wasm',
-};
-
-/**
- * Detect MIME type from file extension.
- */
-export function getMimeType(filePath: string): string {
-  const ext = extname(filePath).toLowerCase();
-  return MIME_TYPES[ext] ?? 'application/octet-stream';
-}
-
-/**
- * Parse a Range header value.
- * Returns the start and end byte positions, or null if invalid.
- */
-export function parseRangeHeader(
-  rangeHeader: string,
-  fileSize: number,
-): { start: number; end: number } | null {
-  const match = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
-  if (!match) return null;
-
-  let start: number;
-  let end: number;
-
-  if (match[1] === '' && match[2] !== '') {
-    // Suffix range: bytes=-500 (last 500 bytes)
-    const suffix = parseInt(match[2], 10);
-    if (isNaN(suffix) || suffix <= 0) return null;
-    start = Math.max(0, fileSize - suffix);
-    end = fileSize - 1;
-  } else if (match[1] !== '' && match[2] === '') {
-    // Open-ended: bytes=500- (from 500 to end)
-    start = parseInt(match[1], 10);
-    if (isNaN(start)) return null;
-    end = fileSize - 1;
-  } else {
-    // Explicit range: bytes=200-400
-    start = parseInt(match[1], 10);
-    end = parseInt(match[2], 10);
-    if (isNaN(start) || isNaN(end)) return null;
-  }
-
-  // Validate
-  if (start < 0 || end < start || start >= fileSize) return null;
-  // Clamp end to file size
-  if (end >= fileSize) end = fileSize - 1;
-
-  return { start, end };
-}
 
 /**
  * Stream a file to the response with range request support.

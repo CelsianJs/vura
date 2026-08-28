@@ -18,6 +18,16 @@
  * app for a full release cycle. `test/runtime-shim.test.ts` now bundles every
  * `@celsian/vura-core` import the docs show, so a symbol becomes covered when
  * somebody documents it rather than when somebody remembers this file.
+ *
+ * Being on the list at all is a second question, and it is answered by whether
+ * the module can be bundled with `platform: 'neutral'` and run without Node.
+ * That is a property of the code, not a fact about it, so where a symbol sits
+ * below can be changed by changing the module. It has been, three times now:
+ * `getLogger` dropped `node:crypto` for `crypto.randomUUID`, `cookieSession`
+ * dropped `node:crypto` and `@celsian/core` for `signed-cookie.ts`, and
+ * `getMimeType` and `parseRangeHeader` left `streaming.ts` for a module with no
+ * `node:fs` in it. What remains in the server group remains for a reason each
+ * entry states, and those reasons are about the runtime, not about the list.
  */
 
 import { existsSync } from 'node:fs';
@@ -77,6 +87,26 @@ export function vuraCoreRuntimeShimContents(options: RuntimeShimOptions = {}): s
     // show it. logger.ts now imports nothing and reads `process` defensively,
     // so it belongs here with the rest of the runtime-neutral surface.
     `export { Logger, ChildLogger, getLogger, createLogger, setDefaultLogger } from './logger.${ext('logger')}';`,
+    // Signed cookie sessions. auth.ts took node:crypto for a synchronous HMAC
+    // and @celsian/core for the cookie serialiser, and either one alone made it
+    // unbuildable here — @celsian/core's package root is a Node HTTP server, so
+    // it fails on node:fs, node:fs/promises, node:path and node:http before the
+    // cookie helpers are even reached. Both now come from signed-cookie.ts,
+    // which is arithmetic and string work and nothing else. The hard part was
+    // that Web Crypto could not replace node:crypto the way crypto.randomUUID
+    // replaced it for the logger: the commit seam is a Proxy trap and
+    // crypto.subtle.sign is async. signed-cookie.ts records that in full.
+    //
+    // jwt and createJWTGuard are NOT here. They are Celsian's, and
+    // @celsian/jwt imports @celsian/core, so they carry that same package root
+    // with them wherever they go. See auth-jwt.ts.
+    `export { cookieSession } from './auth.${ext('auth')}';`,
+    // Two of the five streaming helpers are pure string functions: a content
+    // type from an extension, and the byte offsets in a Range header. A Worker
+    // serving an R2 object needs both. They were excluded only because they
+    // shared streaming.ts with node:fs, so they now live in their own module
+    // and streaming.ts re-exports them.
+    `export { getMimeType, parseRangeHeader } from './streaming-headers.${ext('streaming-headers')}';`,
   ];
 
   if (options.includeServerRuntime !== false) {
@@ -94,16 +124,24 @@ export function vuraCoreRuntimeShimContents(options: RuntimeShimOptions = {}): s
       `export { createVuraCache, revalidatePath, revalidateTag } from './runtime/cache.${ext('runtime/cache')}';`,
       `export { buildWhatRoutes, createPagesHandler, createVuraRenderRoute, createVuraStreamRoute, isStreamingPage } from './runtime/pages.${ext('runtime/pages')}';`,
       `export { runTaskOnce, buildTaskEnvelope } from './runtime/tasks.${ext('runtime/tasks')}';`,
-      // The two groups below are documented public API that a server file is
-      // told to import, and each reaches a Node built-in: auth takes
-      // node:crypto for a synchronous HMAC, streaming takes node:fs. That keeps
-      // them out of the base group, which the Cloudflare adapter bundles with
-      // `platform: 'neutral'` and no Node externals, where a built-in import
-      // fails to resolve at all. Unlike the logger's request id, neither has a
-      // Web-platform equivalent that is a drop-in: Web Crypto's HMAC is async
-      // and there is no Worker filesystem to stream from.
-      `export { cookieSession, jwt, createJWTGuard } from './auth.${ext('auth')}';`,
-      `export { streamResponse, createSSEChannel, streamFile, getMimeType, parseRangeHeader } from './streaming.${ext('streaming')}';`,
+      // What is left of the two groups that used to sit here whole.
+      //
+      // jwt and createJWTGuard reach `@celsian/jwt`, which imports
+      // `@celsian/core`, whose package root is a Node HTTP server. Nothing in
+      // Vura can move them: stub that one `CelsianError` import and the rest of
+      // `@celsian/jwt` bundles neutrally at 69 KB with jose inside it and no
+      // `node:` import left, so the fix is a subpath export upstream, not a
+      // counterfeit `@celsian/core` shipped from here. auth-jwt.ts has the
+      // detail.
+      `export { jwt, createJWTGuard } from './auth-jwt.${ext('auth-jwt')}';`,
+      // streamFile needs a filesystem, which a Worker has not got.
+      // streamResponse and createSSEChannel need something subtler: they write
+      // to a Node ServerResponse and read from a Node Readable, and a Worker
+      // handler is handed neither. workerd has ReadableStream and
+      // TransformStream, so events over a stream are perfectly possible there —
+      // just not through these signatures. Bundling them would trade a build
+      // error for `res.writeHead is not a function` on the first request.
+      `export { streamResponse, createSSEChannel, streamFile } from './streaming.${ext('streaming')}';`,
     );
   }
 
@@ -147,7 +185,7 @@ export function serverlessRevalidateStubs(runtimeLabel: string): string {
  * esbuild plugin: make `@celsian/vura-core` browser-safe inside a client or
  * hybrid page bundle.
  *
- * The package root reaches `node:fs`, `node:crypto` and `node:http`. A page
+ * The package root reaches `node:fs` and `node:http`. A page
  * that runs on both sides — server-rendered, then hydrated — still wants to
  * import `useLoaderData` from the documented path, so in a browser bundle the
  * bare specifier is redirected to `client.ts`, which holds only the pure

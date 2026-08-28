@@ -363,9 +363,14 @@ export type { CelsianRequest, CelsianReply } from '@celsian/core';
 
 export {
   cookieSession,
+} from './auth.js';
+
+// Separate module, same public path: see ./auth-jwt.ts for why these two
+// cannot sit beside cookieSession.
+export {
   jwt,
   createJWTGuard,
-} from './auth.js';
+} from './auth-jwt.js';
 
 export type {
   CookieSessionOpts,

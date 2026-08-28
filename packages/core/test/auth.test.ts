@@ -11,7 +11,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { createApp } from '@celsian/core';
-import { cookieSession, jwt, createJWTGuard } from '../src/auth.js';
+import { cookieSession } from '../src/auth.js';
+import { jwt, createJWTGuard } from '../src/auth-jwt.js';
 
 // A 32+ char secret satisfying the minimum
 const SECRET = 'a-very-long-test-secret-32chars!!';

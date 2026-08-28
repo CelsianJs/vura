@@ -210,7 +210,32 @@ describe('A1.4 success metric', () => {
     //   from the comment saying why. runtime-shim.ts gains nothing.
     //   Measured after the change: actual 10582, ceiling 10650 leaves ~68
     //   headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(10650);
+    // Auth and the pure streaming helpers on the serverless adapters
+    //   (2026-08-28): cookieSession, getMimeType and parseRangeHeader could not
+    //   be built for Cloudflare or Lambda, which took the whole documented auth
+    //   story with them. The cost is one new file and one small one.
+    //   signed-cookie.ts (+367) is a synchronous HMAC-SHA-256, base64url and a
+    //   cookie serialiser, written out because auth.ts had to stop importing
+    //   node:crypto AND @celsian/core, whose package root is a Node HTTP
+    //   server. It is the largest single addition this file has recorded and it
+    //   is deliberate: Web Crypto could not be the answer the way
+    //   crypto.randomUUID was for the logger, because the commit seam is a
+    //   Proxy trap and crypto.subtle.sign is async, so the alternative was
+    //   making cookieSession async for every Node user too. Roughly a third of
+    //   the file is the comment arguing that, and the rest is arithmetic held
+    //   to node:crypto by test/signed-cookie.test.ts. streaming-headers.ts
+    //   (+140) is the two exports that never needed node:fs, moved out with the
+    //   MIME table and a hand-written extname; streaming.ts re-exports them, so
+    //   the net there is +~46. auth-jwt.ts (+29) is one re-export line and the
+    //   reason it is not in auth.ts. The rest is the three generated entries
+    //   growing a reply.headers record and the comment for it, in build.ts.
+    //   Measured after the change: actual 10773, ceiling 10830.
+    // Both of the two entries above were written on branches that measured
+    //   against 10241, before the other landed, so neither ceiling they name
+    //   survives the rebase. Re-measured with both in the tree: actual 11114
+    //   (10582 from pages + 532 from auth/streaming, which is the two deltas
+    //   added, so nothing double-counts). Ceiling 11170 leaves ~56 headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(11170);
 
   });
 });
