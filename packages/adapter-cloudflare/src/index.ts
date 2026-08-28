@@ -11,12 +11,12 @@
  * Supports multiple worker groups, KV namespaces, D1 databases, and R2 buckets.
  */
 
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { vuraCoreRuntimeShimContents, serverlessRevalidateStubs, pruneStaleOutputs } from '@celsian/vura-core';
+import { vuraCoreRuntimeShimContents, serverlessRevalidateStubs, pruneStaleOutputs, GLOBAL_HOOKS_FILENAMES } from '@celsian/vura-core';
 import type { ThenAdapter, AdapterBuildContext } from '@celsian/vura-core';
 import type { RouteManifest, ApiRoute } from '@celsian/vura-core';
 
@@ -201,12 +201,20 @@ export function generateWranglerToml(
  * Generate a self-contained Worker entry file that routes requests
  * to the appropriate handler using @celsian/vura-core's req/reply pattern.
  * No CelsianJS dependency required — works standalone.
+ *
+ * `globalHooksFile` is the project's conventional hooks file (src/api/_hooks.ts
+ * or src/hooks.ts) when it exists. buildEnd bundles it next to this entry as
+ * hooks.js; the entry imports it and merges its hooks ahead of each route's
+ * own, which is the order the hot server and the generated dist/functions/
+ * entry both use. Passing null emits an empty stand-in so no import is left
+ * dangling.
  */
 export function generateWorkerEntry(
   routes: ApiRoute[],
   projectRoot: string,
   workerDir: string,
   taskRoutes: ApiRoute[] = [],
+  globalHooksFile?: string | null,
 ): string {
   const imports: string[] = [];
   const routeTable: string[] = [];
@@ -232,8 +240,12 @@ export function generateWorkerEntry(
   }
 
   const allImports = [...imports, ...taskImports].join('\n');
+  const hooksImport = globalHooksFile
+    ? "import * as globalHooksMod from './hooks.js';"
+    : 'const globalHooksMod = {};';
 
   return `${allImports}
+${hooksImport}
 
 const routes = [
 ${routeTable.join('\n')}
@@ -275,6 +287,26 @@ function parseBody(request) {
   if (ct.includes('application/json')) return request.json().catch(() => null);
   if (ct.includes('application/x-www-form-urlencoded')) return request.text().then(t => Object.fromEntries(new URLSearchParams(t)));
   return request.text();
+}
+
+// The hot server and core's dist/functions/ entry both hand a hook a request
+// whose headers answer .get(); these two adapters hand it a plain lowercased
+// object, so the auth snippet the hooks reference prints —
+// req.headers.get('authorization') — threw here. A hooks file is written once
+// and deployed to every target, so the accessor is added rather than the object
+// replaced: .get/.has are non-enumerable, so Object.keys, spread and
+// JSON.stringify over req.headers are unchanged and existing
+// req.headers['x-thing'] reads keep working.
+function withHeaderAccessors(headers) {
+  const read = (name) => {
+    const value = headers[String(name).toLowerCase()];
+    return value === undefined ? null : value;
+  };
+  Object.defineProperties(headers, {
+    get: { value: read, writable: true, configurable: true, enumerable: false },
+    has: { value: (name) => read(name) !== null, writable: true, configurable: true, enumerable: false },
+  });
+  return headers;
 }
 
 function normalizeHooks(hooks) {
@@ -320,20 +352,30 @@ function validateRequest(req, schema) {
   return null;
 }
 
+// Global hooks run before the route's own, in each phase. Same merge the
+// generated dist/functions/ entry does: an app-wide auth or audit hook has to
+// see a request before anything a single route registered.
+function mergeHooks(globalHooks, routeHooks) {
+  const merged = (name) => [...(globalHooks?.[name] || []), ...(routeHooks?.[name] || [])];
+  return { onRequest: merged('onRequest'), onError: merged('onError'), onResponse: merged('onResponse') };
+}
+
 async function runHooks(hooks, ...args) {
   if (!hooks) return;
   for (const hook of hooks) await hook(...args);
 }
 
-async function runOnError(err, req, reply, routeHooks) {
-  if (!routeHooks?.onError) return { handled: false, error: err };
+async function runOnError(err, req, reply, lifecycleHooks) {
+  if (!lifecycleHooks?.onError?.length) return { handled: false, error: err };
   let handled = false;
-  for (const hook of routeHooks.onError) {
+  for (const hook of lifecycleHooks.onError) {
     try { await hook(err, req, reply); handled = true; }
     catch (hookErr) { err = hookErr; }
   }
   return { handled, error: err };
 }
+
+const globalHooks = normalizeHooks(globalHooksMod);
 
 ${taskTable.length > 0 ? `const taskRoutes = [\n${taskTable.join('\n')}\n];\n` : ''}
 export default {
@@ -352,6 +394,7 @@ export default {
 
     const handlerFn = match.route.handlers[method];
     const routeHooks = normalizeHooks(match.route.handlers.hooks || match.route.handlers);
+    const lifecycleHooks = mergeHooks(globalHooks, routeHooks);
     const routeSchema = match.route.handlers.schema;
     if (typeof handlerFn !== 'function') {
       return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { status: 405, headers: { 'Content-Type': 'application/json' } });
@@ -361,7 +404,7 @@ export default {
     const req = {
       method,
       url: url.pathname,
-      headers: Object.fromEntries(request.headers.entries()),
+      headers: withHeaderAccessors(Object.fromEntries(request.headers.entries())),
       params: match.params,
       query: Object.fromEntries(url.searchParams.entries()),
       body,
@@ -381,30 +424,42 @@ export default {
       redirect(url, status) { statusCode = status || 302; responseHeaders.location = url; responseBody = 'Redirecting to ' + url; return null; },
     };
 
-    if (routeSchema) {
-      const validationError = validateRequest(req, routeSchema);
-      if (validationError) return new Response(JSON.stringify(validationError.body), { status: validationError.statusCode, headers: responseHeaders });
-    }
-
     const startedAt = performance.now();
     let result;
     let hadError = false;
     try {
-      await runHooks(routeHooks?.onRequest, req, reply);
-      result = await handlerFn(req, reply);
+      await runHooks(lifecycleHooks.onRequest, req, reply);
+      // Validation moved behind the onRequest hooks and inside the try, which
+      // is where the generated dist/functions/ entry has always had it. It was
+      // in front, and returning early: an unauthenticated caller got the
+      // route's 400 schema report instead of the hooks file's 401, and
+      // onResponse — documented as running once per request whatever the
+      // outcome — never saw a rejected request at all.
+      if (routeSchema && responseBody === null) {
+        const validationError = validateRequest(req, routeSchema);
+        if (validationError) {
+          statusCode = validationError.statusCode;
+          responseBody = JSON.stringify(validationError.body);
+        }
+      }
+      // A hook that answered (reply.json/send/redirect) short-circuits the
+      // handler. Without this the handler still ran behind a hook's 401: the
+      // caller saw the 401, and the handler had already charged the API call,
+      // written the row, or read the record it was being denied.
+      if (responseBody === null) result = await handlerFn(req, reply);
     } catch (err) {
       hadError = true;
       // Only an error Vura constructed may choose its own status — see the
       // note in core's generateFunctionEntry. Brand-keyed rather than an
       // instanceof check because each bundle inlines its own copy of core.
       statusCode = err && err[Symbol.for('vura.http-error')] === true && err.statusCode ? err.statusCode : 500;
-      const errorResult = await runOnError(err, req, reply, routeHooks);
+      const errorResult = await runOnError(err, req, reply, lifecycleHooks);
       if (!errorResult.handled && responseBody === null) {
         responseBody = JSON.stringify({ error: statusCode === 500 ? 'Internal Server Error' : (errorResult.error?.message || 'Request failed') });
       }
     } finally {
       const durationMs = Math.round((performance.now() - startedAt) * 100) / 100;
-      try { await runHooks(routeHooks?.onResponse, req, reply, { statusCode, durationMs, hadError }); } catch {}
+      try { await runHooks(lifecycleHooks.onResponse, req, reply, { statusCode, durationMs, hadError }); } catch {}
     }
 
     if (result instanceof Response) return result;
@@ -511,6 +566,8 @@ export function cloudflareAdapter(options: CloudflareAdapterOptions): ThenAdapte
         );
       }
 
+      const globalHooksFile = findGlobalHooksFile(projectRoot);
+
       // Group routes by workerGroup config key (if specified in route config)
       const workerGroups = groupRoutesByWorker(serverlessRoutes, options.workerGroup);
 
@@ -539,8 +596,14 @@ export function cloudflareAdapter(options: CloudflareAdapterOptions): ThenAdapte
         const toml = generateWranglerToml(groupOptions, routes, taskRoutes);
         await writeFile(join(workerDir, 'wrangler.toml'), toml);
 
+        // The hooks file only has a request to wrap when this worker has HTTP
+        // routes. A task-only group runs through `scheduled`, which never
+        // reaches the fetch lifecycle, so it gets the empty stand-in — the same
+        // rule core applies when it emits dist/functions/.
+        const groupHooksFile = routes.length > 0 ? globalHooksFile : null;
+
         // Generate worker entry (include task routes for scheduled handler)
-        const entry = generateWorkerEntry(routes, projectRoot, workerDir, taskRoutes);
+        const entry = generateWorkerEntry(routes, projectRoot, workerDir, taskRoutes, groupHooksFile);
         await writeFile(join(workerDir, 'entry.js'), entry);
         const routesDir = join(workerDir, 'routes');
         const emitted = new Set<string>();
@@ -548,6 +611,17 @@ export function cloudflareAdapter(options: CloudflareAdapterOptions): ThenAdapte
           const outfile = join(routesDir, routeModuleFileName(route));
           await bundleRouteModule(route, projectRoot, outfile);
           emitted.add(outfile);
+        }
+
+        // The hooks bundle sits beside the entry rather than in routes/, so the
+        // sweep below does not reach it. Reconcile it here for the same reason:
+        // a project that deletes its hooks file must not keep shipping the last
+        // build's copy.
+        const hooksOutfile = join(workerDir, 'hooks.js');
+        if (groupHooksFile) {
+          await bundleGlobalHooksModule(groupHooksFile, projectRoot, hooksOutfile);
+        } else {
+          await rm(hooksOutfile, { force: true });
         }
 
         // A route deleted from src/ leaves its bundle here: entry.js stops
@@ -606,7 +680,7 @@ function routeModuleFileName(route: ApiRoute): string {
     .replace(/^_+|_+$/g, '') + '.js';
 }
 
-async function bundleRouteModule(route: ApiRoute, projectRoot: string, outfile: string): Promise<void> {
+async function bundleRouteModule(route: Pick<ApiRoute, 'filePath'>, projectRoot: string, outfile: string): Promise<void> {
   const absPath = join(projectRoot, route.filePath);
   if (!existsSync(absPath)) {
     throw new Error(`Route source not found for ${route.filePath}: ${absPath}`);
@@ -629,6 +703,52 @@ async function bundleRouteModule(route: ApiRoute, projectRoot: string, outfile: 
     plugins: [vuraCoreRuntimeShimPlugin()],
     external: ['what-framework', 'what-framework/*'],
   });
+}
+
+/**
+ * Find the project's conventional global hooks file, if it has one.
+ *
+ * Same list core, the CLI's dev server and the Vite plugin all read, so a file
+ * the dev server picks up is the file the deployment artifact gets.
+ */
+function findGlobalHooksFile(projectRoot: string): string | null {
+  for (const filename of GLOBAL_HOOKS_FILENAMES) {
+    if (existsSync(join(projectRoot, filename))) return filename;
+  }
+  return null;
+}
+
+/**
+ * Bundle the global hooks file for the Worker, next to the entry that imports
+ * it. Same esbuild settings as a route module, so the same runtime-shim
+ * allowlist decides what a hooks file may import.
+ *
+ * A hooks file that cannot be bundled fails the build. It is not skipped and
+ * not warned over. The headline use of this file is an app-wide authorization
+ * check — the docs hand `cookieSession()` and `createJWTGuard()` straight into
+ * it — so degrading would ship a worker whose auth layer is missing while the
+ * build reports success. That is exactly the failure this wiring exists to
+ * close, reintroduced with a different cause. An unbuildable hooks file is a
+ * fixable mistake; a deploy that silently lost its authorization is not.
+ */
+async function bundleGlobalHooksModule(
+  hooksFile: string,
+  projectRoot: string,
+  outfile: string,
+): Promise<void> {
+  try {
+    await bundleRouteModule({ filePath: hooksFile }, projectRoot, outfile);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `[vura] global hooks file ${hooksFile} could not be bundled for Cloudflare Workers.\n` +
+      'Workers have no Node built-ins and only the @celsian/vura-core exports on the runtime-shim ' +
+      'allowlist are available, so a hooks file importing outside that set cannot be deployed. ' +
+      'Fix the import, or move the code into the routes that need it. It cannot be dropped: ' +
+      'a hooks file is where an app-wide authorization check lives.\n' +
+      detail,
+    );
+  }
 }
 
 function toDateString(date: Date): string {

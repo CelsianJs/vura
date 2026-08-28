@@ -185,6 +185,16 @@ describe('A1.4 success metric', () => {
     // THREE branches now, not two. Each measured its own ceiling against a base
     //   the others had already moved, so every one of those numbers is stale on
     //   main. Measured after the rebase: actual 10241, ceiling 10300.
+    // Global hooks on the serverless adapters (2026-08-28): src/api/_hooks.ts
+    //   reached neither dist/cloudflare/ nor dist/lambda/, so an app-wide
+    //   authorization check written there was silently absent on both targets
+    //   while the same build's dist/functions/ output enforced it. The wiring
+    //   lives entirely in the two adapters and reuses the GLOBAL_HOOKS_FILENAMES
+    //   this file's package already exports, so core/src is untouched: measured
+    //   after the change, actual 10241 — unchanged — and the ceiling stays
+    //   10300. Recorded rather than skipped, because the last three entries
+    //   were each written against a stale base and a "no change" that nobody
+    //   measured is indistinguishable from one nobody checked.
     expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(10300);
 
   });

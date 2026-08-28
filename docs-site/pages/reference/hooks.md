@@ -51,7 +51,7 @@ export const onRequest = [firstFn, secondFn]; // several, in order
 
 ### `onRequest(req, reply)`
 
-Runs **before** the route handler, on every request. Modify the request, attach state, or authenticate. Return a `Response` to short-circuit (the handler never runs); `throw` to jump to `onError`.
+Runs **before** the route handler, on every request. Modify the request, attach state, or authenticate. Answer on the reply (`reply.json`, `reply.send`, `reply.redirect`) to short-circuit: the handler never runs, and neither does schema validation. `throw` to jump to `onError`.
 
 ```ts
 export const onRequest = [
@@ -97,10 +97,14 @@ It runs **once per request, whatever the outcome**. A request whose handler or h
 
 ## Order and scope
 
-- **Global first, in array order.** Within each phase, hooks fire in the order they appear in the exported array.
-- Hooks run on the **unified server** — both `vura dev` and the built `dist/server/entry.js`. They wrap every `/api/*` request.
+- **Global first, then the route's own, in array order.** Within each phase, hooks fire in the order they appear in the exported array, and a route's own hooks run after the global ones.
+- **`onRequest` runs before schema validation.** An auth hook decides before a schema does, so an unauthenticated caller gets your `401` rather than a report on a body it was never entitled to submit.
+- Hooks run on **every deploy target**: `vura dev`, the built `dist/server/entry.js`, the generated `dist/functions/` output, and both serverless adapters (Cloudflare Workers and AWS Lambda). Each per-function bundle gets its own copy of the hooks file. They wrap every `/api/*` request.
+- **Task routes are not wrapped.** A task is invoked by a scheduler, not over HTTP, so it never enters the request lifecycle. Guard a task inside the task.
 
-> **Serverless caveat.** Global hooks run on persistent-host deploys (Node/VPS, Docker, Fly, Railway). On per-function serverless targets (Cloudflare Workers, AWS Lambda) each route is bundled as its own function that calls the handler directly, so the global hooks file is **not** applied there. Put auth and logging that must run everywhere into the handler itself, or deploy to a persistent host. See [Adapters](/reference/adapters).
+> **One difference worth knowing.** `req.headers` answers `.get(name)` and `.has(name)` on every target, and index access (`req.headers['authorization']`) works everywhere too. `req.url` does not match: on the unified server and in `dist/functions/` it is the full URL, and on the two serverless adapters it is the path only. Read the path with `new URL(req.url, 'http://x').pathname` if a hook needs to work on all of them.
+
+> **What a hooks file may import on serverless targets.** A Workers or Lambda function bundle carries no Node server runtime, and Workers carries no Node built-ins at all, so a hooks file is limited to the same imports a serverless route has. If it imports outside that set, **the build fails** with the file named. It is not skipped: a hooks file is where an app-wide authorization check lives, and dropping one quietly would ship a deploy whose auth layer is missing while the build reports success. Fix the import or move the code into the routes that need it. See [Adapters](/reference/adapters).
 
 ---
 

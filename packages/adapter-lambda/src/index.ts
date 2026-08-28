@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { vuraCoreRuntimeShimContents, serverlessRevalidateStubs, pruneStaleOutputs } from '@celsian/vura-core';
+import { vuraCoreRuntimeShimContents, serverlessRevalidateStubs, pruneStaleOutputs, GLOBAL_HOOKS_FILENAMES } from '@celsian/vura-core';
 import type { ThenAdapter, AdapterBuildContext } from '@celsian/vura-core';
 import type { ApiRoute, HttpMethod } from '@celsian/vura-core';
 
@@ -413,10 +413,21 @@ confirm_changeset = true
 /**
  * Generate a self-contained Lambda handler file for a specific route.
  * No @celsian/core dependency — includes inline event conversion and req/reply shim.
+ *
+ * `globalHooksFile` is the project's conventional hooks file (src/api/_hooks.ts
+ * or src/hooks.ts) when it exists and this function serves HTTP. buildEnd
+ * bundles it into the same function directory as hooks.js; the handler imports
+ * it and merges its hooks ahead of the route's own, which is the order the hot
+ * server and the generated dist/functions/ entry both use. Passing null emits
+ * an empty stand-in so no import is left dangling.
  */
-function generateHandlerFile(route: ApiRoute): string {
+function generateHandlerFile(route: ApiRoute, globalHooksFile?: string | null): string {
+  const hooksImport = globalHooksFile
+    ? "import * as globalHooksMod from './hooks.js';"
+    : 'const globalHooksMod = {};';
   return `// Auto-generated — self-contained Lambda handler
 import * as routeMod from './route.js';
+${hooksImport}
 
 function eventToRequest(event) {
   const { rawPath, rawQueryString, headers, body, isBase64Encoded, requestContext } = event;
@@ -503,6 +514,26 @@ async function responseToResult(response) {
   return result;
 }
 
+// The hot server and core's dist/functions/ entry both hand a hook a request
+// whose headers answer .get(); these two adapters hand it a plain lowercased
+// object, so the auth snippet the hooks reference prints —
+// req.headers.get('authorization') — threw here. A hooks file is written once
+// and deployed to every target, so the accessor is added rather than the object
+// replaced: .get/.has are non-enumerable, so Object.keys, spread and
+// JSON.stringify over req.headers are unchanged and existing
+// req.headers['x-thing'] reads keep working.
+function withHeaderAccessors(headers) {
+  const read = (name) => {
+    const value = headers[String(name).toLowerCase()];
+    return value === undefined ? null : value;
+  };
+  Object.defineProperties(headers, {
+    get: { value: read, writable: true, configurable: true, enumerable: false },
+    has: { value: (name) => read(name) !== null, writable: true, configurable: true, enumerable: false },
+  });
+  return headers;
+}
+
 function normalizeHooks(hooks) {
   if (!hooks) return undefined;
   return {
@@ -546,15 +577,23 @@ function validateRequest(req, schema) {
   return null;
 }
 
+// Global hooks run before the route's own, in each phase. Same merge the
+// generated dist/functions/ entry does: an app-wide auth or audit hook has to
+// see a request before anything a single route registered.
+function mergeHooks(globalHooks, routeHooks) {
+  const merged = (name) => [...(globalHooks?.[name] || []), ...(routeHooks?.[name] || [])];
+  return { onRequest: merged('onRequest'), onError: merged('onError'), onResponse: merged('onResponse') };
+}
+
 async function runHooks(hooks, ...args) {
   if (!hooks) return;
   for (const hook of hooks) await hook(...args);
 }
 
-async function runOnError(err, req, reply, routeHooks) {
-  if (!routeHooks?.onError) return { handled: false, error: err };
+async function runOnError(err, req, reply, lifecycleHooks) {
+  if (!lifecycleHooks?.onError?.length) return { handled: false, error: err };
   let handled = false;
-  for (const hook of routeHooks.onError) {
+  for (const hook of lifecycleHooks.onError) {
     try { await hook(err, req, reply); handled = true; }
     catch (hookErr) { err = hookErr; }
   }
@@ -563,6 +602,7 @@ async function runOnError(err, req, reply, routeHooks) {
 
 const handlers = routeMod;
 const routeHooks = normalizeHooks(routeMod.hooks || { onRequest: routeMod.onRequest, onError: routeMod.onError, onResponse: routeMod.onResponse });
+const lifecycleHooks = mergeHooks(normalizeHooks(globalHooksMod), routeHooks);
 const routeSchema = routeMod.schema;
 
 export async function handler(event, context) {
@@ -593,7 +633,7 @@ export async function handler(event, context) {
   const req = {
     method,
     url: url.pathname,
-    headers: Object.fromEntries(request.headers.entries()),
+    headers: withHeaderAccessors(Object.fromEntries(request.headers.entries())),
     params: event.pathParameters || {},
     query: event.queryStringParameters || {},
     body,
@@ -612,30 +652,42 @@ export async function handler(event, context) {
     redirect(url, status) { statusCode = status || 302; responseHeaders.location = url; responseBody = 'Redirecting to ' + url; return null; },
   };
 
-  if (routeSchema) {
-    const validationError = validateRequest(req, routeSchema);
-    if (validationError) return { statusCode: validationError.statusCode, headers: responseHeaders, body: JSON.stringify(validationError.body) };
-  }
-
   const startedAt = performance.now();
   let result;
   let hadError = false;
   try {
-    await runHooks(routeHooks?.onRequest, req, reply);
-    result = await handlerFn(req, reply);
+    await runHooks(lifecycleHooks.onRequest, req, reply);
+    // Validation moved behind the onRequest hooks and inside the try, which is
+    // where the generated dist/functions/ entry has always had it. It was in
+    // front, and returning early: an unauthenticated caller got the route's 400
+    // schema report instead of the hooks file's 401, and onResponse —
+    // documented as running once per request whatever the outcome — never saw a
+    // rejected request at all.
+    if (routeSchema && responseBody === null) {
+      const validationError = validateRequest(req, routeSchema);
+      if (validationError) {
+        statusCode = validationError.statusCode;
+        responseBody = JSON.stringify(validationError.body);
+      }
+    }
+    // A hook that answered (reply.json/send/redirect) short-circuits the
+    // handler. Without this the handler still ran behind a hook's 401: the
+    // caller saw the 401, and the handler had already charged the API call,
+    // written the row, or read the record it was being denied.
+    if (responseBody === null) result = await handlerFn(req, reply);
   } catch (err) {
     hadError = true;
     // Only an error Vura constructed may choose its own status — see the note
     // in core's generateFunctionEntry. Brand-keyed rather than an instanceof
     // check because each bundle inlines its own copy of core.
     statusCode = err && err[Symbol.for('vura.http-error')] === true && err.statusCode ? err.statusCode : 500;
-    const errorResult = await runOnError(err, req, reply, routeHooks);
+    const errorResult = await runOnError(err, req, reply, lifecycleHooks);
     if (!errorResult.handled && responseBody === null) {
       responseBody = JSON.stringify({ error: statusCode === 500 ? 'Internal Server Error' : (errorResult.error?.message || 'Request failed') });
     }
   } finally {
     const durationMs = Math.round((performance.now() - startedAt) * 100) / 100;
-    try { await runHooks(routeHooks?.onResponse, req, reply, { statusCode, durationMs, hadError }); } catch {}
+    try { await runHooks(lifecycleHooks.onResponse, req, reply, { statusCode, durationMs, hadError }); } catch {}
   }
 
   if (result instanceof Response) return responseToResult(result);
@@ -693,6 +745,8 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
         );
       }
 
+      const globalHooksFile = findGlobalHooksFile(ctx.projectRoot);
+
       // Build function descriptors — one per route+method combination
       const samFunctions: SamFunction[] = [];
       // Every file this build writes under dist/lambda. Anything else there
@@ -715,11 +769,21 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
           // Write the handler file and bundled route module.
           // The package.json marks the directory as an ES module so that
           // Lambda's Node.js runtime accepts the 'import' syntax in index.js.
-          const handlerCode = generateHandlerFile(route);
+          const handlerCode = generateHandlerFile(route, globalHooksFile);
           await writeFile(join(funcDir, 'package.json'), JSON.stringify({ type: 'module' }) + '\n');
           await writeFile(join(funcDir, 'index.js'), handlerCode);
           await bundleRouteModule(route, ctx.projectRoot, join(funcDir, 'route.js'));
+          if (globalHooksFile) {
+            // One copy per function directory: a Lambda function is deployed
+            // from its own CodeUri and cannot reach a sibling's files. Core
+            // does the same for dist/functions/.
+            await bundleGlobalHooksModule(globalHooksFile, ctx.projectRoot, join(funcDir, 'hooks.js'));
+          }
+          // hooks.js has to be declared kept or the sweep at the end of
+          // buildEnd deletes the file this build just wrote, which would look
+          // from the outside exactly like the hooks never being bundled at all.
           for (const f of ['package.json', 'index.js', 'route.js']) emitted.add(join(funcDir, f));
+          if (globalHooksFile) emitted.add(join(funcDir, 'hooks.js'));
 
           samFunctions.push({
             name: funcName,
@@ -746,7 +810,10 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
         const funcDir = join(lambdaDir, routeDirName);
         await mkdir(funcDir, { recursive: true });
 
-        const handlerCode = generateHandlerFile(route);
+        // A task function is invoked by EventBridge, never through the HTTP
+        // lifecycle, so it gets no global hooks — the same rule core applies
+        // when it emits dist/functions/ (hooks.js goes to serverless routes only).
+        const handlerCode = generateHandlerFile(route, null);
         await writeFile(join(funcDir, 'package.json'), JSON.stringify({ type: 'module' }) + '\n');
         await writeFile(join(funcDir, 'index.js'), handlerCode);
         await bundleRouteModule(route, ctx.projectRoot, join(funcDir, 'route.js'));
@@ -789,7 +856,53 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
 
 // ─── Utilities ───
 
-async function bundleRouteModule(route: ApiRoute, projectRoot: string, outfile: string): Promise<void> {
+/**
+ * Find the project's conventional global hooks file, if it has one.
+ *
+ * Same list core, the CLI's dev server and the Vite plugin all read, so a file
+ * the dev server picks up is the file the deployment artifact gets.
+ */
+function findGlobalHooksFile(projectRoot: string): string | null {
+  for (const filename of GLOBAL_HOOKS_FILENAMES) {
+    if (existsSync(join(projectRoot, filename))) return filename;
+  }
+  return null;
+}
+
+/**
+ * Bundle the global hooks file into a function directory, next to the handler
+ * that imports it. Same esbuild settings as a route module, so the same
+ * runtime-shim allowlist decides what a hooks file may import.
+ *
+ * A hooks file that cannot be bundled fails the build. It is not skipped and
+ * not warned over. The headline use of this file is an app-wide authorization
+ * check — the docs hand `cookieSession()` and `createJWTGuard()` straight into
+ * it — so degrading would ship functions whose auth layer is missing while the
+ * build reports success. That is exactly the failure this wiring exists to
+ * close, reintroduced with a different cause. An unbuildable hooks file is a
+ * fixable mistake; a deploy that silently lost its authorization is not.
+ */
+async function bundleGlobalHooksModule(
+  hooksFile: string,
+  projectRoot: string,
+  outfile: string,
+): Promise<void> {
+  try {
+    await bundleRouteModule({ filePath: hooksFile }, projectRoot, outfile);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `[vura] global hooks file ${hooksFile} could not be bundled for AWS Lambda.\n` +
+      'Only the @celsian/vura-core exports on the runtime-shim allowlist are available inside a ' +
+      'function bundle, so a hooks file importing outside that set cannot be deployed. ' +
+      'Fix the import, or move the code into the routes that need it. It cannot be dropped: ' +
+      'a hooks file is where an app-wide authorization check lives.\n' +
+      detail,
+    );
+  }
+}
+
+async function bundleRouteModule(route: Pick<ApiRoute, 'filePath'>, projectRoot: string, outfile: string): Promise<void> {
   const absPath = join(projectRoot, route.filePath);
   if (!existsSync(absPath)) {
     throw new Error(`Route source not found for ${route.filePath}: ${absPath}`);
