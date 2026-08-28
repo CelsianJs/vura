@@ -84,12 +84,16 @@ jobs:
       # GitHub's ARM runners build both targets natively, so the linker in
       # question never runs. Same toolchain as every other row in this matrix.
 
-      - name: Install napi-rs CLI
-        run: npm install -g @napi-rs/cli@2.18.4
-
+      # Use the CLI from the package's own devDependencies, never a global pin.
+      # A globally installed @napi-rs/cli@2.18.4 sat here while the crate moved
+      # to napi 3, and a v2 CLI cannot generate glue for napi 3 code: every
+      # target failed with `unresolved import crate::ScanResult` and
+      # `cannot find type WatcherHandle`, which reads like a source error and is
+      # not one. Resolving the CLI from the workspace makes the two versions
+      # impossible to drift apart.
       - name: Build native addon
         working-directory: packages/compiler-native
-        run: napi build --platform --release --target ${{ matrix.target }}
+        run: pnpm exec napi build --platform --release --target ${{ matrix.target }}
 
       - name: Verify native scanner parity
         if: matrix.target == 'x86_64-unknown-linux-gnu'
