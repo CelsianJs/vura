@@ -153,8 +153,22 @@ describe('A1.4 success metric', () => {
     //   two reasons plus realpathOfDeepestExisting, which exists because the
     //   containment check needs both sides real-pathed and a missing file
     //   cannot be. runtime-shim.ts adds the eleven documented exports that were
-    //   missing from its allowlist. +~122 → actual 9829. Ceiling 9880 leaves
-    //   ~51 headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(9880);
+    //   missing from its allowlist. +~122.
+    // Runtime-split leftovers (2026-08-28): the last two module-level values
+    //   that a bundle-per-route build makes one slot per bundle rather than one
+    //   per process. errors.ts moves the global error handler onto globalThis
+    //   under a registered symbol (reportError() from a route reached nothing);
+    //   runtime/cache.ts drops its own init flag and asks what-framework's
+    //   registry instead (a route-side revalidateTag logged "this is a no-op"
+    //   over a purge that worked). api-app.ts additionally drives the project's
+    //   onResponse hooks on the Celsian error path, which never reached them, so
+    //   an access log omitted every failed request; that is the bulk of the
+    //   addition, along with the shared serverless revalidate stubs in
+    //   runtime-shim.ts that the Cloudflare adapter was missing entirely.
+    //   +~156.
+    // The two landed within hours of each other and each raised this ceiling on
+    //   its own branch, so the number here is measured against both rather than
+    //   inherited from either. Actual 9985, ceiling 10050.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(10050);
   });
 });

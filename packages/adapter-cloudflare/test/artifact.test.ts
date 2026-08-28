@@ -294,3 +294,58 @@ console.log(JSON.stringify(results));
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+/**
+ * `revalidateTag` and `revalidatePath` have no local ISR cache to reach inside a
+ * per-function bundle, so both serverless adapters answer them with a warn-only
+ * stub. Only Lambda had one: the same project built for Lambda and hard-failed
+ * for Workers with
+ *
+ *   No matching export in "vura-core-runtime-shim:@celsian/vura-core"
+ *   for import "revalidateTag"
+ *
+ * The two adapters now share one definition, and the matching test lives beside
+ * the Lambda adapter so the pair going out of step shows up as a failure.
+ */
+describe('cloudflareAdapter ISR revalidation stubs', () => {
+  it('builds a route that imports revalidateTag, and warns when it runs', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'vura-cf-revalidate-'));
+    try {
+      mkdirSync(join(root, 'src', 'api'), { recursive: true });
+      writeFileSync(join(root, 'src', 'api', 'purge.ts'), `import { revalidateTag, revalidatePath } from '@celsian/vura-core';
+
+export async function POST() {
+  await revalidateTag('posts');
+  await revalidatePath('/posts');
+  return { ok: true };
+}
+`);
+
+      const outDir = join(root, 'dist');
+      const ctx: AdapterBuildContext = {
+        serverEntry: join(outDir, 'server', 'entry.js'),
+        clientDir: join(outDir, 'client'),
+        manifest: manifest([route({ filePath: 'src/api/purge.ts', urlPattern: '/api/purge' })]),
+        projectRoot: root,
+        outDir,
+      };
+      await cloudflareAdapter({ name: 'test-worker', compatibilityDate: '2026-05-10' }).buildEnd(ctx);
+
+      const bundledRoutePath = join(outDir, 'cloudflare', 'routes', 'src_api_purge.js');
+      expect(existsSync(bundledRoutePath)).toBe(true);
+
+      const result = runModuleJson(bundledRoutePath, `const warnings = [];
+console.warn = (...args) => { warnings.push(args.join(' ')); };
+const body = await mod.POST();
+console.log(JSON.stringify({ body, warnings }));
+`);
+      expect(result.body).toEqual({ ok: true });
+      expect(result.warnings).toEqual([
+        '[vura] revalidateTag("posts") is a no-op inside Workers today — call your cache host\'s /__vura/revalidate webhook instead.',
+        '[vura] revalidatePath("/posts") is a no-op inside Workers today — call your cache host\'s /__vura/revalidate webhook instead.',
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

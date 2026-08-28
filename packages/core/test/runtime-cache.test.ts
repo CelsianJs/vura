@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createVuraCache } from '../src/runtime/cache.js';
 import { revalidatePath, revalidateTag } from '../src/index.js';
-import { setRevalidationHandler } from 'what-framework/server';
+// @ts-ignore: present at runtime, absent from what-framework/server.d.ts
+import { setRevalidationHandler, getRevalidationHandler } from 'what-framework/server';
 
 /**
  * Adaptations from plan (grounded against what-fw source):
@@ -80,6 +81,89 @@ describe('createVuraCache', () => {
     // Next handle must render again (MISS).
     const third = await engine.handle(routeMatch, render);
     expect(third.cacheStatus).toBe('MISS');
+    expect(renders).toBe(2);
+  });
+});
+
+describe('the no-op warning survives the bundle split', () => {
+  /**
+   * A built server inlines its own copy of this module into every route
+   * bundle, so a module-scoped init flag is one slot per bundle.
+   * `vi.resetModules()` plus a second import reproduces that: two instances of
+   * the module, one process. `createVuraCache()` runs in the entry copy at
+   * boot; an API route calling `revalidateTag()` runs in its own.
+   *
+   * Before the fix that route copy read its own `false`, and every purge from
+   * an API route printed "no cache is bound; this is a no-op" over an
+   * invalidation that had actually landed. An operator reading production logs
+   * was told their purges were broken while they were working.
+   */
+  async function twoCopies() {
+    const entryCopy = await import('../src/runtime/cache.js');
+    vi.resetModules();
+    const routeCopy = await import('../src/runtime/cache.js');
+    expect(routeCopy).not.toBe(entryCopy);
+    return { entryCopy, routeCopy };
+  }
+
+  let warnSpy: ReturnType<typeof vi.spyOn> | undefined;
+
+  afterEach(() => {
+    warnSpy?.mockRestore();
+    warnSpy = undefined;
+  });
+
+  function captureWarnings(): string[] {
+    const lines: string[] = [];
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    return lines;
+  }
+
+  it('stays quiet when a different copy bound the cache', async () => {
+    const { entryCopy, routeCopy } = await twoCopies();
+    entryCopy.createVuraCache({});
+
+    const warnings = captureWarnings();
+    await routeCopy.revalidateTag('posts');
+    await routeCopy.revalidatePath('/posts');
+
+    expect(warnings.filter((line) => line.includes('no cache is bound'))).toEqual([]);
+  });
+
+  it('still warns when nothing is bound at all', async () => {
+    // The other half of the claim: the warning has to keep firing when it is
+    // true, or silencing it would just be deleting the diagnostic.
+    const { routeCopy } = await twoCopies();
+    const previous = getRevalidationHandler();
+    setRevalidationHandler(null as never);
+    try {
+      const warnings = captureWarnings();
+      await routeCopy.revalidateTag('posts');
+
+      expect(warnings.some((line) => line.includes('no cache is bound'))).toBe(true);
+    } finally {
+      setRevalidationHandler(previous as never);
+    }
+  });
+
+  it('a purge from another copy really reaches the bound engine', async () => {
+    // The warning was the visible half of the bug report; this is the half
+    // that says the purge worked all along, so the log line was the defect.
+    const { entryCopy, routeCopy } = await twoCopies();
+    const { engine } = entryCopy.createVuraCache({});
+
+    const routeMatch = { path: '/split', query: {}, config: { revalidate: 60 } };
+    let renders = 0;
+    const render = async () => { renders++; return { html: '<p>x</p>', status: 200, path: '/split' }; };
+
+    expect((await engine.handle(routeMatch, render)).cacheStatus).toBe('MISS');
+    expect((await engine.handle(routeMatch, render)).cacheStatus).toBe('HIT');
+
+    await routeCopy.revalidatePath('/split');
+
+    expect((await engine.handle(routeMatch, render)).cacheStatus).toBe('MISS');
     expect(renders).toBe(2);
   });
 });

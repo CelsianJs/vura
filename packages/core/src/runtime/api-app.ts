@@ -10,7 +10,7 @@
  * etc.) which accept the same `:param` URL pattern syntax as Vura manifests.
  */
 
-import { createApp, type CelsianApp, type CelsianRequest, type CelsianReply } from '@celsian/core';
+import { createApp, HttpError as CelsianHttpError, ValidationError as CelsianValidationError, type CelsianApp, type CelsianRequest, type CelsianReply } from '@celsian/core';
 import { dispatchAction, issueActionToken, type ActionRequestLike } from './actions.js';
 import { applyThenCompat } from '../compat.js';
 import { getErrorMode, isHttpError } from '../errors.js';
@@ -69,6 +69,26 @@ function toActionRequest(req: CelsianRequest): ActionRequestLike {
   };
 }
 
+/**
+ * The status Celsian's own default error handler would send for `error`.
+ *
+ * Mirrors `handleError` in @celsian/core: its own ValidationError is a 400, its
+ * own HttpError keeps its status, and anything else is a sanitised 500 whatever
+ * `statusCode` it happens to carry. Using Celsian's exported classes rather than
+ * a structural `statusCode` read means the answer agrees with the response that
+ * actually goes on the wire, including when Celsian declines to trust a status.
+ * Both this module and the Celsian copy that throws those errors live in the
+ * server entry, so instanceof is sound here in a way it is not across bundles.
+ */
+function celsianDefaultStatus(error: unknown): number {
+  if (error instanceof CelsianValidationError) return 400;
+  if (error instanceof CelsianHttpError) return error.statusCode;
+  return 500;
+}
+
+/** Per-request marker so the onResponse hooks fire at most once. */
+const RESPONSE_HOOKS_RAN = '__vuraResponseHooksRan';
+
 // Map Vura HttpMethod → CelsianApp method registrar name
 const METHOD_REGISTRARS: Record<HttpMethod, 'get' | 'post' | 'put' | 'delete' | 'patch' | 'head' | 'options'> = {
   GET: 'get',
@@ -100,20 +120,80 @@ export function createApiApp(opts: ApiAppOptions): CelsianApp {
   // lines 26-34: onRequest, preParsing, preValidation, preHandler,
   // preSerialization, onSend, onResponse, onError — all valid.
 
+  const onResponseHooks = (opts.globalHooks?.onResponse ?? []) as Array<
+    (
+      req: CelsianRequest,
+      reply: CelsianReply,
+      info: { statusCode: number; durationMs: number; hadError: boolean },
+    ) => unknown
+  >;
+
   // Stamp request start time FIRST, before user onRequest hooks, so durationMs
   // in the onResponse shim is as accurate as possible.
-  if ((opts.globalHooks?.onResponse ?? []).length > 0) {
+  if (onResponseHooks.length > 0) {
     app.addHook('onRequest', (req: CelsianRequest) => {
       (req as any).__vuraStart = Date.now();
     });
   }
 
+  /**
+   * Run the project's onResponse hooks once for this request.
+   *
+   * Celsian reaches its own onResponse hooks only when the lifecycle completes.
+   * A request whose handler throws is answered out of `handleError` and returns
+   * before them, so an access log or a metrics counter written as an onResponse
+   * hook recorded every success and silently omitted every failure, which is the
+   * half of the traffic such a hook usually exists for. Vura therefore drives
+   * the hooks itself on the error path, and this guard stops the two paths both
+   * firing for one request.
+   *
+   * `statusCode` is passed in rather than read off the reply because the error
+   * response is built fresh by `handleError` and never touches `reply`.
+   */
+  async function runResponseHooks(
+    req: CelsianRequest,
+    reply: CelsianReply,
+    statusCode: number,
+    hadError: boolean,
+  ): Promise<void> {
+    if (onResponseHooks.length === 0) return;
+    const stamped = req as unknown as Record<string, unknown>;
+    if (stamped[RESPONSE_HOOKS_RAN]) return;
+    stamped[RESPONSE_HOOKS_RAN] = true;
+
+    const start = stamped.__vuraStart as number | undefined;
+    const info = {
+      statusCode,
+      durationMs: start !== undefined ? Date.now() - start : 0,
+      hadError,
+    };
+    for (const fn of onResponseHooks) {
+      // Same contract Celsian gives its own onResponse hooks: a throw is
+      // reported and swallowed, never allowed to alter the response.
+      try {
+        await fn(req, reply, info);
+      } catch (err) {
+        console.error('[vura] onResponse hook error', err);
+      }
+    }
+  }
+
   for (const fn of opts.globalHooks?.onRequest ?? []) {
     app.addHook('onRequest', fn as (req: CelsianRequest, reply: CelsianReply) => void | Promise<void>);
   }
+
+  // Each user onError hook is wrapped rather than registered raw: a hook that
+  // returns a Response ends Celsian's error chain, so the hooks behind it never
+  // run. Wrapping keeps the response observable whichever hook answers, and the
+  // status reported is the one that hook actually sent.
   for (const fn of opts.globalHooks?.onError ?? []) {
     // onError signature: (error, request, reply) — cast matches OnErrorHandler
-    app.addHook('onError', fn as (err: Error, req: CelsianRequest, reply: CelsianReply) => void | Promise<void>);
+    const userFn = fn as (err: Error, req: CelsianRequest, reply: CelsianReply) => unknown;
+    app.addHook('onError', (async (err: Error, req: CelsianRequest, reply: CelsianReply) => {
+      const result = await userFn(err, req, reply);
+      if (result instanceof Response) await runResponseHooks(req, reply, result.status, true);
+      return result;
+    }) as unknown as (err: Error, req: CelsianRequest, reply: CelsianReply) => void);
   }
 
   // Vura owns the HTTP status of its own errors rather than relying on the host
@@ -130,31 +210,30 @@ export function createApiApp(opts: ApiAppOptions): CelsianApp {
   // Celsian's errors, validation failures and unknown throws are untouched.
   // Only errors Vura itself constructed carry the brand, and the decision
   // about which messages are safe to send stays inside the error's `toJSON`.
-  app.addHook('onError', ((error: Error) => {
-    if (!isHttpError(error)) return undefined;
-    return new Response(JSON.stringify(error.toJSON(getErrorMode() === 'development')), {
-      status: error.statusCode,
-      headers: { 'content-type': 'application/json; charset=utf-8' },
-    });
+  //
+  // Being last also makes it the one place that knows an error reached the end
+  // of the chain unclaimed, which is where the onResponse hooks get their status
+  // for everything Celsian answers by default.
+  app.addHook('onError', (async (error: Error, req: CelsianRequest, reply: CelsianReply) => {
+    if (isHttpError(error)) {
+      await runResponseHooks(req, reply, error.statusCode, true);
+      return new Response(JSON.stringify(error.toJSON(getErrorMode() === 'development')), {
+        status: error.statusCode,
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+      });
+    }
+    await runResponseHooks(req, reply, celsianDefaultStatus(error), true);
+    return undefined;
   }) as unknown as (err: Error, req: CelsianRequest, reply: CelsianReply) => void);
 
-  // Wrap each vura onResponse hook to receive a synthesized third arg:
-  //   { statusCode: reply.statusCode, durationMs: Date.now() - __vuraStart, hadError: false }
-  // reply.statusCode is the value set by the last reply.status() call before the
-  // response was built (verified in celsian/packages/core/src/reply.ts lines 41-46).
-  // hadError is always false on the onResponse path — celsian fires onError
-  // separately for handler exceptions; document this in type definitions.
-  for (const fn of opts.globalHooks?.onResponse ?? []) {
-    const vuraFn = fn as (req: CelsianRequest, reply: CelsianReply, info: { statusCode: number; durationMs: number; hadError: boolean }) => unknown;
-    app.addHook('onResponse', (req: CelsianRequest, reply: CelsianReply) => {
-      const start = (req as any).__vuraStart as number | undefined;
-      const info = {
-        statusCode: reply.statusCode ?? 0,
-        durationMs: start !== undefined ? Date.now() - start : 0,
-        hadError: false,
-      };
-      return vuraFn(req, reply, info) as void | Promise<void>;
-    });
+  // The success path. Celsian's own onResponse stage supplies the completed
+  // lifecycle; the third argument is synthesized because Celsian's hooks take
+  // only (req, reply). reply.statusCode is the value set by the last
+  // reply.status() call before the response was built (verified in
+  // celsian/packages/core/src/reply.ts lines 41-46).
+  if (onResponseHooks.length > 0) {
+    app.addHook('onResponse', (req: CelsianRequest, reply: CelsianReply) =>
+      runResponseHooks(req, reply, reply.statusCode ?? 0, false));
   }
 
   // ─── Route registration ───

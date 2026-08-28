@@ -493,6 +493,30 @@ describe('executeWithHooks', () => {
     expect(capturedStatusCode).toBe(403);
   });
 
+  it('extracts statusCode from an HttpError thrown by another copy of core', async () => {
+    // Latent rather than live: nothing in a generated server routes through
+    // executeWithHooks today, so this is the programmatic-custom-server path.
+    // There each route module is still its own bundle with its own copy of
+    // core, and an `instanceof` read flattened every deliberate status into a
+    // 500. Structurally an HttpError, not an instance of this module's class.
+    const foreign = Object.assign(new Error('Not allowed'), {
+      [Symbol.for('vura.http-error')]: true,
+      name: 'HttpError',
+      statusCode: 403,
+      code: 'FORBIDDEN',
+    });
+    expect(foreign instanceof HttpError).toBe(false);
+
+    let capturedStatusCode = 0;
+    registry.onResponse(async (_req, _reply, info) => { capturedStatusCode = info.statusCode; });
+
+    const result = await executeWithHooks(
+      registry, createRequest(), createReply(), () => { throw foreign; },
+    );
+    expect(result.statusCode).toBe(403);
+    expect(capturedStatusCode).toBe(403);
+  });
+
   it('converts non-Error throws to Error objects', async () => {
     const capturedError = vi.fn();
     registry.onError(async (error) => { capturedError(error); });

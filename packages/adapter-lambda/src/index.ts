@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { vuraCoreRuntimeShimContents } from '@celsian/vura-core';
+import { vuraCoreRuntimeShimContents, serverlessRevalidateStubs } from '@celsian/vura-core';
 import type { ThenAdapter, AdapterBuildContext } from '@celsian/vura-core';
 import type { ApiRoute, HttpMethod } from '@celsian/vura-core';
 
@@ -50,18 +50,7 @@ function vuraCoreRuntimeShimPlugin() {
           packageDir: CORE_PACKAGE_DIR,
           // No Node server inside a Lambda function bundle.
           includeServerRuntime: false,
-          extra: `
-// revalidateTag/revalidatePath: build-parity stubs. Lambda functions have no
-// local ISR cache; real revalidation must reach the cache host's
-// /__vura/revalidate webhook. Importing the real runtime/cache module would
-// drag what-framework into every function bundle, so we warn instead.
-export async function revalidateTag(tag) {
-  console.warn('[vura] revalidateTag("' + tag + '") is a no-op inside Lambda functions today — call your cache host\\'s /__vura/revalidate webhook instead.');
-}
-export async function revalidatePath(path) {
-  console.warn('[vura] revalidatePath("' + path + '") is a no-op inside Lambda functions today — call your cache host\\'s /__vura/revalidate webhook instead.');
-}
-`,
+          extra: serverlessRevalidateStubs('Lambda functions'),
         }),
       }));
     },

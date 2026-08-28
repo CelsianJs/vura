@@ -155,7 +155,7 @@ export async function deleteTodo(id: string) {
 | Target | Server actions |
 |---|---|
 | `vura dev` | Yes |
-| `vura build` + `vura start` (Node) | Yes |
+| `vura build` + `node dist/server/entry.js` (Node) | Yes |
 | Docker / VPS | Yes |
 | Cloudflare adapter | Not yet |
 | Lambda adapter | Not yet |

@@ -83,13 +83,15 @@ export const onError = [
 
 Runs **after** the response is sent — for logging, metrics, and cleanup. It cannot change the response. Errors thrown here are logged and swallowed; they never reach the client.
 
+It runs **once per request, whatever the outcome**. A request whose handler or hook threw runs `onError` and then `onResponse`, so an access log or a request counter written here sees the failures as well as the successes.
+
 `info` is a `ResponseInfo`:
 
 | Field | Type | Description |
 |---|---|---|
-| `statusCode` | `number` | The status code that was sent. |
+| `statusCode` | `number` | The status code that was sent, including the status of an error response. |
 | `durationMs` | `number` | Time from request start to response, in milliseconds. |
-| `hadError` | `boolean` | Always `false` on this path — the unified server routes handler exceptions through `onError` separately, so don't rely on this flag to detect failures. Read `statusCode` (`>= 500`) instead. |
+| `hadError` | `boolean` | `true` when the request was answered from the error path (the handler, or a hook before it, threw). `false` on the normal path. |
 
 ---
 
