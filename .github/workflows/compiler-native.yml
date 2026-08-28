@@ -51,11 +51,19 @@ jobs:
         with:
           node-version: 20
 
+      # pnpm is needed on EVERY leg, not just the one that runs the JS tests,
+      # because the build below resolves the napi CLI from the package's own
+      # devDependencies. Gating these to one target left the other six with
+      # `pnpm: command not found`.
       - name: Setup pnpm
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
         uses: pnpm/action-setup@v6
         with:
           version: 10.11.0
+
+      # Filtered, so six extra legs do not each pay for a full workspace
+      # install. This package's devDependencies are all the build needs.
+      - name: Install build dependencies
+        run: pnpm install --frozen-lockfile --filter @celsian/vura-compiler-native
 
       - name: Install JavaScript test dependencies
         if: matrix.target == 'x86_64-unknown-linux-gnu'
