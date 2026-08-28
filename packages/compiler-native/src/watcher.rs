@@ -4,11 +4,29 @@
 //! Much more reliable and efficient than Node's `fs.watch`.
 
 use napi::bindgen_prelude::*;
-use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
+use napi::threadsafe_function::{
+    ThreadsafeFunction, ThreadsafeFunctionCallMode, UnknownReturnValue,
+};
 use napi_derive::napi;
-use notify::{RecommendedWatcher, RecursiveMode, Watcher, Event, EventKind};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+
+/// `(event, path) => any` with no Node-style error-first argument.
+///
+/// The argument type must be `FnArgs<(String, String)>` and not a bare tuple.
+/// napi 3 hands a bare tuple to JavaScript as ONE array argument, where napi 2
+/// with `ErrorStrategy::Fatal` spread it into two. `FnArgs` is what preserves
+/// the spread, and nothing else here would have caught the difference: the
+/// callback still fires either way, so only an assertion on the argument shape
+/// distinguishes them.
+pub type WatchCallback = ThreadsafeFunction<
+    FnArgs<(String, String)>,
+    UnknownReturnValue,
+    FnArgs<(String, String)>,
+    Status,
+    false,
+>;
 
 #[napi]
 pub struct WatcherHandle {
@@ -27,12 +45,7 @@ impl WatcherHandle {
     }
 }
 
-pub fn watch(
-    path: &str,
-    callback: ThreadsafeFunction<(String, String), ErrorStrategy::Fatal>,
-) -> anyhow::Result<WatcherHandle> {
-    let cb = callback.clone();
-
+pub fn watch(path: &str, callback: WatchCallback) -> anyhow::Result<WatcherHandle> {
     let mut watcher = notify::recommended_watcher(move |res: std::result::Result<Event, notify::Error>| {
         match res {
             Ok(event) => {
@@ -45,8 +58,8 @@ pub fn watch(
 
                 for path in event.paths {
                     let path_str = path.to_string_lossy().to_string();
-                    cb.call(
-                        (event_type.to_string(), path_str),
+                    callback.call(
+                        (event_type.to_string(), path_str).into(),
                         ThreadsafeFunctionCallMode::NonBlocking,
                     );
                 }

@@ -5,16 +5,13 @@
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
-    "name": "compiler-native",
-    "triples": {
-      "defaults": false,
-      "additional": [
-        "aarch64-apple-darwin",
-        "aarch64-unknown-linux-gnu",
-        "aarch64-unknown-linux-musl",
-        "x86_64-unknown-linux-musl"
-      ]
-    }
+    "binaryName": "compiler-native",
+    "targets": [
+      "aarch64-apple-darwin",
+      "aarch64-unknown-linux-gnu",
+      "aarch64-unknown-linux-musl",
+      "x86_64-unknown-linux-musl"
+    ]
   },
   "files": [
     "index.js",
@@ -29,7 +26,7 @@
     "version": "napi version"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.7.2"
+    "@napi-rs/cli": "^3.8.6"
   },
   "engines": {
     "node": ">=20 <23"

@@ -51,10 +51,11 @@ pub fn transform_jsx(
 }
 
 /// Watch a directory for file changes using native OS APIs.
-#[napi]
+/// Named Rust aliases leak into the .d.ts; pin the JS callback shape instead.
+#[napi(ts_args_type = "path: string, callback: (arg0: string, arg1: string) => any")]
 pub fn watch_directory(
     path: String,
-    callback: napi::threadsafe_function::ThreadsafeFunction<(String, String), napi::threadsafe_function::ErrorStrategy::Fatal>,
+    callback: watcher::WatchCallback,
 ) -> Result<watcher::WatcherHandle> {
     watcher::watch(&path, callback).map_err(|e| Error::from_reason(e.to_string()))
 }
