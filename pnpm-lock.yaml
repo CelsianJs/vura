@@ -137,7 +137,7 @@ importers:
   packages/compiler-native:
     devDependencies:
       '@napi-rs/cli':
-        specifier: ^3.7.2
+        specifier: ^3.8.6
         version: 3.8.6(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@26.4.0)(emnapi@1.11.2)
 
   packages/core:

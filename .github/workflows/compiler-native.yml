@@ -35,8 +35,11 @@ jobs:
             os: ubuntu-24.04-arm
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
+          # Same-arch glibc host to musl target is still a cross. The v3 CLI
+          # flag for that is --cross-compile, not --use-napi-cross (glibc only).
           - target: aarch64-unknown-linux-musl
             os: ubuntu-24.04-arm
+            napi_flags: --cross-compile
           - target: x86_64-pc-windows-msvc
             os: windows-latest
 
@@ -51,11 +54,19 @@ jobs:
         with:
           node-version: 20
 
+      # pnpm is needed on EVERY leg, not just the one that runs the JS tests,
+      # because the build below resolves the napi CLI from the package's own
+      # devDependencies. Gating these to one target left the other six with
+      # `pnpm: command not found`.
       - name: Setup pnpm
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
         uses: pnpm/action-setup@v6
         with:
           version: 10.11.0
+
+      # Filtered, so six extra legs do not each pay for a full workspace
+      # install. This package's devDependencies are all the build needs.
+      - name: Install build dependencies
+        run: pnpm install --frozen-lockfile --filter @celsian/vura-compiler-native
 
       - name: Install JavaScript test dependencies
         if: matrix.target == 'x86_64-unknown-linux-gnu'
@@ -66,30 +77,53 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # x86_64-musl still builds with the distro musl-gcc. aarch64-musl does
+      # not: see the zig / --cross-compile steps below.
       - name: Install musl tools
-        if: contains(matrix.target, 'musl')
+        if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
 
-      # No Zig, and no cross-linking, for the two aarch64-linux targets.
-      #
-      # They used `napi build --zig`, which cross-linked from an x86_64 runner.
-      # rustc emits `--fix-cortex-a53-843419` for aarch64-unknown-linux-gnu (the
-      # erratum workaround is part of the target spec, not a flag anyone set),
-      # Zig's linker rejects the argument outright, and the build died with
-      # "unsupported linker arg". Nothing in this repo could turn that off: the
-      # flag comes from the target definition.
-      #
-      # GitHub's ARM runners build both targets natively, so the linker in
-      # question never runs. Same toolchain as every other row in this matrix.
+      # aarch64-unknown-linux-gnu stays native on the ARM runner. rustc emits
+      # `--fix-cortex-a53-843419` for that target (it is part of the spec, not
+      # a flag anyone set). Older zig linkers rejected it, which is why this
+      # row left `napi build --zig` on an x86_64 runner.
 
-      - name: Install napi-rs CLI
-        run: npm install -g @napi-rs/cli@2.18.4
+      # aarch64-unknown-linux-musl is a cross even on the ARM runner (glibc
+      # host, musl target). With no cross flag the v3 CLI sets the linker to
+      # `aarch64-linux-musl-gcc`, which then drives the host `/usr/bin/ld`.
+      # That ld cannot find `libgcc_s.so.1`, which a musl sysroot does not
+      # ship. `--use-napi-cross` is Linux glibc only and errors on musl. The
+      # v3 musl path is `--cross-compile`, which routes through cargo-zigbuild.
+      # cargo-zigbuild 0.23+ strips the cortex-a53 arg that older zig rejected.
+      # The CLI also appends `-C target-feature=-crt-static` for any musl
+      # target, so the addon stays dlopen-able by a musl Node.
+      - uses: mlugg/setup-zig@v2
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        with:
+          version: 0.15.2
 
+      # Prebuilt binary. The CLI would `cargo install` this on first use, which
+      # compiles it from source and adds minutes to the only failing leg.
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@v2
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          tool: cargo-zigbuild
+
+      # Use the CLI from the package's own devDependencies, never a global pin.
+      # A globally installed @napi-rs/cli@2.18.4 sat here while the crate moved
+      # to napi 3, and a v2 CLI cannot generate glue for napi 3 code: every
+      # target failed with `unresolved import crate::ScanResult` and
+      # `cannot find type WatcherHandle`, which reads like a source error and is
+      # not one. Resolving the CLI from the workspace makes the two versions
+      # impossible to drift apart.
       - name: Build native addon
         working-directory: packages/compiler-native
-        run: napi build --platform --release --target ${{ matrix.target }}
+        run: pnpm exec napi build --platform --release --target ${{ matrix.target }} ${{ matrix.napi_flags }}
 
       - name: Verify native scanner parity
         if: matrix.target == 'x86_64-unknown-linux-gnu'
