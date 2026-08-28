@@ -30,6 +30,7 @@ import {
   extractActionExports,
   generateActionStub,
   resolveActionImport,
+  specifierTargetsActions,
   vuraActionsStubPlugin,
 } from '../src/actions-build.js';
 import { badRequest, notFound } from '../src/errors.js';
@@ -439,5 +440,119 @@ describe('A9: the stub swap', () => {
     });
 
     expect(readFileSync(outfile, 'utf8')).toContain('ORDINARY-MODULE');
+  });
+});
+
+// ─── The TypeScript `.js` specifier ───
+
+describe('A9: an action imported with an explicit .js extension', () => {
+  /** A project whose action file holds a canary and whose page imports it. */
+  function project(pageImport: string): string {
+    const root = scratch();
+    mkdirSync(join(root, 'src', 'actions'), { recursive: true });
+    mkdirSync(join(root, 'src', 'pages'), { recursive: true });
+    writeFileSync(
+      join(root, 'src', 'actions', 'leaky.ts'),
+      // Deliberately does NOT look like a real credential. A canary shaped like
+      // one (an `sk-` prefix, say) trips gitleaks in CI, and the test needs a
+      // string that is unique, not one that is realistic.
+      `const API_KEY = 'vura-action-boundary-canary-do-not-ship';
+       export async function fetchReport(id: string) { return { id, key: API_KEY }; }`,
+    );
+    writeFileSync(
+      join(root, 'src', 'pages', 'hybrid.tsx'),
+      `import { fetchReport } from '${pageImport}';
+       export default function Page() { return fetchReport('r1'); }`,
+    );
+    return root;
+  }
+
+  async function bundle(root: string): Promise<string> {
+    const { build: esbuild } = await import('esbuild');
+    const outfile = join(root, 'out.js');
+    await esbuild({
+      entryPoints: [join(root, 'src', 'pages', 'hybrid.tsx')],
+      bundle: true,
+      format: 'esm',
+      platform: 'browser',
+      outfile,
+      plugins: [vuraActionsStubPlugin({ projectRoot: root })],
+    });
+    return readFileSync(outfile, 'utf8');
+  }
+
+  it('resolves the TypeScript source behind a .js, .jsx, .mjs or .cjs specifier', () => {
+    const root = scratch();
+    const actionsRoot = join(root, 'src', 'actions');
+    const fromPages = join(root, 'src', 'pages');
+    mkdirSync(actionsRoot, { recursive: true });
+    mkdirSync(fromPages, { recursive: true });
+    for (const file of ['todos.ts', 'widget.tsx', 'esm.mts', 'cjs.cts']) {
+      writeFileSync(join(actionsRoot, file), 'export async function add() {}');
+    }
+
+    // tsc under moduleResolution Node16 requires the .js spelling, so this is
+    // the form a scaffolded project writes.
+    expect(resolveActionImport('../actions/todos.js', fromPages, actionsRoot))
+      .toBe(realpathSync(join(actionsRoot, 'todos.ts')));
+    expect(resolveActionImport('../actions/widget.jsx', fromPages, actionsRoot))
+      .toBe(realpathSync(join(actionsRoot, 'widget.tsx')));
+    expect(resolveActionImport('../actions/esm.mjs', fromPages, actionsRoot))
+      .toBe(realpathSync(join(actionsRoot, 'esm.mts')));
+    expect(resolveActionImport('../actions/cjs.cjs', fromPages, actionsRoot))
+      .toBe(realpathSync(join(actionsRoot, 'cjs.cts')));
+  });
+
+  it('prefers a real .js file over the remap, as esbuild does', () => {
+    const root = scratch();
+    const actionsRoot = join(root, 'src', 'actions');
+    const fromPages = join(root, 'src', 'pages');
+    mkdirSync(actionsRoot, { recursive: true });
+    mkdirSync(fromPages, { recursive: true });
+    writeFileSync(join(actionsRoot, 'todos.js'), 'export async function add() {}');
+    writeFileSync(join(actionsRoot, 'todos.ts'), 'export async function add() {}');
+
+    expect(resolveActionImport('../actions/todos.js', fromPages, actionsRoot))
+      .toBe(realpathSync(join(actionsRoot, 'todos.js')));
+  });
+
+  it('keeps the module id extension-free through the remap', () => {
+    expect(actionModuleId(join('src', 'actions', 'admin', 'users.cts'))).toBe('admin/users');
+    expect(actionModuleId(join('src', 'actions', 'esm.mts'))).toBe('esm');
+  });
+
+  it('stubs the import instead of inlining the secret', async () => {
+    const output = await bundle(project('../actions/leaky.js'));
+    expect(output).not.toContain('vura-action-boundary-canary-do-not-ship');
+    expect(output).toContain('leaky#fetchReport');
+    expect(output).toContain('/__vura/action');
+  });
+
+  it('refuses to build an unresolvable import into src/actions', async () => {
+    const root = project('../actions/ghost.js');
+    await expect(bundle(root)).rejects.toThrow(/points inside/);
+  });
+
+  it('leaves an unresolvable import outside src/actions to esbuild', async () => {
+    const root = project('../lib/ghost.js');
+    // esbuild's own message, not the plugin's. The boundary must not turn an
+    // ordinary broken import into an actions error.
+    await expect(bundle(root)).rejects.toThrow(/Could not resolve/);
+  });
+
+  it('recognises a path into src/actions whether or not a file is there', () => {
+    const root = scratch();
+    const actionsRoot = join(root, 'src', 'actions');
+    const fromPages = join(root, 'src', 'pages');
+    mkdirSync(actionsRoot, { recursive: true });
+    mkdirSync(fromPages, { recursive: true });
+
+    expect(specifierTargetsActions('../actions/ghost.js', fromPages, actionsRoot)).toBe(true);
+    expect(specifierTargetsActions('../actions/deep/ghost', fromPages, actionsRoot)).toBe(true);
+    expect(specifierTargetsActions('../lib/ghost.js', fromPages, actionsRoot)).toBe(false);
+    expect(specifierTargetsActions('../actions', fromPages, actionsRoot)).toBe(false);
+    // A bare specifier is a package, and a package that shares the name must
+    // not be dragged into the boundary.
+    expect(specifierTargetsActions('actions/ghost', fromPages, actionsRoot)).toBe(false);
   });
 });

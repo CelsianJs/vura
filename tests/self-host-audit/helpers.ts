@@ -550,6 +550,31 @@ export default function TodosPage() {
 `;
 
 /**
+ * src/pages/todos-node16.tsx: the same import, spelled the way tsc demands.
+ *
+ * The scaffold's tsconfig sets `moduleResolution: "Node16"`, under which every
+ * relative import must carry the `.js` extension, and the scaffold's own pages
+ * are written that way. The resolver behind the stub swap did not model
+ * TypeScript's `.js` to `.ts` remap, so this spelling missed the boundary
+ * entirely and esbuild inlined the real action module into the browser bundle.
+ * Both fixtures exist because the audit's only action page used the
+ * extensionless form, which is why the leak shipped.
+ */
+const ACTIONS_PAGE_NODE16 = `import { addTodo } from '../actions/todos.js';
+
+export const page = { mode: 'hybrid', title: 'Todos (Node16 spelling)' };
+
+export default function TodosNode16Page() {
+  return (
+    <div>
+      <h1 id="todos-node16">Todos</h1>
+      <button id="add-node16" onClick={() => addTodo('bread')}>Add</button>
+    </div>
+  );
+}
+`;
+
+/**
  * src/api/boom.ts — an API route that throws a Vura HttpError.
  *
  * The neighbouring half of the cross-bundle error question. Vura's HttpError is
@@ -694,6 +719,7 @@ async function _scaffoldAndBuild(): Promise<{
   await mkdir(join(dir, 'src', 'actions'), { recursive: true });
   await writeFile(join(dir, 'src', 'actions', 'todos.ts'), TODOS_ACTIONS);
   await writeFile(join(dir, 'src', 'pages', 'todos.tsx'), ACTIONS_PAGE);
+  await writeFile(join(dir, 'src', 'pages', 'todos-node16.tsx'), ACTIONS_PAGE_NODE16);
   await writeFile(join(dir, 'src', 'api', 'boom.ts'), BOOM_API);
 
   // Pages using a component-context hook, one per rendered mode.

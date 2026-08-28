@@ -142,6 +142,19 @@ describe('A1.4 success metric', () => {
     //   re-open the hole Celsian just closed, and the same brand gate in the
     //   generated serverless entry, which had the identical hole. +~76 →
     //   actual 9707. Ceiling 9760 leaves ~53 headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(9760);
+    // Action-import boundary + shim allowlist (2026-08-28): actions-build.ts
+    //   learns TypeScript's `.js` → `.ts` remap, which esbuild applies and this
+    //   resolver did not, so `import { x } from '../actions/y.js'`, the only
+    //   spelling the scaffold's own `moduleResolution: "Node16"` accepts, fell
+    //   through to esbuild and inlined the real action module, secrets and all,
+    //   into the browser bundle. It also stops failing open: a specifier aimed
+    //   at src/actions/ that the resolver cannot place is now a build error, so
+    //   the next gap is loud instead of silent. Most of the addition is those
+    //   two reasons plus realpathOfDeepestExisting, which exists because the
+    //   containment check needs both sides real-pathed and a missing file
+    //   cannot be. runtime-shim.ts adds the eleven documented exports that were
+    //   missing from its allowlist. +~122 → actual 9829. Ceiling 9880 leaves
+    //   ~51 headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(9880);
   });
 });

@@ -104,6 +104,22 @@ describe('V2: action source does not reach the browser', () => {
     expect(source).toContain('/__vura/action');
   });
 
+  it('stubs the Node16 `.js` spelling of the same import', () => {
+    // The form tsc requires under moduleResolution Node16, and the one the
+    // resolver used to miss: the page bundle held the action module's real
+    // source, secret included, with no callAction anywhere in it.
+    const clientDir = join(app.dir, 'dist', 'static', '_then', 'pages');
+    const bundles = readdirSync(clientDir).filter(
+      f => f.startsWith('todos-node16') && f.endsWith('.js'),
+    );
+    expect(bundles.length).toBeGreaterThan(0);
+
+    const source = bundles.map(f => readFileSync(join(clientDir, f), 'utf8')).join('\n');
+    expect(source).not.toContain(SECRET);
+    expect(source).toContain('todos#addTodo');
+    expect(source).toContain('/__vura/action');
+  });
+
   it('leaves the secret out of every client-served file, not just that bundle', () => {
     const staticDir = join(app.dir, 'dist', 'static');
     const offenders: string[] = [];

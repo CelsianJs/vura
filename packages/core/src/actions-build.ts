@@ -11,15 +11,38 @@
  * are not inlined, and a secret held in it cannot appear in client output
  * through any path. Filtering the file's *contents* after the fact would be a
  * weaker guarantee; not reading it is a total one.
+ *
+ * Because that guarantee rests on the resolver recognising the import, the
+ * plugin fails closed: a specifier aimed at `src/actions/` that it cannot place
+ * stops the build instead of being handed back to esbuild's wider rules.
  */
 
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /** Directory holding a project's server actions. */
 export const ACTIONS_DIR = join('src', 'actions');
 
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.js', '.jsx', '.mjs'];
+
+/**
+ * TypeScript's output-extension remap, in esbuild's own order.
+ *
+ * An import written `./x.js` is allowed to resolve to `x.ts`, and esbuild
+ * applies that remap whatever the importer's extension. This is not an exotic
+ * spelling: the scaffold's tsconfig sets `moduleResolution: "Node16"`, under
+ * which tsc *requires* the `.js` extension on every relative import, and the
+ * scaffold's own pages are written that way. Not modelling it here is what let
+ * `import { fetchReport } from '../actions/leaky.js'` fall through to esbuild,
+ * which found `leaky.ts` and inlined the real server module, secrets and all,
+ * into a browser bundle.
+ */
+const TS_EXTENSION_REMAP: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['.js', ['.ts', '.tsx']],
+  ['.jsx', ['.ts', '.tsx']],
+  ['.mjs', ['.mts']],
+  ['.cjs', ['.cts']],
+];
 
 /**
  * `src/actions/admin/users.ts` → `admin/users`.
@@ -30,7 +53,7 @@ const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.js', '.jsx', '.mjs'];
 export function actionModuleId(filePath: string): string {
   const normalized = filePath.split(sep).join('/');
   const withoutDir = normalized.replace(/^src\/actions\//, '');
-  return withoutDir.replace(/\.(tsx?|jsx?|mts|mjs)$/, '');
+  return withoutDir.replace(/\.(tsx?|jsx?|mts|mjs|cts|cjs)$/, '');
 }
 
 /**
@@ -67,11 +90,22 @@ export function resolveActionImport(
   resolveDir: string,
   actionsRoot: string,
 ): string | null {
-  if (!specifier.startsWith('.') && !isAbsolute(specifier)) return null;
+  const base = specifierBasePath(specifier, resolveDir);
+  if (base === null) return null;
 
-  const base = isAbsolute(specifier) ? specifier : resolve(resolveDir, specifier);
+  // esbuild's order: the literal path, then the TypeScript remap, then the
+  // implicit extensions, then a directory's index.
+  const remapped: string[] = [];
+  for (const [jsExt, tsExts] of TS_EXTENSION_REMAP) {
+    if (!base.endsWith(jsExt)) continue;
+    const stripped = base.slice(0, -jsExt.length);
+    for (const ext of tsExts) remapped.push(`${stripped}${ext}`);
+    break;
+  }
+
   const candidates = [
     base,
+    ...remapped,
     ...SOURCE_EXTENSIONS.map(ext => `${base}${ext}`),
     ...SOURCE_EXTENSIONS.map(ext => join(base, `index${ext}`)),
   ];
@@ -88,6 +122,61 @@ export function resolveActionImport(
     return real;
   }
   return null;
+}
+
+/**
+ * The absolute path a relative or absolute specifier names, before any
+ * extension guessing. Null for a bare specifier, which is a package.
+ */
+function specifierBasePath(specifier: string, resolveDir: string): string | null {
+  if (!specifier.startsWith('.') && !isAbsolute(specifier)) return null;
+  return isAbsolute(specifier) ? specifier : resolve(resolveDir, specifier);
+}
+
+/**
+ * Real-path a path that may not exist, by real-pathing the deepest ancestor
+ * that does and putting the missing tail back.
+ *
+ * A missing file cannot be real-pathed at all, so the naive version leaves the
+ * whole path in the caller's form while the actions root is in its resolved
+ * one, and the containment check below reads every path as outside. That is
+ * the same fail-open the comment on realpathOrSelf describes.
+ */
+function realpathOfDeepestExisting(path: string): string {
+  const tail: string[] = [];
+  let current = path;
+  while (!existsSync(current)) {
+    const parent = dirname(current);
+    if (parent === current) return path;
+    tail.unshift(basename(current));
+    current = parent;
+  }
+  return tail.length === 0 ? realpathOrSelf(current) : join(realpathOrSelf(current), ...tail);
+}
+
+/**
+ * Does this specifier name a location inside `src/actions/`, whether or not a
+ * file is actually there?
+ *
+ * This is the question `resolveActionImport` returning null cannot answer, and
+ * the two answers need opposite handling. Outside the actions directory an
+ * unresolvable specifier is somebody else's business and the plugin must stay
+ * out of the way. Inside it, declining hands the import straight back to
+ * esbuild, which resolves it with rules this file does not model and bundles
+ * whatever it finds. Every future gap in the resolver above is therefore a
+ * build error rather than a silent leak.
+ */
+export function specifierTargetsActions(
+  specifier: string,
+  resolveDir: string,
+  actionsRoot: string,
+): boolean {
+  const base = specifierBasePath(specifier, resolveDir);
+  if (base === null) return false;
+  const rel = relative(realpathOrSelf(actionsRoot), realpathOfDeepestExisting(base));
+  // An empty rel is the actions directory itself, which is a directory import
+  // the candidate list already covers.
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
 }
 
 /**
@@ -274,9 +363,24 @@ export function vuraActionsStubPlugin(options: ActionsStubPluginOptions) {
       build.onResolve({ filter: /.*/ }, (args: any) => {
         if (args.namespace === ACTION_STUB_NAMESPACE) return null;
         if (!existsSync(actionsRoot)) return null;
-        const resolved = resolveActionImport(args.path, args.resolveDir ?? '', actionsRoot);
-        if (!resolved) return null;
-        return { path: resolved, namespace: ACTION_STUB_NAMESPACE };
+        const resolveDir = args.resolveDir ?? '';
+        const resolved = resolveActionImport(args.path, resolveDir, actionsRoot);
+        if (resolved) return { path: resolved, namespace: ACTION_STUB_NAMESPACE };
+
+        // Fail closed. An import aimed at the actions directory that this
+        // plugin cannot place is the one case where saying nothing is unsafe.
+        if (!specifierTargetsActions(args.path, resolveDir, actionsRoot)) return null;
+        return {
+          errors: [
+            {
+              text:
+                `[vura] "${args.path}" points inside ${ACTIONS_DIR}/ but no module was found there. ` +
+                'Server action modules are replaced with a fetch stub before a browser bundle can read ' +
+                'them, so an import this plugin cannot place is refused rather than left to resolve on ' +
+                'its own. Check the path and the extension.',
+            },
+          ],
+        };
       });
 
       build.onLoad({ filter: /.*/, namespace: ACTION_STUB_NAMESPACE }, (args: any) => {
