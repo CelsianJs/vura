@@ -36,6 +36,14 @@ jobs:
       - run: pnpm build
       - run: pnpm test
       - run: pnpm verify:publish
+      # Package sizes are a ledger, not a suggestion, but this gate lived only in
+      # release.yml. Three limits drifted past their real values between 0.8.0 and
+      # now, and nothing went red until release time, by which point the growth was
+      # spread across several merged PRs and nobody could say which one spent it.
+      # Run it here so the PR that adds the bytes is the PR that raises the number.
+      # One Node version is enough: the tarballs are byte-identical on 20 and 22.
+      - run: pnpm package:size
+        if: matrix.node-version == 22
       # The npm registry retired the legacy audit endpoint used by pnpm 10.
       # audit:all intentionally uses pnpm 11, whose runtime floor is Node 22.
       - run: pnpm audit:all
