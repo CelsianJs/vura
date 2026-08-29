@@ -15,6 +15,27 @@
 
 Hot routes (WebSockets, in-memory state) require a persistent process. Cloudflare Workers and Lambda terminate the process between invocations and cannot hold a socket open. `vura build` warns by name when hot routes are excluded.
 
+## Page mode support by target
+
+| Target | `static` | `client` | `hybrid` | `server` | `revalidate` (ISR) | `streaming` |
+|---|---|---|---|---|---|---|
+| [Node / VPS](/self-host/node-vps/) | yes | yes | yes | yes | yes | yes |
+| [Docker](/self-host/docker/) | yes | yes | yes | yes | yes | yes |
+| [Fly.io](/self-host/fly/) | yes | yes | yes | yes | yes | yes |
+| [Railway](/self-host/railway/) | yes | yes | yes | yes | yes | yes |
+| [Cloudflare Workers](/self-host/cloudflare/) | yes | yes | yes | yes | no | yes |
+| [AWS Lambda](/self-host/lambda/) | yes | yes | yes | yes | no | buffered |
+
+`static`, `client` and `hybrid` pages are rendered at build time; every target
+serves them as files. `server` pages render per request, with their loaders, on
+every target.
+
+Where a target cannot match the Node server, `vura build` says so by name
+rather than shipping quietly: an `revalidate` page that will not be cached, a
+`streaming` page that will be buffered, and a `server` page that cannot be
+bundled at all (which fails the build outright, because a build that ships
+without a page serves 404 for it).
+
 ## The CI-tested promise
 
 Every guide below runs in CI on every commit — the exact commands you'll paste, executed by the six jobs in [`.github/workflows/selfhost.yml`](https://github.com/CelsianJs/vura/blob/main/.github/workflows/selfhost.yml). If a guide breaks, the build is red.

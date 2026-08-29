@@ -16,9 +16,20 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { vuraCoreRuntimeShimContents, serverlessRevalidateStubs, pruneStaleOutputs, GLOBAL_HOOKS_FILENAMES } from '@celsian/vura-core';
+import {
+  vuraCoreRuntimeShimContents,
+  serverlessRevalidateStubs,
+  pruneStaleOutputs,
+  GLOBAL_HOOKS_FILENAMES,
+  serverPagesOf,
+  pageDegradations,
+  generatePagesModuleSource,
+  bundlePagesModule,
+  collectPageAssets,
+  copyPageAssets,
+} from '@celsian/vura-core';
 import type { ThenAdapter, AdapterBuildContext } from '@celsian/vura-core';
-import type { RouteManifest, ApiRoute } from '@celsian/vura-core';
+import type { RouteManifest, ApiRoute, PageRoute } from '@celsian/vura-core';
 
 
 const require = createRequire(import.meta.url);
@@ -123,6 +134,8 @@ export function generateWranglerToml(
   options: CloudflareAdapterOptions,
   routes: ApiRoute[],
   taskRoutes: ApiRoute[] = [],
+  /** Relative path to the emitted static-asset directory, when the app has one. */
+  assetsDir?: string | null,
 ): string {
   const lines: string[] = [];
 
@@ -132,6 +145,35 @@ export function generateWranglerToml(
     `compatibility_date = "${options.compatibilityDate ?? toDateString(new Date())}"`,
   );
   lines.push('');
+
+  // Workers Static Assets. Chosen over KV and over inlining because it is the
+  // only one of the three that needs no second deploy command and no size
+  // budget: `wrangler deploy` uploads this directory with the Worker, the edge
+  // serves a matching path without invoking the Worker at all, and anything
+  // unmatched falls through to `main`. KV would need a namespace, an id in this
+  // file and an upload step; inlining would put every prerendered page and
+  // client bundle inside the 3 MB script limit.
+  //
+  // `html_handling` is pinned rather than left at its default. The default,
+  // auto-trailing-slash, makes `/about/index.html` canonical at `/about/` and
+  // answers `/about` with a 307 — while the Node server this build also emits
+  // answers `/about` with the page. One build should not produce two different
+  // URLs for one page depending on where it is deployed, and the Node
+  // behaviour is the reference. drop-trailing-slash serves `/about` and
+  // redirects `/about/` to it.
+  //
+  // `not_found_handling = "none"` is the default and is written out because it
+  // is load-bearing: it is what lets an unmatched path reach the Worker, which
+  // is where server-mode pages and every API route live.
+  if (assetsDir) {
+    lines.push('# Prerendered pages, client bundles and public/ files.');
+    lines.push('[assets]');
+    lines.push(`directory = "${assetsDir}"`);
+    lines.push('binding = "ASSETS"');
+    lines.push('html_handling = "drop-trailing-slash"');
+    lines.push('not_found_handling = "none"');
+    lines.push('');
+  }
 
   // Route patterns
   if (options.routes && options.routes.length > 0) {
@@ -208,6 +250,11 @@ export function generateWranglerToml(
  * own, which is the order the hot server and the generated dist/functions/
  * entry both use. Passing null emits an empty stand-in so no import is left
  * dangling.
+ *
+ * `hasServerPages` wires the sibling pages.js this adapter emits for
+ * `mode: 'server'` pages. Static, client and hybrid pages never reach this
+ * entry: they are files, and Workers Static Assets answers them before the
+ * Worker runs.
  */
 export function generateWorkerEntry(
   routes: ApiRoute[],
@@ -215,6 +262,13 @@ export function generateWorkerEntry(
   workerDir: string,
   taskRoutes: ApiRoute[] = [],
   globalHooksFile?: string | null,
+  /** True when buildEnd emitted a pages.js beside this entry. */
+  hasServerPages = false,
+  /**
+   * True when this Worker has a site surface: a page of any mode, or a file
+   * under dist/static or dist/public. It decides the 404 shape, not routing.
+   */
+  hasPages = false,
 ): string {
   const imports: string[] = [];
   const routeTable: string[] = [];
@@ -243,9 +297,25 @@ export function generateWorkerEntry(
   const hooksImport = globalHooksFile
     ? "import * as globalHooksMod from './hooks.js';"
     : 'const globalHooksMod = {};';
+  const pagesImport = hasServerPages
+    ? "import { matchesPage, handlePage } from './pages.js';"
+    : 'const matchesPage = () => false;\nconst handlePage = null;';
+  // The Node server splits its 404 by prefix — `/api/` and `/__vura/` go to the
+  // API app, everything else to the page renderer — so a mistyped API path
+  // answers in JSON and a mistyped page path answers with the 404 page. The
+  // split applies once the deployment has a site surface at all. A Worker with
+  // nothing but API routes keeps the JSON 404 it has always returned, because
+  // changing an API-only deployment's error shape buys nothing.
+  const notFoundBody = hasPages
+    ? `if (!url.pathname.startsWith('/api/') && !url.pathname.startsWith('/__vura/')) {
+        return new Response(NOT_FOUND_HTML, { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+      }
+      `
+    : '';
 
   return `${allImports}
 ${hooksImport}
+${pagesImport}
 
 const routes = [
 ${routeTable.join('\n')}
@@ -280,6 +350,10 @@ function matchRoute(pathname, method) {
   }
   return null;
 }
+
+// Byte-identical to what-fw's own unmatched-route 404, which is what the Node
+// server returns for a path that is not an API route and not a page.
+const NOT_FOUND_HTML = '<!DOCTYPE html><html><body><h1>404 \u2014 Not Found</h1></body></html>';
 
 function parseBody(request) {
   const ct = request.headers.get('content-type') || '';
@@ -389,7 +463,12 @@ export default {
 
     const match = matchRoute(url.pathname, method);
     if (!match) {
-      return new Response(JSON.stringify({ error: 'Not Found', path: url.pathname }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+      // Server-mode pages, asked after the API table so no existing route
+      // changes meaning. Asked explicitly rather than by calling the pages
+      // handler and reading its status: what-fw answers an unmatched path with
+      // its own HTML 404, which would turn every mistyped API path into a page.
+      if (matchesPage(url.pathname)) return handlePage(request);
+      ${notFoundBody}return new Response(JSON.stringify({ error: 'Not Found', path: url.pathname }), { status: 404, headers: { 'Content-Type': 'application/json' } });
     }
 
     const handlerFn = match.route.handlers[method];
@@ -568,8 +647,24 @@ export function cloudflareAdapter(options: CloudflareAdapterOptions): ThenAdapte
 
       const globalHooksFile = findGlobalHooksFile(projectRoot);
 
+      // Pages. Static, client and hybrid pages are already rendered into
+      // dist/static by `vura build`; server-mode pages need a renderer inside
+      // the Worker. Both were dropped entirely until now — the build printed
+      // the page table and shipped an API-only Worker.
+      const serverPages = serverPagesOf(manifest);
+      for (const warning of pageDegradations(manifest, 'Cloudflare Workers')) {
+        console.warn(warning);
+      }
+
       // Group routes by workerGroup config key (if specified in route config)
       const workerGroups = groupRoutesByWorker(serverlessRoutes, options.workerGroup);
+      // Pages belong to the site, so they go to the default worker. A grouped
+      // build whose routes all carry a group has no default worker at all, and
+      // without this the pages would have nowhere to land and would be dropped
+      // in silence a second time.
+      if (manifest.pages.length > 0 && !workerGroups.__default__) {
+        workerGroups.__default__ = [];
+      }
 
       for (const [groupName, routes] of Object.entries(workerGroups)) {
         const isDefault = groupName === '__default__';
@@ -588,12 +683,29 @@ export function cloudflareAdapter(options: CloudflareAdapterOptions): ThenAdapte
           JSON.stringify({ type: 'module' }, null, 2) + '\n',
         );
 
+        // Prerendered pages, client bundles and public/ files, copied into
+        // this worker's own directory: `wrangler deploy` uploads the assets
+        // directory named in wrangler.toml and cannot reach a sibling like
+        // dist/static. Only the default worker gets them — a grouped worker is
+        // a slice of the API, not a second copy of the site.
+        const assets = isDefault ? await collectPageAssets(outDir) : [];
+        const assetsDir = join(workerDir, 'assets');
+        let assetsWritten = new Set<string>();
+        if (assets.length > 0) {
+          assetsWritten = await copyPageAssets(assets, assetsDir);
+        }
+
         // Generate wrangler.toml
         const groupOptions: CloudflareAdapterOptions = {
           ...options,
           name: workerName,
         };
-        const toml = generateWranglerToml(groupOptions, routes, taskRoutes);
+        const toml = generateWranglerToml(
+          groupOptions,
+          routes,
+          taskRoutes,
+          assets.length > 0 ? './assets' : null,
+        );
         await writeFile(join(workerDir, 'wrangler.toml'), toml);
 
         // The hooks file only has a request to wrap when this worker has HTTP
@@ -602,8 +714,15 @@ export function cloudflareAdapter(options: CloudflareAdapterOptions): ThenAdapte
         // rule core applies when it emits dist/functions/.
         const groupHooksFile = routes.length > 0 ? globalHooksFile : null;
 
+        // Server-mode pages render inside this Worker. Only the default one:
+        // a grouped worker serves the API slice its routes name.
+        const groupServerPages = isDefault ? serverPages : [];
+
         // Generate worker entry (include task routes for scheduled handler)
-        const entry = generateWorkerEntry(routes, projectRoot, workerDir, taskRoutes, groupHooksFile);
+        const entry = generateWorkerEntry(
+          routes, projectRoot, workerDir, taskRoutes, groupHooksFile,
+          groupServerPages.length > 0, isDefault && (manifest.pages.length > 0 || assets.length > 0),
+        );
         await writeFile(join(workerDir, 'entry.js'), entry);
         const routesDir = join(workerDir, 'routes');
         const emitted = new Set<string>();
@@ -624,12 +743,31 @@ export function cloudflareAdapter(options: CloudflareAdapterOptions): ThenAdapte
           await rm(hooksOutfile, { force: true });
         }
 
+        // The pages module, beside the entry that imports it. Same rule as
+        // hooks.js: reconciled here so a project that deletes its last
+        // server-mode page stops shipping the previous build's renderer.
+        const pagesSourcePath = join(workerDir, 'pages.source.mjs');
+        const pagesOutfile = join(workerDir, 'pages.js');
+        if (groupServerPages.length > 0) {
+          await writeFile(
+            pagesSourcePath,
+            generatePagesModuleSource(groupServerPages, projectRoot, workerDir),
+          );
+          await bundleServerPagesModule(pagesSourcePath, pagesOutfile, projectRoot, groupServerPages);
+        } else {
+          await rm(pagesSourcePath, { force: true });
+          await rm(pagesOutfile, { force: true });
+        }
+
         // A route deleted from src/ leaves its bundle here: entry.js stops
         // importing it and wrangler.toml is regenerated, so it is dead weight
         // rather than a live endpoint, but it still ships to Cloudflare with
         // everything else in this directory. Sweeping after the writes leaves a
         // build that failed partway with its previous, working output.
         await pruneStaleOutputs(routesDir, emitted);
+        // Same reconciliation for the asset tree: a deleted page leaves its
+        // rendered HTML here, and `wrangler deploy` uploads the whole directory.
+        await pruneStaleOutputs(assetsDir, assetsWritten);
       }
     },
   };
@@ -746,6 +884,35 @@ async function bundleGlobalHooksModule(
       'allowlist are available, so a hooks file importing outside that set cannot be deployed. ' +
       'Fix the import, or move the code into the routes that need it. It cannot be dropped: ' +
       'a hooks file is where an app-wide authorization check lives.\n' +
+      detail,
+    );
+  }
+}
+
+/**
+ * Bundle the generated pages module for the Worker.
+ *
+ * A page that cannot be bundled fails the build, by name, with the pages
+ * listed. It is not skipped and not warned over, for the same reason the hooks
+ * file is not: the whole defect being fixed here is a build that reported
+ * success and served no pages. Degrading to "API-only Worker, quietly" would be
+ * that defect with a new cause.
+ */
+async function bundleServerPagesModule(
+  sourcePath: string,
+  outfile: string,
+  projectRoot: string,
+  pages: PageRoute[],
+): Promise<void> {
+  try {
+    await bundlePagesModule({ sourcePath, outfile, projectRoot, corePackageDir: CORE_PACKAGE_DIR });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `[vura] server-mode page(s) could not be bundled for Cloudflare Workers: ${pages.map(p => p.filePath).join(', ')}.\n` +
+      'Workers have no Node built-ins, so a page, layout or loader that imports one cannot be deployed there. ' +
+      'Move the Node-only work into an API route the page fetches, or deploy the page to a persistent host ' +
+      '(see /self-host/). It cannot be dropped: a build that ships without its pages serves 404 for every one of them.\n' +
       detail,
     );
   }

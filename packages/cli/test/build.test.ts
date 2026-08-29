@@ -71,4 +71,54 @@ export default function Blog() {
     expect(blogJs).toContain('__vura-client-entry__');
     expect(blogJs).toMatch(/\bhydrate\(/);
   }, 10000);
+
+  it('runs the adapter after the pages are rendered and public/ is copied', async () => {
+    // The adapter ran fourth of nine, before the page render, so an adapter
+    // that reads dist/static — which is what serving prerendered pages on
+    // Cloudflare and Lambda requires — saw nothing on a clean build and the
+    // PREVIOUS build's HTML on a dirty one. Both targets shipped API-only
+    // artifacts while the build printed the full page table.
+    const root = mkdtempSync(join(tmpdir(), 'vura-cli-build-order-'));
+    tempRoots.add(root);
+    mkdirSync(join(root, 'src', 'pages'), { recursive: true });
+    mkdirSync(join(root, 'public'), { recursive: true });
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }) + '\n');
+    writeFileSync(join(root, 'public', 'robots.txt'), 'User-agent: *\n');
+    writeFileSync(join(root, 'src', 'pages', 'index.ts'), `
+export const page = { mode: 'static', title: 'Home' };
+export default function Home() {
+  return { tag: 'h1', props: {}, children: ['Home'], key: null, _vnode: true };
+}
+`);
+    writeFileSync(join(root, 'vura.config.js'), `
+import { writeFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+
+export default {
+  adapter: {
+    name: 'ordering-probe',
+    async buildEnd(ctx) {
+      writeFileSync(join(ctx.outDir, 'what-the-adapter-saw.json'), JSON.stringify({
+        prerenderedHome: existsSync(join(ctx.outDir, 'static', 'index.html')),
+        publicCopied: existsSync(join(ctx.outDir, 'public', 'robots.txt')),
+      }));
+    },
+  },
+};
+`);
+
+    const cwd = process.cwd();
+    process.chdir(root);
+    const log = console.log;
+    console.log = () => {};
+    try {
+      await buildCommand([]);
+    } finally {
+      console.log = log;
+      process.chdir(cwd);
+    }
+
+    const seen = JSON.parse(readFileSync(join(root, 'dist', 'what-the-adapter-saw.json'), 'utf8'));
+    expect(seen).toEqual({ prerenderedHome: true, publicCopied: true });
+  }, 10000);
 });
