@@ -1,14 +1,43 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "trailingSlash": true,
   "redirects": [
-    { "source": "/login", "destination": "https://app.vura.io", "permanent": false },
-    { "source": "/signup", "destination": "https://app.vura.io", "permanent": false },
-    { "source": "/dashboard", "destination": "https://app.vura.io", "permanent": false },
-    { "source": "/docs", "destination": "/ladder/0-create", "permanent": false },
-    { "source": "/docs/:path*", "destination": "/reference/:path*", "permanent": false },
-    { "source": "/ladder", "destination": "/ladder/0-create", "permanent": false },
-    { "source": "/reference", "destination": "/reference/config", "permanent": false }
+    {
+      "source": "/login",
+      "destination": "https://app.vura.io",
+      "permanent": false
+    },
+    {
+      "source": "/signup",
+      "destination": "https://app.vura.io",
+      "permanent": false
+    },
+    {
+      "source": "/dashboard",
+      "destination": "https://app.vura.io",
+      "permanent": false
+    },
+    {
+      "source": "/docs",
+      "destination": "/ladder/0-create",
+      "permanent": false
+    },
+    {
+      "source": "/docs/:path*",
+      "destination": "/reference/:path*",
+      "permanent": false
+    },
+    {
+      "source": "/ladder",
+      "destination": "/ladder/0-create",
+      "permanent": false
+    },
+    {
+      "source": "/reference",
+      "destination": "/reference/config",
+      "permanent": false
+    }
   ]
 }
