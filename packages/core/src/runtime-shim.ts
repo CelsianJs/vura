@@ -91,9 +91,10 @@ export function vuraCoreRuntimeShimContents(options: RuntimeShimOptions = {}): s
     // and @celsian/core for the cookie serialiser, and either one alone made it
     // unbuildable here — @celsian/core's package root is a Node HTTP server, so
     // it fails on node:fs, node:fs/promises, node:path and node:http before the
-    // cookie helpers are even reached. Both now come from signed-cookie.ts,
-    // which is arithmetic and string work and nothing else. The hard part was
-    // that Web Crypto could not replace node:crypto the way crypto.randomUUID
+    // cookie helpers are even reached. Both now come from signed-cookie.ts:
+    // string work over @noble/hashes, which has no dependencies of its own and
+    // leaves no node: import behind once bundled here. The hard part was that
+    // Web Crypto could not replace node:crypto the way crypto.randomUUID
     // replaced it for the logger: the commit seam is a Proxy trap and
     // crypto.subtle.sign is async. signed-cookie.ts records that in full.
     //

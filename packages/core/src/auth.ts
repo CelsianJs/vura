@@ -1,14 +1,14 @@
 // @celsian/vura-core — Auth helpers: onRequest hook factory for signed cookie sessions (A2.7)
 //
-// This module has no Node built-ins and no package dependencies, and that is a
-// requirement rather than an accident. `cookieSession` is on the runtime-shim
-// allowlist the Cloudflare and Lambda adapters bundle with esbuild's
-// `platform: 'neutral'`, where an import of `node:crypto` — or of
+// This module has no Node built-ins, and neither has anything it pulls in;
+// that is a requirement rather than an accident. `cookieSession` is on the
+// runtime-shim allowlist the Cloudflare and Lambda adapters bundle with
+// esbuild's `platform: 'neutral'`, where an import of `node:crypto` — or of
 // `@celsian/core`, whose package root is a Node HTTP server — does not resolve
 // and takes the whole build down with it. The signing and cookie primitives
-// live in ./signed-cookie.ts, which explains at length why they are hand-rolled
-// and synchronous. The short version is that the commit seam below is a Proxy
-// trap, and a Proxy trap cannot await Web Crypto.
+// live in ./signed-cookie.ts, which explains at length why they are
+// synchronous and where the hash comes from. The short version is that the
+// commit seam below is a Proxy trap, and a Proxy trap cannot await Web Crypto.
 //
 // `jwt` and `createJWTGuard` are re-exported from ./auth-jwt.ts, not from here.
 // They come from `@celsian/jwt`, which imports `@celsian/core`, so anything

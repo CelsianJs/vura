@@ -1,6 +1,6 @@
 /**
  * The signing and cookie primitives behind `cookieSession`, with no Node
- * built-ins and no dependencies.
+ * built-ins.
  *
  * `auth.ts` used to reach `node:crypto` for `createHmac` and `@celsian/core`
  * for `serializeCookie`. Either one is enough to keep `cookieSession` out of
@@ -31,19 +31,33 @@
  * user, Node included, or keeping the signer synchronous everywhere. There is
  * no synchronous hash anywhere in the Web platform, measured rather than
  * assumed: in workerd `crypto.subtle.digest` returns a Promise like the rest of
- * SubtleCrypto. So the signer is implemented here, in about a hundred lines of
- * arithmetic that runs identically on Node, workerd, Lambda and a browser.
+ * SubtleCrypto.
  *
- * ## Why writing SHA-256 by hand is defensible here
+ * ## Why the hash comes from @noble/hashes
  *
- * It normally is not. It is defensible for this one function because the
- * output is fully specified and cheap to check against the implementation it
- * replaces: `test/signed-cookie.test.ts` compares this HMAC byte for byte with
- * `node:crypto`'s `createHmac` over the FIPS 180-4 and RFC 4231 vectors and
- * over randomised inputs, and compares `serializeSessionCookie` and
- * `parseCookieHeader` against the `@celsian/core` functions they stand in for.
- * Those tests are the reason there is one implementation here rather than a
- * fast Node path and a portable adapter path that would drift apart.
+ * A portable synchronous hash does not have to be a hand-written one, and this
+ * file briefly was: roughly a hundred lines of FIPS 180-4 arithmetic held to
+ * `node:crypto` byte for byte by `test/signed-cookie.test.ts`. It was correct,
+ * and correct was never the objection — hand-written cryptography in the
+ * authorization path puts the arithmetic in front of every future reader who
+ * only needed to check the constraint.
+ *
+ * `@noble/hashes` drops the arithmetic and keeps the constraint that forced it.
+ * `hmac(sha256, key, message)` is synchronous, so the Proxy trap above still
+ * works; the package has no runtime dependencies, so nothing arrives behind it;
+ * and Cure53 audited it in 2022 at 1.0.0 with SHA-2 and HMAC in scope (blake3,
+ * sha3-addons, sha1 and argon2 were not, and are not used here). Measured in
+ * the real path rather than an isolated one: built through
+ * `cloudflareAdapter().buildEnd()` under `platform: 'neutral'` it leaves no
+ * `node:` import in the emitted worker, and that worker runs in workerd at
+ * `compatibility_date = "2026-06-01"`.
+ *
+ * The parity test outlived the arithmetic it was written for, because what it
+ * pins was never an implementation detail: a session cookie sitting in a
+ * browser right now was signed by `node:crypto` and has no expiry by default,
+ * so the first request after any deploy that changes the signer is where a
+ * mismatch logs every user out. That is why the implementation could be swapped
+ * underneath the test rather than alongside it.
  *
  * ## Why not `nodejs_compat`
  *
@@ -56,102 +70,25 @@
  * project older than the cutover, at runtime, in the authorization layer.
  */
 
+import { hmac } from '@noble/hashes/hmac.js';
+import { sha256 as nobleSha256 } from '@noble/hashes/sha2.js';
+
 // ─── SHA-256 ────────────────────────────────────────────────────────────────
 
-/** FIPS 180-4 §4.2.2 round constants. */
-const K = new Uint32Array([
-  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
-]);
-
-/** FIPS 180-4 §5.3.3 initial hash value. */
-const H0 = new Uint32Array([
-  0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
-]);
-
-const SHA256_BLOCK_BYTES = 64;
-const SHA256_DIGEST_BYTES = 32;
-
-function rotr(x: number, n: number): number {
-  return ((x >>> n) | (x << (32 - n))) >>> 0;
-}
-
-/** SHA-256 of `message`, as 32 bytes. */
+/**
+ * SHA-256 of `message`, as 32 bytes.
+ *
+ * Wrappers rather than re-exports: they hold this module's surface at the shape
+ * `auth.ts` and the parity test already import, so which library is underneath
+ * stays a fact about this file and not a name anything else has to know.
+ */
 export function sha256(message: Uint8Array): Uint8Array {
-  // Padding: 0x80, then zeroes, then the message length in bits as a 64-bit
-  // big-endian integer. `+ 9` is that one byte plus the eight length bytes;
-  // rounding up to a whole block is the rest of FIPS 180-4 §5.1.1.
-  const totalBytes = Math.ceil((message.length + 9) / SHA256_BLOCK_BYTES) * SHA256_BLOCK_BYTES;
-  const buf = new Uint8Array(totalBytes);
-  buf.set(message);
-  buf[message.length] = 0x80;
-
-  const view = new DataView(buf.buffer);
-  // `length * 8` stays an exact double well past any cookie, so the high word
-  // is a division rather than a shift: `>>>` would have truncated to 32 bits
-  // and hashed long inputs wrongly.
-  view.setUint32(totalBytes - 8, Math.floor(message.length / 0x20000000), false);
-  view.setUint32(totalBytes - 4, (message.length * 8) >>> 0, false);
-
-  const H = new Uint32Array(H0);
-  const W = new Uint32Array(64);
-
-  for (let offset = 0; offset < totalBytes; offset += SHA256_BLOCK_BYTES) {
-    for (let t = 0; t < 16; t++) W[t] = view.getUint32(offset + t * 4, false);
-    for (let t = 16; t < 64; t++) {
-      const w15 = W[t - 15]!;
-      const w2 = W[t - 2]!;
-      const s0 = (rotr(w15, 7) ^ rotr(w15, 18) ^ (w15 >>> 3)) >>> 0;
-      const s1 = (rotr(w2, 17) ^ rotr(w2, 19) ^ (w2 >>> 10)) >>> 0;
-      W[t] = (W[t - 16]! + s0 + W[t - 7]! + s1) >>> 0;
-    }
-
-    let a = H[0]!, b = H[1]!, c = H[2]!, d = H[3]!;
-    let e = H[4]!, f = H[5]!, g = H[6]!, h = H[7]!;
-
-    for (let t = 0; t < 64; t++) {
-      const S1 = (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) >>> 0;
-      const ch = ((e & f) ^ (~e & g)) >>> 0;
-      const t1 = (h + S1 + ch + K[t]! + W[t]!) >>> 0;
-      const S0 = (rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) >>> 0;
-      const maj = ((a & b) ^ (a & c) ^ (b & c)) >>> 0;
-      const t2 = (S0 + maj) >>> 0;
-      h = g; g = f; f = e; e = (d + t1) >>> 0;
-      d = c; c = b; b = a; a = (t1 + t2) >>> 0;
-    }
-
-    H[0] = (H[0]! + a) >>> 0; H[1] = (H[1]! + b) >>> 0;
-    H[2] = (H[2]! + c) >>> 0; H[3] = (H[3]! + d) >>> 0;
-    H[4] = (H[4]! + e) >>> 0; H[5] = (H[5]! + f) >>> 0;
-    H[6] = (H[6]! + g) >>> 0; H[7] = (H[7]! + h) >>> 0;
-  }
-
-  const digest = new Uint8Array(SHA256_DIGEST_BYTES);
-  const out = new DataView(digest.buffer);
-  for (let i = 0; i < 8; i++) out.setUint32(i * 4, H[i]!, false);
-  return digest;
+  return nobleSha256(message);
 }
 
 /** HMAC-SHA-256 (RFC 2104) of `message` under `key`, as 32 bytes. */
 export function hmacSha256(key: Uint8Array, message: Uint8Array): Uint8Array {
-  const block = new Uint8Array(SHA256_BLOCK_BYTES);
-  block.set(key.length > SHA256_BLOCK_BYTES ? sha256(key) : key);
-
-  const inner = new Uint8Array(SHA256_BLOCK_BYTES + message.length);
-  const outer = new Uint8Array(SHA256_BLOCK_BYTES + SHA256_DIGEST_BYTES);
-  for (let i = 0; i < SHA256_BLOCK_BYTES; i++) {
-    inner[i] = block[i]! ^ 0x36;
-    outer[i] = block[i]! ^ 0x5c;
-  }
-  inner.set(message, SHA256_BLOCK_BYTES);
-  outer.set(sha256(inner), SHA256_BLOCK_BYTES);
-  return sha256(outer);
+  return hmac(nobleSha256, key, message);
 }
 
 // ─── base64url and UTF-8 ────────────────────────────────────────────────────

@@ -230,12 +230,30 @@ describe('A1.4 success metric', () => {
     //   reason it is not in auth.ts. The rest is the three generated entries
     //   growing a reply.headers record and the comment for it, in build.ts.
     //   Measured after the change: actual 10773, ceiling 10830.
-    // Both of the two entries above were written on branches that measured
-    //   against 10241, before the other landed, so neither ceiling they name
-    //   survives the rebase. Re-measured with both in the tree: actual 11114
-    //   (10582 from pages + 532 from auth/streaming, which is the two deltas
-    //   added, so nothing double-counts). Ceiling 11170 leaves ~56 headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(11170);
+    // Both entries above were written on branches that measured against 10241,
+    //   before the other landed, so neither ceiling they name survives the
+    //   rebase. Re-measured with both in the tree: 11114, which is 10582 from
+    //   pages plus the 532 auth/streaming added, so nothing double-counts.
+    // @noble/hashes replaces the hand-written hash (2026-08-28): the FIPS 180-4
+    //   arithmetic added by the entry above is gone from signed-cookie.ts, and
+    //   the module's surface is unchanged — sha256 and hmacSha256 are now
+    //   three-line wrappers, so test/signed-cookie.test.ts holds the library to
+    //   node:crypto over exactly the vectors it held the arithmetic to, and
+    //   passed unedited. −97 lines of arithmetic against +35 of rationale for
+    //   taking a dependency in the auth path, so the net is −62 and not the
+    //   −330 the previous entry's size implies: two thirds of that file was
+    //   always base64url, the cookie serialiser and the argument for being
+    //   synchronous, and none of that moved.
+    //   Recorded with the caveat, because the number went the other way where
+    //   it is paid: the emitted Cloudflare worker's hooks.js grew 14,511 →
+    //   23,586 bytes (4,977 → 7,530 gzipped) and Lambda writes that file into
+    //   every function directory. Deleting hand-written crypto does not delete
+    //   the round function from the bundle, it changes whose round function it
+    //   is. This file measures source, which is the side that got smaller.
+    //   Measured on the rebased branch, with pages, auth and the library swap
+    //   all in the tree: actual 11052 (11114 − 62). Ceiling 11110 leaves ~58
+    //   headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(11110);
 
   });
 });
