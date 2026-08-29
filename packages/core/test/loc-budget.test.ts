@@ -195,7 +195,22 @@ describe('A1.4 success metric', () => {
     //   10300. Recorded rather than skipped, because the last three entries
     //   were each written against a stale base and a "no change" that nobody
     //   measured is indistinguishable from one nobody checked.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(10300);
+    // Pages on the serverless adapters (2026-08-28): the Cloudflare and Lambda
+    //   adapters read `manifest.api` and nothing else, so a build with pages
+    //   emitted API-only artifacts, exited 0, printed the page table, and
+    //   served 404 (Workers) or 403 (API Gateway) for every page. Three
+    //   additions here, and they are here rather than in the adapters on
+    //   purpose. New adapter-pages.ts holds the shared emission — the page
+    //   module's generated wiring, its neutral bundle, and the prerendered-tree
+    //   copy — because two adapters keeping their own copy of one list is
+    //   exactly what made loaders unbuildable in 0.6.0 (see runtime-shim.ts).
+    //   New document.ts is the page shell moved out of static-render.ts, whose
+    //   `node:fs/promises` import at module scope made runtime/pages.ts
+    //   impossible to bundle for a Worker at all; the move is LOC-neutral apart
+    //   from the comment saying why. runtime-shim.ts gains nothing.
+    //   Measured after the change: actual 10582, ceiling 10650 leaves ~68
+    //   headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(10650);
 
   });
 });

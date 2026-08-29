@@ -60,6 +60,23 @@ export {
 
 export type { RuntimeShimOptions } from './runtime-shim.js';
 
+// Page emission for the serverless adapters. Cloudflare and Lambda both have to
+// turn `manifest.pages` into something their runtime serves, and the last time
+// two adapters kept their own copy of a shared list the feature was unbuildable
+// on both — see runtime-shim.ts.
+export {
+  serverPagesOf,
+  prerenderedPagesOf,
+  pageDegradations,
+  pagesRuntimeShimContents,
+  generatePagesModuleSource,
+  bundlePagesModule,
+  collectPageAssets,
+  copyPageAssets,
+} from './adapter-pages.js';
+
+export type { PageAsset } from './adapter-pages.js';
+
 export {
   renderStaticPages,
   wrapDocument,

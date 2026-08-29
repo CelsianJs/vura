@@ -2,14 +2,16 @@
  * `vura build` — Build the project for deployment.
  *
  * 1. Scan routes → build manifest
- * 2. Generate server entry (for hot server)
- * 3. Generate function entries (for serverless)
- * 4. Generate task entries (for task routes)
- * 5. Bundle server-mode pages with esbuild
- * 6. Render static pages (mode: 'static')
- * 7. Run adapter.buildEnd() if configured
- * 8. Write manifest.json
- * 9. Emit hot deploy templates (Dockerfile, fly.toml, package.json) when hot routes present
+ * 2. Bundle browser entries for client and hybrid pages
+ * 3. Render build-time pages (static, client shells, hybrid HTML) → dist/static
+ * 4. Copy public/ → dist/public
+ * 5. core build(): server entry, function entries, task entries, manifest.json,
+ *    then adapter.buildEnd()
+ * 6. Emit hot deploy templates (Dockerfile, fly.toml, package.json)
+ *
+ * The adapter runs last, and the two steps that write dist/static and
+ * dist/public run before it, because an adapter that serves prerendered pages
+ * has to be able to read them.
  */
 
 import { buildManifest, build, renderStaticPages, generateClientPageEntry, vuraBrowserResolvePlugin, vuraActionsStubPlugin, pruneStaleOutputs } from '@celsian/vura-core';
@@ -362,7 +364,7 @@ export async function buildCommand(_args: string[]): Promise<void> {
   // Page and layout bundling now happens once, in core. `serverEsmResolvePlugin`
   // below is still used for the standalone entry.
 
-  // 3c. Bundle browser entries for client and hybrid pages.
+  // 2. Bundle browser entries for client and hybrid pages.
   // Each bundle is a generated wrapper (generateClientPageEntry) that imports
   // the page module and calls mount() (client) / hydrate() (hybrid) — bundling
   // the raw page module alone leaves the shell at "Loading..." forever because
@@ -406,6 +408,7 @@ export async function buildCommand(_args: string[]): Promise<void> {
         outfile: outPath,
         jsx: 'automatic',
         jsxImportSource,
+        absWorkingDir: root,
         // Browser-resolve first: a page that imports `@celsian/vura-core` for
         // useLoaderData must get the pure client module here, not the package
         // root, which reaches node:fs and cannot be bundled for a browser.
@@ -448,17 +451,7 @@ export async function buildCommand(_args: string[]): Promise<void> {
     }
   }
 
-  // 4. Build API routes + task entries
-  console.log('  Building...');
-  const result = await build(manifest, config, root);
-
-  console.log(`  Server entry: ${result.serverEntry}`);
-  console.log(`  Functions: ${result.functions.length} serverless bundles`);
-  if (result.taskEntries.length > 0) {
-    console.log(`  Tasks: ${result.taskEntries.length} task entries`);
-  }
-
-  // 5. Render build-time pages (static, client shells, and hybrid prerendered HTML)
+  // 3. Render build-time pages (static, client shells, and hybrid prerendered HTML)
   const staticPages = manifest.pages.filter(p => p.mode !== 'server');
   if (staticPages.length > 0) {
     console.log(`  Rendering ${staticPages.length} build-time pages...`);
@@ -500,6 +493,12 @@ export async function buildCommand(_args: string[]): Promise<void> {
         outfile: tmpFile,
         jsx: 'automatic',
         jsxImportSource,
+        // esbuild anchors resolution to the working directory its service
+        // captured, which is not necessarily the cwd at call time. Core's
+        // bundlers pass this for the same reason; this one did not, and a
+        // second build in one process resolved against the first build's
+        // directory — which fails outright once that directory is gone.
+        absWorkingDir: root,
         plugins: [serverEsmResolvePlugin],
         external: sharedRuntimeExternals,
       });
@@ -518,7 +517,7 @@ export async function buildCommand(_args: string[]): Promise<void> {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
 
-  // 6. Copy public assets to dist/public/ for production static serving.
+  // 4. Copy public assets to dist/public/ for production static serving.
   // Prefer the framework-standard root public/ directory, but support the
   // historical starter/runbook layout src/public/ when root public/ is absent.
   const publicDir = join(root, 'public');
@@ -536,11 +535,28 @@ export async function buildCommand(_args: string[]): Promise<void> {
     console.log(`  Copied ${label} → dist/public/`);
   }
 
+  // 5. Build API routes, task entries and the adapter artifacts.
+  //
+  // This runs AFTER the page render and the public copy, not before. The
+  // adapter's buildEnd is the last step by design — this file's own header has
+  // said so since it was written — and an adapter that reads dist/static, which
+  // is what serving prerendered pages on Cloudflare and Lambda requires, saw
+  // either nothing on a clean build or the PREVIOUS build's HTML on a dirty
+  // one. It ran fourth of nine only because the page render was added later.
+  console.log('  Building...');
+  const result = await build(manifest, config, root);
+
+  console.log(`  Server entry: ${result.serverEntry}`);
+  console.log(`  Functions: ${result.functions.length} serverless bundles`);
+  if (result.taskEntries.length > 0) {
+    console.log(`  Tasks: ${result.taskEntries.length} task entries`);
+  }
+
   if (config.adapter) {
     console.log(`  Adapter: ${config.adapter.name}`);
   }
 
-  // 9. Emit hot deploy templates when the project has hot routes
+  // 6. Emit hot deploy templates when the project has hot routes
   const hotRoutes = manifest.api.filter(r => r.kind === 'hot');
   const hasWsRoutes = hotRoutes.some(r => r.hasWebsocket === true);
   const distDir = join(root, 'dist');

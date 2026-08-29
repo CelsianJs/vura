@@ -49,16 +49,29 @@ dist/cloudflare/
   routes/
     src_api_hello.js
     ...
+  pages.js            # only when the project has `server` pages
+  assets/             # only when the project has pages
+    index.html
+    about/index.html
+    _then/pages/...
 ```
 
 ### 4. The wrangler.toml
 
-The generated `dist/cloudflare/wrangler.toml` for a project with one serverless route and one task route with a schedule looks like:
+The generated `dist/cloudflare/wrangler.toml` for a project with one serverless
+route, one task route with a schedule, and pages looks like:
 
 ```toml
 name = "my-worker"
 main = "entry.js"
 compatibility_date = "2026-06-11"
+
+# Prerendered pages, client bundles and public/ files.
+[assets]
+directory = "./assets"
+binding = "ASSETS"
+html_handling = "drop-trailing-slash"
+not_found_handling = "none"
 
 # Cron Triggers
 [triggers]
@@ -66,6 +79,13 @@ crons = ["0 3 * * *"]
 ```
 
 For a project with KV, D1, or R2 bindings configured in the adapter, those sections are appended automatically.
+
+The `[assets]` block appears only when the project has pages. It is
+[Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/):
+`wrangler deploy` uploads that directory along with the Worker, the edge serves
+a matching path without invoking the Worker, and anything unmatched falls
+through to `entry.js` — which is where the API routes and `server` pages are.
+There is no second upload command and no KV namespace to create.
 
 ### 5. Deploy
 
@@ -88,11 +108,25 @@ Published my-worker (0.42 sec)
 ## Smoke test
 
 ```sh
-# API route
-curl -fsS https://my-worker.your-subdomain.workers.dev/api/hello
+URL=https://my-worker.your-subdomain.workers.dev
 
-# Static page (if your Worker serves static assets via KV or R2)
-curl -fsS https://my-worker.your-subdomain.workers.dev/ | grep -q '<h1'
+# API route
+curl -fsS "$URL/api/hello"
+
+# Prerendered page, served by Workers Static Assets
+curl -fsS "$URL/" | grep -q '<h1'
+
+# Client-mode page, and the browser bundle it boots from
+curl -fsS "$URL/dashboard" | grep -o '/_then/pages/[^"]*\.js'
+
+# Server-mode page: rendered in the Worker, per request, with its loader
+curl -fsS "$URL/posts" | grep -q '__VURA_LOADER__'
+```
+
+The repo ships this as one script, which is what CI runs against every target:
+
+```sh
+node scripts/assert-served-pages.mjs "$URL"
 ```
 
 ---
@@ -108,6 +142,34 @@ curl -fsS https://my-worker.your-subdomain.workers.dev/ | grep -q '<h1'
 > ```
 >
 > Hot routes are not silently excluded — they are named in the warning. Deploy hot routes to a persistent host ([Node / VPS](/self-host/node-vps/), [Docker](/self-host/docker/), or [Fly.io](/self-host/fly/)) alongside your Worker deployment.
+
+---
+
+> **Limitation: no ISR cache**
+>
+> A page declaring `revalidate` renders on every request instead of being
+> cached: the Worker carries no ISR engine, and pulling `what-isr` into every
+> Worker bundle would inflate it for no gain. Those pages are named at build
+> time:
+>
+> ```
+> [vura] N page(s) declare `revalidate` but Cloudflare Workers has no ISR cache attached, so they render on every request instead of being cached: /posts
+> ```
+>
+> Put a CDN in front of the Worker, or serve those pages from a persistent host.
+
+---
+
+> **Limitation: a `server` page cannot import a Node built-in**
+>
+> Workers have no `node:` modules. A `server` page, layout or loader that
+> imports one **fails the build** rather than being dropped:
+>
+> ```
+> [vura] server-mode page(s) could not be bundled for Cloudflare Workers: src/pages/report.tsx.
+> ```
+>
+> Move that work into an API route the page fetches with its loader.
 
 ---
 
@@ -139,7 +201,7 @@ The `__cf_env` and `__cf_ctx` fields are intentionally narrow — they expose CF
 
 ---
 
-> **CI-tested:** this guide is verified by the `cloudflare` job in `.github/workflows/selfhost.yml`. The job builds the project with the Cloudflare adapter and runs `wrangler dev --local` (workerd, local emulation) to smoke-test `/api/hello`. It does **not** deploy to Cloudflare — no cloud credentials are in CI; Cloudflare's edge network behavior is out of scope.
+> **CI-tested:** this guide is verified by the `cloudflare` job in `.github/workflows/selfhost.yml`. The job builds the project with the Cloudflare adapter and runs `wrangler dev --local` (workerd, local emulation), then runs `scripts/assert-served-pages.mjs` against it: every page mode, the browser bundle a client page boots from, the loader payload on a `server` page (twice, a second apart, to prove the loader runs per request), the API route, and the 404. It does **not** deploy to Cloudflare — no cloud credentials are in CI; Cloudflare's edge network behavior is out of scope.
 
 ---
 

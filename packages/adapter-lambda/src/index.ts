@@ -10,9 +10,20 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { vuraCoreRuntimeShimContents, serverlessRevalidateStubs, pruneStaleOutputs, GLOBAL_HOOKS_FILENAMES } from '@celsian/vura-core';
+import {
+  vuraCoreRuntimeShimContents,
+  serverlessRevalidateStubs,
+  pruneStaleOutputs,
+  GLOBAL_HOOKS_FILENAMES,
+  serverPagesOf,
+  pageDegradations,
+  generatePagesModuleSource,
+  bundlePagesModule,
+  collectPageAssets,
+  copyPageAssets,
+} from '@celsian/vura-core';
 import type { ThenAdapter, AdapterBuildContext } from '@celsian/vura-core';
-import type { ApiRoute, HttpMethod } from '@celsian/vura-core';
+import type { ApiRoute, HttpMethod, PageRoute } from '@celsian/vura-core';
 
 
 const require = createRequire(import.meta.url);
@@ -300,12 +311,37 @@ function toLogicalId(route: ApiRoute, method: HttpMethod): string {
 }
 
 /**
+ * A CloudFormation-safe event id for a page's HttpApi route.
+ *
+ * Event ids live in one namespace per function, so `/` and `/posts` must not
+ * collapse to the same name. Alphanumerics only, and a stable one for the site
+ * root, which has no path characters left after sanitising.
+ */
+function toPageEventId(page: PageRoute): string {
+  const cleaned = page.urlPattern
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('');
+  return `Page${cleaned || 'Root'}`;
+}
+
+/**
  * Generate the SAM template.yaml content.
  */
 function generateSamTemplate(
   functions: SamFunction[],
   options: Required<Pick<LambdaAdapterOptions, 'memory' | 'timeout' | 'runtime' | 'architecture'>> & { cors?: CorsOptions },
   taskRoutes: ApiRoute[] = [],
+  /** Every page in the manifest, or [] when the project has none. */
+  pages: PageRoute[] = [],
+  /**
+   * Whether to declare the pages function at all. Not `pages.length > 0`: a
+   * project with only public/ files has assets to serve and no page routes.
+   */
+  emitPages = false,
 ): string {
   const resources: string[] = [];
 
@@ -367,6 +403,60 @@ ${corsHeaders}` : '';
             Path: ${apiPath}
             Method: ${fn.method}`);
     }
+  }
+
+  // The pages function. It was missing entirely: a build with four pages
+  // produced a template with none of them, so `/` and every other page path was
+  // an unmapped route and API Gateway answered 403 "Missing Authentication
+  // Token" — a build that exited 0 and served no site.
+  //
+  // Two kinds of route are emitted, and both are needed:
+  //
+  //   - One GET route per page pattern. These are the pages, named, so the
+  //     template says what the deployment serves and a reader can check it
+  //     against the build's page table.
+  //   - A greedy `/{proxy+}` on ANY. This is what serves the client bundles
+  //     under /_then/, anything copied from public/, and — because HTTP API
+  //     matches the most specific route first, so every route above still wins
+  //     — what turns an unknown path into the same 404 page the Node server
+  //     returns instead of API Gateway's 403.
+  if (emitPages) {
+    const events: string[] = [];
+    const seen = new Set<string>();
+
+    for (const page of pages) {
+      const apiPath = toApiGatewayPath(page.urlPattern);
+      const key = `GET ${apiPath}`;
+      if (seen.has(key)) {
+        console.warn(
+          `[vura] two pages map to the same API Gateway route (${apiPath}); ` +
+          `only the first is declared: ${page.filePath}`,
+        );
+        continue;
+      }
+      seen.add(key);
+      events.push(`        ${toPageEventId(page)}:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ThenHttpApi
+            Path: ${apiPath}
+            Method: GET`);
+    }
+
+    events.push(`        CatchAll:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ThenHttpApi
+            Path: /{proxy+}
+            Method: ANY`);
+
+    resources.push(`  ${PAGES_LOGICAL_ID}Function:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.handler
+      CodeUri: lambda/${PAGES_DIR}/
+      Events:
+${events.join('\n')}`);
   }
 
   return `AWSTemplateFormatVersion: '2010-09-09'
@@ -698,6 +788,215 @@ export async function handler(event, context) {
 `;
 }
 
+// ─── Pages Function ───
+
+/** Directory name, logical id and CodeUri of the single pages function. */
+const PAGES_DIR = '__pages';
+const PAGES_LOGICAL_ID = 'VuraPages';
+
+/**
+ * Generate the handler for the pages function.
+ *
+ * One function serves everything that is not an API route, which is the same
+ * split the Node server makes: prerendered files first (its `staticDirs`), then
+ * the server-mode page renderer, then a 404. Here the prerendered files are
+ * read from `./assets` inside the function's own read-only bundle at
+ * /var/task, because that is the only storage a Lambda has without a second
+ * service.
+ *
+ * That choice is deliberate and has a cost. S3 + CloudFront is the right answer
+ * for a large site and is *not* what this does: `sam deploy` uploads code, not
+ * site content, so an S3 story needs a bucket, a distribution and an
+ * `aws s3 sync` the user runs themselves — a deploy step this adapter cannot
+ * perform and must not pretend to. Serving from the bundle keeps `sam deploy`
+ * as the whole deploy, and buildEnd warns by name when the tree gets big enough
+ * for that trade to stop being the right one.
+ *
+ * The 404 body is byte-identical to what-fw's unmatched-route 404, which is
+ * what the Node server answers with, so a missing page reads the same on both.
+ */
+function generatePagesHandlerFile(hasServerPages: boolean): string {
+  const pagesImport = hasServerPages
+    ? "import { matchesPage, handlePage } from './pages.js';"
+    : 'const matchesPage = () => false;\nconst handlePage = null;';
+  return `// Auto-generated — Vura pages function (prerendered assets + server-mode pages)
+import { readFile, stat } from 'node:fs/promises';
+import { join, normalize, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
+${pagesImport}
+
+const ASSET_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'assets');
+
+const NOT_FOUND_HTML = '<!DOCTYPE html><html><body><h1>404 — Not Found</h1></body></html>';
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.avif': 'image/avif',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.txt': 'text/plain; charset=utf-8',
+  '.xml': 'application/xml; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
+  '.pdf': 'application/pdf',
+};
+
+function mimeFor(path) {
+  const dot = path.lastIndexOf('.');
+  return (dot === -1 ? null : MIME[path.slice(dot).toLowerCase()]) || 'application/octet-stream';
+}
+
+function isBinaryContentType(ct) {
+  if (!ct) return false;
+  return ct.startsWith('image/') || ct.startsWith('audio/') || ct.startsWith('video/') ||
+    ct.startsWith('application/octet-stream') || ct.startsWith('application/pdf') ||
+    ct.startsWith('application/zip') || ct.startsWith('font/');
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+/**
+ * Resolve a URL path to a file inside ASSET_ROOT, or null.
+ *
+ * The containment check is not decoration: API Gateway forwards the raw path,
+ * so \`/../../etc/passwd\` reaches this function verbatim, and this handler is
+ * mapped to a catch-all route. A resolved path that escapes the asset root is
+ * refused before anything is read.
+ *
+ * Candidates mirror what the Node server serves and what the Cloudflare
+ * assets binding does with html_handling = drop-trailing-slash: the exact
+ * file, then \`<path>/index.html\` for a directory, then \`/index.html\` for the
+ * site root.
+ */
+async function findAsset(pathname) {
+  let decoded;
+  try { decoded = decodeURIComponent(pathname); } catch { return null; }
+
+  const clean = decoded.replace(/\\/+$/, '') || '/';
+  const candidates = clean === '/'
+    ? ['index.html']
+    : [clean.slice(1), join(clean.slice(1), 'index.html')];
+
+  for (const candidate of candidates) {
+    const full = normalize(join(ASSET_ROOT, candidate));
+    if (full !== ASSET_ROOT && !full.startsWith(ASSET_ROOT + sep)) continue;
+    try {
+      const info = await stat(full);
+      if (info.isFile()) return full;
+    } catch { /* next candidate */ }
+  }
+  return null;
+}
+
+function eventToRequest(event) {
+  const { rawPath, rawQueryString, headers, requestContext } = event;
+  const protocol = headers['x-forwarded-proto'] || 'https';
+  const host = headers['host'] || requestContext.domainName;
+  const queryPart = rawQueryString ? '?' + rawQueryString : '';
+  const reqHeaders = new Headers();
+  for (const [key, value] of Object.entries(headers)) {
+    if (value !== undefined) reqHeaders.set(key, value);
+  }
+  if (event.cookies && event.cookies.length > 0) reqHeaders.set('cookie', event.cookies.join('; '));
+  const method = requestContext.http.method.toUpperCase();
+  const init = { method, headers: reqHeaders };
+  // A page render never reads a body, and GET/HEAD must not carry one.
+  if (method !== 'GET' && method !== 'HEAD' && event.body) {
+    init.body = event.isBase64Encoded ? Uint8Array.from(atob(event.body), c => c.charCodeAt(0)) : event.body;
+  }
+  return new Request(protocol + '://' + host + rawPath + queryPart, init);
+}
+
+async function responseToResult(response) {
+  const headers = {};
+  const cookies = [];
+  response.headers.forEach((value, key) => {
+    if (key.toLowerCase() === 'set-cookie') cookies.push(value);
+    else headers[key] = value;
+  });
+  const isBinary = isBinaryContentType(response.headers.get('content-type') || '');
+  let body;
+  let isBase64Encoded = false;
+  if (response.body) {
+    if (isBinary) {
+      body = arrayBufferToBase64(await response.arrayBuffer());
+      isBase64Encoded = true;
+    } else {
+      body = await response.text();
+    }
+  }
+  const result = { statusCode: response.status, headers, body, isBase64Encoded };
+  if (cookies.length > 0) result.cookies = cookies;
+  return result;
+}
+
+export async function handler(event) {
+  const pathname = event.rawPath || '/';
+  const method = (event.requestContext?.http?.method || 'GET').toUpperCase();
+
+  // Prerendered pages, client shells, client bundles and public/ files. First,
+  // for the same reason the Node server serves its static dirs first: these are
+  // the cheapest responses and the most common ones.
+  if (method === 'GET' || method === 'HEAD') {
+    const file = await findAsset(pathname);
+    if (file) {
+      const contentType = mimeFor(file);
+      const bytes = await readFile(file);
+      const binary = isBinaryContentType(contentType);
+      return {
+        statusCode: 200,
+        headers: { 'content-type': contentType },
+        body: method === 'HEAD' ? '' : (binary ? bytes.toString('base64') : bytes.toString('utf8')),
+        isBase64Encoded: method !== 'HEAD' && binary,
+      };
+    }
+  }
+
+  if (matchesPage(pathname)) {
+    return responseToResult(await handlePage(eventToRequest(event)));
+  }
+
+  // The Node server splits its 404 by prefix: /api/ and /__vura/ answer from
+  // the API app in JSON, everything else answers with the 404 page. This
+  // function is on the catch-all route, so it is the only place that split can
+  // be made — without it a mistyped API path would come back as HTML.
+  if (pathname.startsWith('/api/') || pathname.startsWith('/__vura/')) {
+    return {
+      statusCode: 404,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ error: 'Not Found', path: pathname }),
+      isBase64Encoded: false,
+    };
+  }
+
+  return {
+    statusCode: 404,
+    headers: { 'content-type': 'text/html; charset=utf-8' },
+    body: NOT_FOUND_HTML,
+    isBase64Encoded: false,
+  };
+}
+`;
+}
+
 // ─── Adapter Factory ───
 
 /**
@@ -834,6 +1133,11 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
         });
       }
 
+      // Pages. Prerendered HTML and client bundles come from dist/static and
+      // dist/public; server-mode pages render inside the function. Both were
+      // dropped entirely until now.
+      const pageFunctionEmitted = await emitPagesFunction(ctx, lambdaDir, emitted);
+
       // Write SAM template (with cron schedules for task routes)
       const templateContent = generateSamTemplate(samFunctions, {
         memory,
@@ -841,7 +1145,7 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
         runtime,
         architecture,
         cors: options.cors,
-      }, taskRoutes);
+      }, taskRoutes, manifest.pages, pageFunctionEmitted);
       await writeFile(join(outDir, 'template.yaml'), templateContent);
 
       // Write samconfig.toml
@@ -852,6 +1156,136 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
       await pruneStaleOutputs(lambdaDir, emitted);
     },
   };
+}
+
+/**
+ * Bytes of prerendered assets past which serving them through Lambda stops
+ * being the right trade.
+ *
+ * Not a hard limit — the code package limit is 250 MB unzipped and this is far
+ * under it. It is the point where the per-request cost of proxying bytes
+ * through a function, and the cold-start cost of a fat package, are worth
+ * telling someone about while they can still act on it.
+ */
+const ASSET_WARN_BYTES = 25 * 1024 * 1024;
+
+/**
+ * API Gateway caps a response payload at 6 MB, and a binary asset is
+ * base64-encoded on the way out, which costs about a third. A file past this
+ * cannot be returned at all, so it is named at build time rather than
+ * discovered as a 500 in production.
+ */
+const ASSET_MAX_FILE_BYTES = Math.floor(6 * 1024 * 1024 * 0.74);
+
+/**
+ * Emit `dist/lambda/__pages/`: the prerendered tree, the server-page renderer
+ * when the project has one, and the handler that serves both.
+ *
+ * Returns whether anything was emitted, which is what decides if the SAM
+ * template gets the page routes. A project with no pages gets no function and
+ * no route, so an API-only deployment is unchanged.
+ */
+async function emitPagesFunction(
+  ctx: AdapterBuildContext,
+  lambdaDir: string,
+  emitted: Set<string>,
+): Promise<boolean> {
+  const { manifest, projectRoot, outDir } = ctx;
+
+  // Emitted when the deployment has a site surface, which is not the same as
+  // having pages: the Node server serves dist/public whether or not a project
+  // has any, so an API-only project with a public/ directory has files to
+  // serve here too. A project with neither gets no function and no route, and
+  // its template is byte-for-byte what it was.
+  const assets = await collectPageAssets(outDir);
+  if (manifest.pages.length === 0 && assets.length === 0) return false;
+
+  for (const warning of pageDegradations(manifest, 'AWS Lambda')) {
+    console.warn(warning);
+  }
+
+  const serverPages = serverPagesOf(manifest);
+
+  // Streaming is a real capability on the Node server and on Workers, and it
+  // is not one here: API Gateway's proxy integration buffers the whole body
+  // before it answers, so the shell cannot go out early. The page still
+  // renders correctly, so this is a warning and not an error — but it is a
+  // named one, because a page opted into streaming and did not get it.
+  const streaming = serverPages.filter(p => p.config.streaming === true);
+  if (streaming.length > 0) {
+    console.warn(
+      `[vura] ${streaming.length} streaming page(s) are buffered on AWS Lambda — API Gateway's proxy ` +
+      `integration has no early flush, so the shell cannot go out before the body: ` +
+      `${streaming.map(p => p.urlPattern).join(', ')}. They still render correctly.`,
+    );
+  }
+
+  const funcDir = join(lambdaDir, PAGES_DIR);
+  await mkdir(funcDir, { recursive: true });
+
+  await writeFile(join(funcDir, 'package.json'), JSON.stringify({ type: 'module' }) + '\n');
+  await writeFile(join(funcDir, 'index.js'), generatePagesHandlerFile(serverPages.length > 0));
+  emitted.add(join(funcDir, 'package.json'));
+  emitted.add(join(funcDir, 'index.js'));
+
+  if (serverPages.length > 0) {
+    const sourcePath = join(funcDir, 'pages.source.mjs');
+    await writeFile(sourcePath, generatePagesModuleSource(serverPages, projectRoot, funcDir));
+    await bundleServerPagesModule(sourcePath, join(funcDir, 'pages.js'), projectRoot, serverPages);
+    emitted.add(sourcePath);
+    emitted.add(join(funcDir, 'pages.js'));
+  }
+
+  const assetDir = join(funcDir, 'assets');
+  for (const written of await copyPageAssets(assets, assetDir)) emitted.add(written);
+
+  const totalBytes = assets.reduce((sum, a) => sum + a.bytes, 0);
+  if (totalBytes > ASSET_WARN_BYTES) {
+    console.warn(
+      `[vura] ${(totalBytes / 1024 / 1024).toFixed(1)} MB of prerendered assets are bundled into the ` +
+      `pages Lambda and served through it. That works, but every byte is billed as function time and ` +
+      'inflates cold starts — put the files in S3 behind CloudFront and route only server-mode pages here.',
+    );
+  }
+  const oversized = assets.filter(a => a.bytes > ASSET_MAX_FILE_BYTES);
+  if (oversized.length > 0) {
+    console.warn(
+      `[vura] ${oversized.length} asset(s) exceed what API Gateway can return (6 MB, less base64 overhead) ` +
+      `and will fail with a 500 when requested: ${oversized.map(a => a.urlPath).join(', ')}. ` +
+      'Serve them from S3/CloudFront instead.',
+    );
+  }
+
+  return true;
+}
+
+/**
+ * Bundle the generated pages module for the pages function.
+ *
+ * A page that cannot be bundled fails the build, by name. Same rule as the
+ * hooks file, for the same reason: a build that reports success and serves 404
+ * for every page is the exact defect this wiring exists to close, and
+ * degrading quietly would reintroduce it with a different cause.
+ */
+async function bundleServerPagesModule(
+  sourcePath: string,
+  outfile: string,
+  projectRoot: string,
+  pages: PageRoute[],
+): Promise<void> {
+  try {
+    await bundlePagesModule({ sourcePath, outfile, projectRoot, corePackageDir: CORE_PACKAGE_DIR });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `[vura] server-mode page(s) could not be bundled for AWS Lambda: ${pages.map(p => p.filePath).join(', ')}.\n` +
+      'The pages bundle is built runtime-neutral so the same artifact runs on every serverless target, ' +
+      'which means a page, layout or loader importing a Node built-in cannot be deployed through it. ' +
+      'Move that work into an API route the page fetches. It cannot be dropped: a build that ships ' +
+      'without its pages serves 404 for every one of them.\n' +
+      detail,
+    );
+  }
 }
 
 // ─── Utilities ───

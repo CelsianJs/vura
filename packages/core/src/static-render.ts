@@ -24,6 +24,8 @@ import {
   type LoaderSegment,
 } from './runtime/loader.js';
 import type { PageRoute } from './manifest.js';
+import { documentShell, wrapDocument, escapeHtml } from './document.js';
+import type { DocumentOptions } from './document.js';
 
 export interface PageRenderResult {
   urlPattern: string;
@@ -299,75 +301,9 @@ function _renderVuraBootError(root, err, dev) {
 
 // ─── Document Wrapper ───
 
-export interface DocumentOptions {
-  title: string;
-  meta: Array<Record<string, string>>;
-  styles: string[];
-  scripts: string[];
-  head: string;
-  /**
-   * Markup appended after the app root and before the script tags.
-   *
-   * This is where the serialized loader payload goes. It must be OUTSIDE
-   * `<div id="app">`: hydration walks the server-rendered DOM node for node,
-   * and an extra child the client tree does not produce is a mismatch.
-   */
-  bodyEnd?: string;
-}
-
-/**
- * The document either side of the app root.
- *
- * Split out so a streaming render can flush `open` before the body exists and
- * `close` after the last chunk, without a second copy of the document. A
- * second copy is exactly how `vura dev` spent two releases rendering pages
- * differently from the server it was meant to imitate.
- */
-export function documentShell(opts: DocumentOptions): { open: string; close: string } {
-  const metaTags = opts.meta
-    .map(m => `<meta ${Object.entries(m).map(([k, v]) => `${k}="${escapeHtml(v)}"`).join(' ')}>`)
-    .join('\n    ');
-
-  const styleTags = opts.styles
-    .map(s => s.startsWith('http') ? `<link rel="stylesheet" href="${s}">` : `<style>${s}</style>`)
-    .join('\n    ');
-
-  const scriptTags = opts.scripts
-    .map(s => `<script type="module" src="${s}"></script>`)
-    .join('\n    ');
-
-  const open = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${escapeHtml(opts.title)}</title>
-    ${metaTags}
-    ${styleTags}
-    ${opts.head}
-</head>
-<body>
-    <div id="app">`;
-
-  const close = `</div>
-    ${opts.bodyEnd ?? ''}
-    ${scriptTags}
-</body>
-</html>`;
-
-  return { open, close };
-}
-
-export function wrapDocument(bodyHtml: string, opts: DocumentOptions): string {
-  const { open, close } = documentShell(opts);
-  return `${open}${bodyHtml}${close}`;
-}
-
-export function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+// The shell itself lives in document.ts, which imports nothing: `runtime/pages.ts`
+// needs it inside a Cloudflare Worker bundle, and this module's `node:fs` /
+// `node:path` imports cannot resolve there. Re-exported so `wrapDocument` and
+// `escapeHtml` keep the import path the docs and the vite plugin already use.
+export { documentShell, wrapDocument, escapeHtml };
+export type { DocumentOptions };

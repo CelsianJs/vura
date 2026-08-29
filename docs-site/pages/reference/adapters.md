@@ -60,14 +60,68 @@ export default defineConfig({
 
 ```
 dist/cloudflare/
-  wrangler.toml   ← generated with cron triggers for task routes
-  entry.js        ← Worker entry, routes all requests
-  routes/         ← per-route module bundles
+  wrangler.toml     ← cron triggers for task routes, and the [assets] block
+  entry.js          ← Worker entry: API routes, then server-mode pages
+  routes/           ← per-route module bundles
+  pages.js          ← server-mode page renderer (omitted when there are none)
+  pages.source.mjs  ← the un-bundled wiring for pages.js, for inspection
+  assets/           ← prerendered pages, client bundles and public/ files
 ```
 
 Deploy: `cd dist/cloudflare && wrangler deploy`
 
 **Route kind support:** serverless, task (via `scheduled` cron event). Hot routes are not supported.
+
+**Pages on Cloudflare.** All four page modes are served.
+
+`static`, `client` and `hybrid` pages are rendered at build time into
+`dist/static`, and the adapter copies that tree (plus `dist/public`) into
+`dist/cloudflare/assets`. The generated `wrangler.toml` points
+[Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/)
+at it:
+
+```toml
+[assets]
+directory = "./assets"
+binding = "ASSETS"
+html_handling = "drop-trailing-slash"
+not_found_handling = "none"
+```
+
+That is the whole deploy: `wrangler deploy` uploads the directory with the
+Worker. Assets are chosen over KV (which would need a namespace, an id in this
+file and a second upload command) and over inlining (every page and bundle
+would count against the 3 MB script limit).
+
+Two settings are pinned rather than left at their defaults, and both matter:
+
+- `html_handling = "drop-trailing-slash"` serves `about/index.html` at
+  `/about`. The default, `auto-trailing-slash`, would answer `/about` with a
+  307 to `/about/` — while the Node server the same build emits serves
+  `/about` directly. `/about/` still redirects to `/about` on Cloudflare; on
+  Node both paths return the page.
+- `not_found_handling = "none"` is what lets a request that matches no asset
+  reach the Worker, which is where the API routes and `server` pages live.
+
+`server` pages render inside the Worker, per request, with their loaders. The
+Worker checks the API route table first, then its page table, so nothing about
+existing API routing changes.
+
+`dist/public` is copied too, whether or not the project has pages — the Node
+server serves it either way. A deployment with no pages **and** no
+`public/` keeps exactly the Worker it had before: no `[assets]` block, no
+`pages.js`, and the same JSON 404 for an unmatched path. Once there is a site
+surface, an unmatched path answers the way the Node server does: JSON under
+`/api/` and `/__vura/`, the 404 page everywhere else.
+
+A `server` page that imports a Node built-in **fails the build**, by name:
+Workers have no `node:` modules, and shipping the Worker without that page
+would serve a 404 for it while the build reported success.
+
+**Not served the same as Node:** a page declaring `revalidate` renders on every
+request rather than being cached, because the Worker carries no ISR engine.
+`vura build` names those pages in a warning. Put a CDN in front, or deploy them
+to a persistent host.
 
 `vura build` emits a named warning when hot routes are present:
 
@@ -132,6 +186,10 @@ dist/
     api_hello_get/      ← one directory per route+method
       index.js
       route.js
+    __pages/            ← the single pages function (omitted with no pages)
+      index.js          ← prerendered assets, then server-mode pages, then 404
+      pages.js          ← server-mode page renderer
+      assets/           ← prerendered pages, client bundles and public/ files
   template.yaml         ← SAM template with API Gateway + Lambda functions
   samconfig.toml        ← SAM deploy defaults (stack name, region, resolve_s3)
 ```
@@ -155,6 +213,38 @@ Or shorthand after the first deploy: `sam deploy` (reads `samconfig.toml`).
 ```
 [vura] N hot route(s) cannot run on lambda and were not bundled: /api/live/room — deploy them to a persistent host (see /self-host/)
 ```
+
+**Pages on Lambda.** All four page modes are served, by one function.
+
+The SAM template declares a `VuraPagesFunction` with a GET route per page
+pattern plus a greedy `/{proxy+}` on `ANY`. HTTP API matches the most specific
+route first, so every API route still wins; the catch-all is what serves the
+client bundles under `/_then/`, anything from `public/`, and what turns an
+unknown path into the 404 page instead of API Gateway's
+`403 Missing Authentication Token`.
+
+Prerendered pages, client bundles and `public/` files are copied into the
+function's own `assets/` directory and served from `/var/task`. **This is not
+S3.** `sam deploy` uploads code, not site content, so an S3 + CloudFront story
+needs a bucket, a distribution and an `aws s3 sync` you run yourself — a step
+this adapter cannot perform on your behalf. Serving from the bundle keeps
+`sam deploy` as the whole deploy, at the cost of every asset byte being billed
+as function time. `vura build` warns by name once that tree passes 25 MB, and
+warns about any single file too large for API Gateway's 6 MB response cap.
+
+`server` pages render inside the same function, per request, with their loaders.
+A page that imports a Node built-in fails the build by name: the pages bundle is
+built runtime-neutral so the same artifact runs on every serverless target.
+
+`dist/public` is copied too, whether or not the project has pages. A deployment
+with no pages **and** no `public/` gets no pages function and no extra route:
+its `template.yaml` is what it always was.
+
+**Not served the same as Node:** a page with `streaming: true` still renders
+correctly but is **buffered** — API Gateway's proxy integration has no early
+flush, so the shell cannot go out before the body. A page declaring
+`revalidate` renders on every request rather than being cached. Both are named
+in build warnings.
 
 **`revalidateTag` in Lambda — warn-only stub:** Lambda function bundles include a `revalidateTag`/`revalidatePath` shim that logs a warning instead of calling a local cache engine:
 

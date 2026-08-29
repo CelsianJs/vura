@@ -48,6 +48,9 @@ jobs:
         # artifact download on a different runner.
         run: |
           cd /tmp && node "$GITHUB_WORKSPACE/packages/create-vura/dist/index.js" app --no-install
+          # The template has no server-mode page, so nothing in this matrix
+          # would exercise per-request rendering or a loader without it.
+          node "$GITHUB_WORKSPACE/scripts/add-page-fixture.mjs" /tmp/app
           node "$GITHUB_WORKSPACE/scripts/link-local-packages.mjs" /tmp/app
       - name: Install scaffold dependencies
         run: |
@@ -61,6 +64,10 @@ jobs:
         run: |
           test -f /tmp/app/dist/server/entry.js
           test -d /tmp/app/dist/static
+          # The server-mode page fixture must have been bundled for the hot
+          # server; a build that quietly skips it is the class of defect this
+          # workflow exists to catch.
+          test -f /tmp/app/dist/server/pages/posts.js
           # Dockerfile and fly.toml are emitted by vura build when hot routes
           # are present (the default scaffold has /api/chat and /api/health).
           # template.yaml is only emitted when the lambda adapter is configured
@@ -86,6 +93,8 @@ jobs:
     needs: scaffold
     runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
     steps:
+      - uses: actions/checkout@v7
+        # checkout needed for scripts/assert-served-pages.mjs
       - uses: actions/download-artifact@v8
         with:
           name: scaffold-app
@@ -102,10 +111,9 @@ jobs:
           cd app
           PORT=3000 NODE_ENV=production node dist/server/entry.js &
           npx --yes wait-on -t 30000 http://localhost:3000
-          # Static page
-          curl -fsS http://localhost:3000/ | grep -q '<h1'
-          # API route
-          curl -fsS http://localhost:3000/api/hello | grep -q '"message"'
+          # Every page mode, the API and the 404 — the same script every other
+          # target runs, so no leg's coverage can drift from another's.
+          node "$GITHUB_WORKSPACE/scripts/assert-served-pages.mjs" http://localhost:3000
           # WebSocket: /api/chat sends a Welcome message on connect.
           # A single 'message' event from the Welcome line is sufficient
           # proof of upgrade (matches the guide smoke test).
@@ -151,10 +159,7 @@ jobs:
         run: |
           docker run -d -p 3000:3000 --name vura-app vura-selfhost-test
           npx --yes wait-on -t 30000 http://localhost:3000
-          # Static page
-          curl -fsS http://localhost:3000/ | grep -q '<h1'
-          # API route
-          curl -fsS http://localhost:3000/api/hello | grep -q '"message"'
+          node scripts/assert-served-pages.mjs http://localhost:3000
           docker logs vura-app
   # ──────────────────────────────────────────────────────────────────────
   # fly: validates the fly.toml from the guide with flyctl, then boots
@@ -199,8 +204,7 @@ jobs:
         run: |
           docker run -d -p 8080:3000 vura-fly-test
           npx --yes wait-on -t 30000 http://localhost:8080
-          curl -fsS http://localhost:8080/ | grep -q '<h1'
-          curl -fsS http://localhost:8080/api/hello | grep -q '"message"'
+          node scripts/assert-served-pages.mjs http://localhost:8080
   # ──────────────────────────────────────────────────────────────────────
   # cloudflare: builds with the Cloudflare adapter, runs wrangler dev
   # (workerd, local emulation), curls /api/hello and the static page.
@@ -232,6 +236,11 @@ jobs:
           # Hot routes are expected to be excluded (adapter warns but succeeds)
           test -f dist/cloudflare/wrangler.toml
           test -f dist/cloudflare/entry.js
+          # Pages, not just the API. dist/cloudflare/ carried neither of these
+          # until the adapter learned to emit them, and the build still exited 0.
+          test -f dist/cloudflare/pages.js
+          test -f dist/cloudflare/assets/index.html
+          grep -q '^\[assets\]' dist/cloudflare/wrangler.toml
       - name: Smoke under wrangler dev (workerd local)
         run: |
           cd app/dist/cloudflare
@@ -239,7 +248,9 @@ jobs:
           # Use TCP wait — wrangler is ready when the port is open, regardless
           # of HTTP status code on the root path.
           npx --yes wait-on -t 60000 tcp:localhost:8787
-          curl -fsS http://localhost:8787/api/hello | grep -q '"message"'
+          # This step curled /api/hello and nothing else, which is how the
+          # Worker shipped for months serving 404 for every page.
+          node "$GITHUB_WORKSPACE/scripts/assert-served-pages.mjs" http://localhost:8787
   # ──────────────────────────────────────────────────────────────────────
   # lambda: builds with the Lambda adapter, validates template.yaml with
   # sam validate --lint, then curls /api/hello under sam local start-api
@@ -273,6 +284,11 @@ jobs:
           npm run build 2>&1 | tee /tmp/lambda-build.log
           # Hot routes are expected to be excluded (adapter warns but succeeds)
           test -f dist/template.yaml
+          # The pages function and its routes. The template declared neither,
+          # so API Gateway answered 403 for '/' while the build reported success.
+          test -f dist/lambda/__pages/index.js
+          test -f dist/lambda/__pages/assets/index.html
+          grep -q 'VuraPagesFunction' dist/template.yaml
       - name: Validate SAM template
         run: |
           cd app
@@ -295,4 +311,5 @@ jobs:
             echo "$result" | grep -q '"message"' && break
             sleep 2
           done
-          curl -fsS http://localhost:3001/api/hello | grep -q '"message"'
+          # Then the pages, which this leg never asked for.
+          node "$GITHUB_WORKSPACE/scripts/assert-served-pages.mjs" http://localhost:3001

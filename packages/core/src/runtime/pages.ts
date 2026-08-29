@@ -30,7 +30,10 @@
 // @ts-ignore — createRequestHandler is exported at runtime, not yet in .d.ts
 import { renderToString, renderToStream, createRequestHandler as _createRequestHandler } from 'what-framework/server';
 import { h } from 'what-framework';
-import { wrapDocument, documentShell } from '../static-render.js';
+// document.js, not static-render.js: this module is bundled into the
+// Cloudflare Worker and the Lambda pages function, and static-render.js
+// imports node:fs/promises at module scope, which does not resolve there.
+import { wrapDocument, documentShell } from '../document.js';
 import { buildVuraCacheTagHeader } from './cache-tags.js';
 import { compilePageRoutes, matchPageRoute } from '../match.js';
 import {
