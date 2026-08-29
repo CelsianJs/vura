@@ -210,7 +210,50 @@ describe('A1.4 success metric', () => {
     //   from the comment saying why. runtime-shim.ts gains nothing.
     //   Measured after the change: actual 10582, ceiling 10650 leaves ~68
     //   headroom.
-    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(10650);
+    // Auth and the pure streaming helpers on the serverless adapters
+    //   (2026-08-28): cookieSession, getMimeType and parseRangeHeader could not
+    //   be built for Cloudflare or Lambda, which took the whole documented auth
+    //   story with them. The cost is one new file and one small one.
+    //   signed-cookie.ts (+367) is a synchronous HMAC-SHA-256, base64url and a
+    //   cookie serialiser, written out because auth.ts had to stop importing
+    //   node:crypto AND @celsian/core, whose package root is a Node HTTP
+    //   server. It is the largest single addition this file has recorded and it
+    //   is deliberate: Web Crypto could not be the answer the way
+    //   crypto.randomUUID was for the logger, because the commit seam is a
+    //   Proxy trap and crypto.subtle.sign is async, so the alternative was
+    //   making cookieSession async for every Node user too. Roughly a third of
+    //   the file is the comment arguing that, and the rest is arithmetic held
+    //   to node:crypto by test/signed-cookie.test.ts. streaming-headers.ts
+    //   (+140) is the two exports that never needed node:fs, moved out with the
+    //   MIME table and a hand-written extname; streaming.ts re-exports them, so
+    //   the net there is +~46. auth-jwt.ts (+29) is one re-export line and the
+    //   reason it is not in auth.ts. The rest is the three generated entries
+    //   growing a reply.headers record and the comment for it, in build.ts.
+    //   Measured after the change: actual 10773, ceiling 10830.
+    // Both entries above were written on branches that measured against 10241,
+    //   before the other landed, so neither ceiling they name survives the
+    //   rebase. Re-measured with both in the tree: 11114, which is 10582 from
+    //   pages plus the 532 auth/streaming added, so nothing double-counts.
+    // @noble/hashes replaces the hand-written hash (2026-08-28): the FIPS 180-4
+    //   arithmetic added by the entry above is gone from signed-cookie.ts, and
+    //   the module's surface is unchanged — sha256 and hmacSha256 are now
+    //   three-line wrappers, so test/signed-cookie.test.ts holds the library to
+    //   node:crypto over exactly the vectors it held the arithmetic to, and
+    //   passed unedited. −97 lines of arithmetic against +35 of rationale for
+    //   taking a dependency in the auth path, so the net is −62 and not the
+    //   −330 the previous entry's size implies: two thirds of that file was
+    //   always base64url, the cookie serialiser and the argument for being
+    //   synchronous, and none of that moved.
+    //   Recorded with the caveat, because the number went the other way where
+    //   it is paid: the emitted Cloudflare worker's hooks.js grew 14,511 →
+    //   23,586 bytes (4,977 → 7,530 gzipped) and Lambda writes that file into
+    //   every function directory. Deleting hand-written crypto does not delete
+    //   the round function from the bundle, it changes whose round function it
+    //   is. This file measures source, which is the side that got smaller.
+    //   Measured on the rebased branch, with pages, auth and the library swap
+    //   all in the tree: actual 11052 (11114 − 62). Ceiling 11110 leaves ~58
+    //   headroom.
+    expect(locOf(join(__dirname, '..', 'src'))).toBeLessThan(11110);
 
   });
 });

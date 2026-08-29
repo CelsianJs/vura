@@ -2,7 +2,11 @@
 
 Vura ships two authentication helpers from `@celsian/vura-core`: **signed cookie sessions** for stateful, browser-based logins, and **JWT** helpers for stateless bearer-token APIs. Both are thin, dependency-light building blocks — you own the login logic.
 
-> **Node runtimes only.** These helpers sign with `node:crypto`'s synchronous HMAC, which the Cloudflare and Lambda adapters cannot bundle into a per-function artifact. Importing `cookieSession`, `jwt` or `createJWTGuard` from a file those adapters bundle (an `src/api/` route, or `src/api/_hooks.ts`) fails the build with `No matching export in "vura-core-runtime-shim:@celsian/vura-core"`. They work on the hot server and anywhere else Node runs. On a Worker, use a Web Crypto library or verify tokens at the edge.
+> **`cookieSession` runs everywhere. `jwt` and `createJWTGuard` are Node-only.**
+>
+> `cookieSession` signs with a portable HMAC-SHA-256 that needs no Node built-ins, so it works unchanged on the hot server, on Cloudflare Workers and in a Lambda function, including in `src/api/_hooks.ts`. Signatures are identical across all three, so a session cookie issued by one is accepted by the others and cookies issued before this change stay valid.
+>
+> `jwt` and `createJWTGuard` come from `@celsian/jwt`, which imports `@celsian/core`, and that package's root is a Node HTTP server. Importing either from a file the Cloudflare or Lambda adapter bundles (an `src/api/` route, or `src/api/_hooks.ts`) still fails the build with `No matching export in "vura-core-runtime-shim:@celsian/vura-core"`. They work on the hot server and anywhere else Node runs. On a Worker, verify tokens with a Web Crypto library such as `jose` directly.
 
 ---
 
@@ -46,7 +50,9 @@ cookieSession(opts: CookieSessionOpts)
 |---|---|---|---|
 | `secret` | `string` | — (required) | HMAC-SHA-256 signing secret. Must be **≥ 32 characters** — a shorter secret throws immediately at startup. |
 | `cookieName` | `string` | `'vura_session'` | Name of the session cookie. |
-| `cookie` | `CookieOptions` | see below | Cookie attributes, merged over the defaults `{ httpOnly: true, sameSite: 'lax', path: '/' }`. Pass `maxAge` for expiry. |
+| `cookie` | `CookieOptions` | see below | Cookie attributes, merged over the defaults `{ httpOnly: true, sameSite: 'lax', path: '/', secure: true }`. Pass `maxAge` for expiry. |
+
+**`secure` defaults to `true`,** which matters on a plain-HTTP dev server: the browser accepts a `Secure` cookie over `http://localhost` and then never sends it back, so the session appears to reset on every request. Pass `cookie: { secure: false }` when you are serving plain HTTP.
 
 Generate a secret with:
 

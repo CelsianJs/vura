@@ -734,7 +734,19 @@ export async function handler(event, context) {
   let statusCode = 200;
   const responseHeaders = { 'content-type': 'application/json' };
   let responseBody = null;
+  // reply.headers is the header record itself, and the response below is
+  // built from reply.headers rather than from this variable, so a hook that
+  // replaces the property is read rather than ignored. cookieSession is why:
+  // it commits a session by putting a Proxy here whose ownKeys/get traps add
+  // set-cookie only when the session changed, which is the one seam that
+  // covers a handler returning a plain object — that path never calls
+  // reply.json. Without the property the hook crashed on a Proxy over undefined
+  // before any handler ran; with it but reading the local, every plain-object
+  // response silently lost its Set-Cookie. Measured in workerd: the Headers
+  // constructor drives ownKeys, getOwnPropertyDescriptor and get on the
+  // Proxy, so the injected header reaches the wire.
   const reply = {
+    headers: responseHeaders,
     status(code) { statusCode = code; return reply; },
     header(name, value) { responseHeaders[name] = value; return reply; },
     json(data) { responseBody = JSON.stringify(data); return null; },
@@ -781,8 +793,8 @@ export async function handler(event, context) {
   }
 
   if (result instanceof Response) return responseToResult(result);
-  if (responseBody !== null) return { statusCode, headers: responseHeaders, body: responseBody };
-  if (result && typeof result === 'object') return { statusCode, headers: responseHeaders, body: JSON.stringify(result) };
+  if (responseBody !== null) return { statusCode, headers: { ...reply.headers }, body: responseBody };
+  if (result && typeof result === 'object') return { statusCode, headers: { ...reply.headers }, body: JSON.stringify(result) };
   return { statusCode: 204 };
 }
 `;

@@ -307,6 +307,61 @@ export function POST() {
     expect(body).not.toContain('db.internal');
   }, 30000);
 
+  it('commits a cookie session from a plain-object return in a serverless function', async () => {
+    // The generated function entry hands a hook a hand-rolled reply, and that
+    // reply had no `headers` record. cookieSession's first act is to Proxy it,
+    // so this path threw `Cannot create proxy with a non-object as target` in
+    // the app's authorization hook before any handler ran — the same hole the
+    // two serverless adapters had, in core's own output, which is why the fix
+    // is in all three templates rather than only in the adapters.
+    //
+    // The plain-object return is the case worth running: it is the shape the
+    // docs show, and it never calls reply.json, so it is committed only through
+    // the Proxy on reply.headers. A test that used reply.json would have gone
+    // green against a reply that never grew the property.
+    const root = createTempProject();
+    writeModule(root, 'src/api/_hooks.ts', `
+import { cookieSession } from '@celsian/vura-core';
+export const onRequest = cookieSession({ secret: 'a-very-long-test-secret-32chars!!', cookie: { secure: false } });
+`);
+    writeModule(root, 'src/api/session.ts', `
+export function GET(req) {
+  const count = (req.session.count ?? 0) + 1;
+  req.session.count = count;
+  return { count };
+}
+`);
+    const route = {
+      filePath: 'src/api/session.ts',
+      urlPattern: '/api/session',
+      methods: ['GET'],
+      kind: 'serverless' as const,
+      config: {},
+    };
+    const manifest: RouteManifest = {
+      api: [route],
+      pages: [],
+      layouts: [],
+      timestamp: new Date().toISOString(),
+    };
+
+    const built = await build(manifest, {}, root);
+    const fnEntry = built.functions.find(f => f.route.filePath === 'src/api/session.ts');
+    expect(fnEntry).toBeDefined();
+    const mod = await import(/* @vite-ignore */ pathToFileURL(fnEntry!.entryPath).href);
+
+    const first = await mod.default.fetch(new Request('http://example.com/api/session'));
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ count: 1 });
+    const setCookie = first.headers.get('set-cookie');
+    expect(setCookie, 'a mutated session must reach the response').toMatch(/^vura_session=/);
+
+    const second = await mod.default.fetch(new Request('http://example.com/api/session', {
+      headers: { cookie: setCookie!.split(';')[0]! },
+    }));
+    expect(await second.json()).toEqual({ count: 2 });
+  }, 30000);
+
   it('serves server pages marked stream as chunked full HTML responses', async () => {
     const root = createTempProject();
     // Phase B: write page source to src/ so build() bundles it into dist/server/pages/

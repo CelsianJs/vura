@@ -4,7 +4,11 @@ Vura API routes are handlers that receive `(req, reply)` and return a `Response`
 
 The `reply` object your handler already receives has everything you need. No extra imports.
 
-> **The named helpers are Node-only.** Returning a `Response` wrapping a `ReadableStream`, as below, works on every target. The named exports further down this page (`streamResponse`, `createSSEChannel`, `streamFile`, `getMimeType`, `parseRangeHeader`) reach `node:fs` and cannot be bundled into a Cloudflare or Lambda per-function artifact; importing one there fails the build with `No matching export in "vura-core-runtime-shim:@celsian/vura-core"`. Use them on the hot server, and the plain `Response` form everywhere else.
+> **Three of the five named helpers are Node-only.** Returning a `Response` wrapping a `ReadableStream`, as below, works on every target.
+>
+> `getMimeType` and `parseRangeHeader` are pure string functions and work on every target too, Cloudflare Workers and Lambda included. They are what you want for serving an R2, KV or S3 object: the content type from its key, and the byte offsets from a `Range` header.
+>
+> `streamResponse`, `createSSEChannel` and `streamFile` cannot be bundled into a Cloudflare or Lambda per-function artifact, and importing one there fails the build with `No matching export in "vura-core-runtime-shim:@celsian/vura-core"`. `streamFile` reads from a filesystem, which a Worker has not got. The other two are not blocked by a missing capability — a Worker has `ReadableStream` and `TransformStream` — but by their signatures: both write to a Node `ServerResponse` and read from a Node `Readable`, and a Worker handler is handed neither. For events over a stream on a Worker, build a `TransformStream` and return its readable side as the `Response` body.
 
 ```ts
 // src/api/feed.ts

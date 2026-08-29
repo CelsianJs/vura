@@ -161,22 +161,35 @@ describe('the @celsian/vura-core runtime shim', () => {
     }
   });
 
-  it('keeps the Node built-in groups out of an adapter function bundle', () => {
+  it('keeps the Node built-in modules out of an adapter function bundle', () => {
     // Lambda and Cloudflare pass includeServerRuntime: false. Cloudflare
     // bundles with platform 'neutral' and no Node externals, so anything
-    // reaching node:fs or node:crypto must stay in the server group or every
-    // Worker build breaks.
+    // reaching node:fs or an npm package that does must stay in the server
+    // group or every Worker build breaks.
     const functionBundle = vuraCoreRuntimeShimContents({
       packageDir: CORE_PACKAGE_DIR,
       includeServerRuntime: false,
     });
-    for (const nodeBackedModule of ['auth', 'streaming', 'runtime/server']) {
+    // streaming.ts takes node:fs and auth-jwt.ts takes @celsian/jwt, which
+    // reaches @celsian/core's Node HTTP server. The specifiers carry a trailing
+    // dot so that `./streaming-headers.ts`, which is deliberately in the group,
+    // is not read as `./streaming.`.
+    for (const nodeBackedModule of ['streaming', 'auth-jwt', 'runtime/server']) {
       expect(functionBundle).not.toContain(`./${nodeBackedModule}.`);
     }
-    // enqueue is pure fetch and the logger now imports nothing at all, so both
-    // belong in the adapter half too.
-    expect(functionBundle).toContain('enqueue');
-    expect(functionBundle).toContain('getLogger');
+    // enqueue is pure fetch and the logger imports nothing at all. auth.ts and
+    // streaming-headers.ts joined them once their Node dependencies were
+    // removed rather than worked around, which is why they are asserted by the
+    // symbol a user writes rather than by the module it came from.
+    for (const portable of ['enqueue', 'getLogger', 'cookieSession', 'getMimeType', 'parseRangeHeader']) {
+      expect(functionBundle, `${portable} should be buildable on a serverless adapter`).toContain(portable);
+    }
+    // The three that cannot be. Asserted, not assumed: a Worker with no
+    // filesystem and no ServerResponse would take these at build time and fail
+    // on the first request instead, which is the worse failure.
+    for (const nodeOnly of ['streamFile', 'streamResponse', 'createSSEChannel', 'createJWTGuard']) {
+      expect(functionBundle, `${nodeOnly} cannot run on a serverless adapter`).not.toContain(nodeOnly);
+    }
   });
 
   it('bundles the adapter half for a Worker with no Node built-ins left in it', async () => {
@@ -189,10 +202,16 @@ describe('the @celsian/vura-core runtime shim', () => {
     const dir = mkdtempSync(join(tmpdir(), 'vura-shim-worker-'));
     try {
       const entry = join(dir, 'entry.ts');
+      // cookieSession is the reason this list grew: it is the headline of the
+      // documented auth story and of src/api/_hooks.ts, and it was unbuildable
+      // here for both of its own reasons at once — node:crypto for the HMAC and
+      // @celsian/core for the cookie serialiser, the second of which drags a
+      // Node HTTP server in behind it.
+      const names = ['getLogger', 'createLogger', 'enqueue', 'badRequest', 'cookieSession', 'getMimeType', 'parseRangeHeader'];
       writeFileSync(
         entry,
-        `import { getLogger, createLogger, enqueue, badRequest } from '@celsian/vura-core';\n` +
-          `export default [getLogger, createLogger, enqueue, badRequest];\n`,
+        `import { ${names.join(', ')} } from '@celsian/vura-core';\n` +
+          `export default [${names.join(', ')}];\n`,
       );
 
       const { build: esbuild } = await import('esbuild');
@@ -232,6 +251,12 @@ describe('the @celsian/vura-core runtime shim', () => {
       const output = result.outputFiles![0]!.text;
       expect(output).not.toMatch(/from\s*["']node:/);
       expect(output).toContain('randomUUID');
+      // The signer really is in the artifact, rather than the import having
+      // been elided along with everything it reached. A bundle that resolved
+      // because the symbol was tree-shaken away would satisfy every assertion
+      // above and still fail the moment a route called it.
+      expect(output).toContain('vura_session');
+      expect(output).toContain('image/svg+xml');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

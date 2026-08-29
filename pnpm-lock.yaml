@@ -151,6 +151,9 @@ importers:
       '@celsian/vura-compiler':
         specifier: workspace:0.8.0
         version: link:../compiler
+      '@noble/hashes':
+        specifier: ^2.4.0
+        version: 2.4.0
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
@@ -1308,6 +1311,10 @@ packages:
   '@napi-rs/wasm-tools@1.1.0':
     resolution: {integrity: sha512-VjHyKEqXAwYZK+HY7iJctYvRm3TFEbaQxeZwvAG1QRkoo1a39phMY8J6x9tUEqJI03W6MysB8F2jacI6wvcx+w==}
     engines: {node: '>= 12.22.0'}
+
+  '@noble/hashes@2.4.0':
+    resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
+    engines: {node: '>= 20.19.0'}
 
   '@octokit/auth-token@6.0.0':
     resolution: {integrity: sha512-P4YJBPdPSpWTQ1NU4XYdvHvXJJDxM6YwpS0FZHRgP7YFkdVxsWcpWGy/NVqlAA7PcPCnMacXlRm1y2PFZRWL/w==}
@@ -2923,6 +2930,8 @@ snapshots:
       '@napi-rs/wasm-tools-win32-arm64-msvc': 1.1.0
       '@napi-rs/wasm-tools-win32-ia32-msvc': 1.1.0
       '@napi-rs/wasm-tools-win32-x64-msvc': 1.1.0
+
+  '@noble/hashes@2.4.0': {}
 
   '@octokit/auth-token@6.0.0': {}
 
