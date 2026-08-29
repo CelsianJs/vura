@@ -67,6 +67,11 @@
       "source": "/docs/:path*",
       "destination": "/reference/:path*",
       "permanent": false
+    },
+    {
+      "source": "/docs/:path*/",
+      "destination": "/reference/:path*",
+      "permanent": false
     }
   ]
 }
