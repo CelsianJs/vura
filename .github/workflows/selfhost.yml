@@ -1,13 +1,10 @@
 name: Self-host guides
 
-# One workflow, six jobs, each mirroring its guide's commands.
+# One workflow, seven jobs, each mirroring its guide's commands.
 # The shared 'scaffold' job builds the workspace, packs local tarballs,
 # scaffolds an app against today's code, and uploads it as an artifact.
 # Every target job downloads that artifact — so they all test the same
 # local packages, not npm latest.
-#
-# Railway has no local emulator; the docker job IS its CI coverage.
-# See docs-site/pages/self-host/railway.md for the note.
 
 # Runs on Depot CI (.depot/workflows/) as of 2026-07-11 (Kirby's directive).
 # This copy keeps workflow_dispatch as a manual fallback.
@@ -147,7 +144,6 @@ jobs:
   # docker: mirrors the docker guide — builds the image using the guide's
   # exact Dockerfile (extracted from the guide markdown), runs the
   # container, curls the smoke surface.
-  # Also provides CI coverage for the railway guide (Docker-based).
   # Does NOT test Docker Compose or healthcheck config.
   # ──────────────────────────────────────────────────────────────────────
   docker:
@@ -226,6 +222,93 @@ jobs:
           docker run -d -p 8080:3000 vura-fly-test
           npx --yes wait-on -t 30000 http://localhost:8080
           node scripts/assert-served-pages.mjs http://localhost:8080
+
+  # ──────────────────────────────────────────────────────────────────────
+  # railway: mirrors the railway guide. dist/ is the deploy root `railway up`
+  # uploads, so this leg checks that every path the guide's railway.json names
+  # resolves there, then runs the image the way Railway runs it: startCommand
+  # replacing the image CMD, and an injected PORT that is NOT the Dockerfile's
+  # ENV default.
+  # Does NOT touch Railway. No account, no project, no credentials. The CLI
+  # upload and its .gitignore filtering, Railway's builder and registry, the
+  # *.railway.app domain and its TLS, and Railway's own healthcheck and
+  # app-sleep machinery are out of scope — the guide says so too.
+  # ──────────────────────────────────────────────────────────────────────
+  railway:
+    needs: scaffold
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: scaffold-app
+          path: app
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Guide Dockerfile must be the one vura build emits
+        # Every other Docker-based leg overwrites dist/Dockerfile with the
+        # guide's copy, so a guide showing a Dockerfile the build no longer
+        # writes would still go green. Compare before overwriting anything.
+        run: |
+          node scripts/extract-guide-dockerfile.mjs \
+            docs-site/pages/self-host/railway.md \
+            > /tmp/railway-guide.Dockerfile
+          diff /tmp/railway-guide.Dockerfile app/dist/Dockerfile
+
+      - name: Validate the guide's railway.json against the deploy root
+        # Railway builds with the root of the uploaded source as the Docker
+        # context; it does not move the context to the Dockerfile's directory.
+        # Running `railway up` from inside dist/ makes dist/ that root, so
+        # every path railway.json names must resolve there. The guide used to
+        # point dockerfilePath at dist/Dockerfile and startCommand at
+        # server/entry.js from the PROJECT root: that image builds, exits 0,
+        # and then crash-loops on Cannot find module '/app/server/entry.js'.
+        run: |
+          node scripts/extract-guide-block.mjs \
+            docs-site/pages/self-host/railway.md json \
+            > app/dist/railway.json
+          node scripts/assert-railway-config.mjs app/dist/railway.json app/dist
+
+      - name: Build the image Railway would build
+        run: docker build -t vura-railway-test -f app/dist/Dockerfile app/dist
+
+      - name: Start it the way Railway starts it, then smoke
+        run: |
+          START_CMD=$(node -p "require('./app/dist/railway.json').deploy.startCommand")
+          HEALTH=$(node -p "require('./app/dist/railway.json').deploy.healthcheckPath")
+          # PORT is injected at runtime and deliberately NOT the Dockerfile's
+          # ENV default: an app that ignores it keeps answering on 3000 and
+          # Railway's router sees nothing. startCommand replaces the image CMD
+          # the same way Railway's deploy.startCommand does.
+          docker run -d --name vura-railway-app -e PORT=8080 -p 8080:8080 \
+            vura-railway-test sh -c "exec $START_CMD"
+          npx --yes wait-on -t 30000 "http://localhost:8080$HEALTH"
+          # Railway marks the deploy failed if healthcheckPath is not 200.
+          curl -fsS -o /dev/null -w "healthcheck %{url_effective} -> %{http_code}\n" \
+            "http://localhost:8080$HEALTH"
+          # A green healthcheck is not a served app. An image whose static
+          # output is missing answers healthcheckPath with 200 and every page
+          # with 404 — the same script every other leg runs, for that reason.
+          node scripts/assert-served-pages.mjs http://localhost:8080
+          # Hot routes are why this guide claims all route kinds. ws is
+          # installed inside the image, so ask from in there.
+          docker exec vura-railway-app node --input-type=module -e '
+            const { WebSocket } = await import("ws");
+            const ws = new WebSocket(`ws://127.0.0.1:${process.env.PORT}/api/chat`);
+            ws.on("message", (data) => {
+              const text = data.toString();
+              if (!text.startsWith("Welcome")) { console.error("unexpected WS message:", text); process.exit(1); }
+              console.log("WS OK:", text.substring(0, 60));
+              process.exit(0);
+            });
+            ws.on("error", (e) => { console.error("WS error:", e.message); process.exit(1); });
+            setTimeout(() => { console.error("no WS message within 5s"); process.exit(1); }, 5000);
+          '
+          docker logs vura-railway-app
 
   # ──────────────────────────────────────────────────────────────────────
   # cloudflare: builds with the Cloudflare adapter, runs wrangler dev

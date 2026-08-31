@@ -38,7 +38,7 @@ without a page serves 404 for it).
 
 ## The CI-tested promise
 
-Every guide below runs in CI on every commit — the exact commands you'll paste, executed by the six jobs in [`.github/workflows/selfhost.yml`](https://github.com/CelsianJs/vura/blob/main/.github/workflows/selfhost.yml). If a guide breaks, the build is red.
+Every guide below runs in CI on every commit — the exact commands you'll paste, executed by the seven jobs in [`.github/workflows/selfhost.yml`](https://github.com/CelsianJs/vura/blob/main/.github/workflows/selfhost.yml). If a guide breaks, the build is red.
 
 The CI jobs execute fenced code blocks extracted directly from each guide, so a guide can never silently drift from what CI actually runs.
 
@@ -51,6 +51,6 @@ No framework capability is gated on the managed platform or any paid tier. The M
 - **[Node / VPS](/self-host/node-vps/)** — the simplest path. One Node process, one port. All route kinds. Add a reverse proxy (Caddy) for HTTPS and WebSocket passthrough.
 - **[Docker](/self-host/docker/)** — containerized. Same Node server, reproducible image. Good baseline for Kubernetes or any container-capable host.
 - **[Fly.io](/self-host/fly/)** — the recommended host for hot routes. Persistent machines, global anycast, built-in TLS. `fly deploy ./dist` is the one-command path.
-- **[Railway](/self-host/railway/)** — Dockerfile-based deploy on Railway's managed infrastructure. Shares the Docker guide's Dockerfile.
+- **[Railway](/self-host/railway/)** — Dockerfile-based deploy on Railway's managed infrastructure. Shares the Docker guide's Dockerfile; upload `dist/` so the build context matches it.
 - **[Cloudflare Workers](/self-host/cloudflare/)** — edge-native serverless and task routes. Hot routes not supported. Uses `@celsian/vura-adapter-cloudflare` + `wrangler deploy`.
 - **[AWS Lambda](/self-host/lambda/)** — serverless and task routes via Lambda + API Gateway SAM. Hot routes not supported. Uses `@celsian/vura-adapter-lambda` + AWS SAM.
