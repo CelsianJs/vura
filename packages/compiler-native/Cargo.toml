@@ -14,7 +14,7 @@ napi = { version = "3", features = ["napi4", "serde-json"] }
 napi-derive = "3"
 serde = { version = "=1.0.225", features = ["derive"] }
 serde_json = "=1.0.143"
-swc_ecma_parser = "24"
+swc_ecma_parser = "45"
 swc_ecma_ast = "15"
 swc_common = { version = "14", features = ["sourcemap"] }
 notify = { version = "6", features = ["macos_kqueue"] }
