@@ -11,7 +11,7 @@
  *   - routeMatch shape: { path, query, config, route, params, request }
  *     where config === route.page (set at core.js line 183)
  *   - Cache-Control: private, no-store is set by core.js when config.mode === 'server'
- *     (we do NOT set it ourselves)
+ *     (the streaming path bypasses core.js and must set it itself)
  *
  * what-router compilePath syntax (verified against packages/router/src/match.js):
  *   - :param → named segment
@@ -273,22 +273,37 @@ export function createVuraStreamRoute(options: RenderRouteOptions = {}) {
     } catch (err) {
       // Still before the first byte: a real status is still possible.
       if (isLoaderNotFound(err)) {
-        return new Response('<!DOCTYPE html><html><body><h1>404 — Not Found</h1></body></html>', {
+        return new Response(request.method === 'HEAD' ? null : '<!DOCTYPE html><html><body><h1>404 — Not Found</h1></body></html>', {
           status: 404,
-          headers: { 'content-type': 'text/html; charset=utf-8' },
+          headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'private, no-store' },
         });
       }
       if (isLoaderRedirect(err)) {
-        return new Response(null, { status: err.status, headers: { Location: err.location } });
+        return new Response(null, {
+          status: err.status,
+          headers: { Location: err.location, 'cache-control': 'private, no-store' },
+        });
       }
       console.error(`[vura] streamRoute error for path "${path}":`, err);
-      return new Response('<!DOCTYPE html><html><body><h1>500 — Server Error</h1></body></html>', {
+      return new Response(request.method === 'HEAD' ? null : '<!DOCTYPE html><html><body><h1>500 — Server Error</h1></body></html>', {
         status: 500,
-        headers: { 'content-type': 'text/html; charset=utf-8' },
+        headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'private, no-store' },
       });
     }
 
     const { vnode, pageConfig, byId, page } = prepared;
+    if (request.method === 'HEAD') {
+      // Resolve loader control flow, but do not render or start a stream that
+      // has no reader. HEAD must bypass ISR just like its corresponding GET.
+      return new Response(null, {
+        status: 200,
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'private, no-store',
+          'x-accel-buffering': 'no',
+        },
+      });
+    }
     const { open, close } = documentShell({
       title: pageConfig.title ?? 'Vura App',
       meta: pageConfig.meta ?? [],
@@ -351,6 +366,9 @@ export function createVuraStreamRoute(options: RenderRouteOptions = {}) {
       status: 200,
       headers: {
         'content-type': 'text/html; charset=utf-8',
+        // Streaming bypasses ISR, even when a page declares revalidate. Its
+        // request-specific loader output must not be stored by a shared cache.
+        'cache-control': 'private, no-store',
         // No content-length: the length is not known until the last chunk, and
         // omitting it is what makes the host chunk the response. Setting
         // `transfer-encoding` by hand instead would be wrong twice over: HTTP/2
@@ -520,16 +538,20 @@ export function createPagesHandler(
   );
 
   return async function vuraPagesHandler(req: Request): Promise<Response> {
-    // GET only. A HEAD must not carry a body, and it falls through to the
-    // string renderer so its status and headers still match what a GET would
-    // produce, without paying for a render whose output is discarded.
-    if (compiledStreaming.length > 0 && req.method === 'GET') {
+    // Both methods use the streaming policy. Falling through on HEAD would
+    // populate ISR for a page whose GET deliberately bypasses that cache.
+    if (compiledStreaming.length > 0 && (req.method === 'GET' || req.method === 'HEAD')) {
       const url = new URL(req.url);
       const match = matchPageRoute(compiledStreaming, url.pathname);
       if (match) {
         const route = streamingRoutes.find(r => r.vura.urlPattern === match.page.urlPattern)!;
-        const query: Record<string, string | string[]> = {};
-        url.searchParams.forEach((v, k) => { query[k] = v; });
+        const query: Record<string, string | string[]> = Object.create(null);
+        url.searchParams.forEach((v, k) => {
+          const previous = query[k];
+          if (previous === undefined) query[k] = v;
+          else if (typeof previous === 'string') query[k] = [previous, v];
+          else previous.push(v);
+        });
         return streamRoute({
           path: url.pathname,
           query,

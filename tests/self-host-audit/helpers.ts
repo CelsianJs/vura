@@ -416,12 +416,12 @@ export default function StreamedPage() {
 `;
 
 /** src/pages/streamed-loader.tsx — streaming composed with an RFC 0001 loader. */
-const STREAMED_LOADER_PAGE = `import { useLoaderData } from '@celsian/vura-core';
+const STREAMED_LOADER_PAGE = `import { useLoaderData, type LoaderContext } from '@celsian/vura-core';
 
 export const page = { mode: 'server', streaming: true, title: 'Streamed loader' };
 
-export async function loader() {
-  return { via: 'STREAM-LOADER-DATA' };
+export async function loader(ctx: LoaderContext) {
+  return { via: 'STREAM-LOADER-DATA', query: ctx.query };
 }
 
 export default function StreamedLoaderPage() {

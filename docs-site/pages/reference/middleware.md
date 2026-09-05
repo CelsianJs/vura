@@ -110,7 +110,7 @@ Use middleware to decide **whether** a request proceeds. Use hooks for what happ
 
 Middleware runs in `vura dev` and in the Node server `vura build` produces, which covers self-hosted Node, Docker, Fly and Railway.
 
-It does **not** yet run in the Cloudflare Workers or AWS Lambda adapters. Those adapters bundle API routes only, and pages are served as static assets by the CDN in front of them, so a guard written here would not be consulted. If you deploy to those targets today, put the check in the route handler.
+It does **not** yet run in the Cloudflare Workers or AWS Lambda adapters. Those adapters support API routes and server-rendered pages, but they do not execute this middleware before routing, so a guard written here would not be consulted. If you deploy to those targets today, enforce authorization in the API handler or page loader that accesses protected data.
 
 ---
 
