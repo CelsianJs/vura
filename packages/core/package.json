@@ -1,6 +1,6 @@
 {
   "name": "@celsian/vura-core",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -34,13 +34,13 @@
     "prepack": "pnpm run build"
   },
   "dependencies": {
-    "@celsian/core": "^0.6.1",
-    "@celsian/jwt": "^0.6.1",
-    "@celsian/vura-compiler": "workspace:0.8.0",
+    "@celsian/core": "^0.6.2",
+    "@celsian/jwt": "^0.6.2",
+    "@celsian/vura-compiler": "workspace:0.8.1",
     "@noble/hashes": "^2.4.0",
     "esbuild": "^0.28.2",
-    "what-framework": "^0.13.4",
-    "what-isr": "^0.13.4"
+    "what-framework": "^0.13.5",
+    "what-isr": "^0.13.5"
   },
   "publishConfig": {
     "access": "public"

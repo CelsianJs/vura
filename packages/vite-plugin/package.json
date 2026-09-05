@@ -1,6 +1,6 @@
 {
   "name": "@celsian/vura-vite-plugin",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "type": "module",
   "exports": {
     ".": {
@@ -10,9 +10,9 @@
     }
   },
   "dependencies": {
-    "@celsian/vura-core": "workspace:0.8.0",
+    "@celsian/vura-core": "workspace:0.8.1",
     "esbuild": "^0.28.2",
-    "what-framework": "^0.13.4"
+    "what-framework": "^0.13.5"
   },
   "peerDependencies": {
     "vite": "^6.0.0 || ^7.0.0 || ^8.0.0",

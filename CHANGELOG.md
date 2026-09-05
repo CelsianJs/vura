@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.8.1 - Release candidate (2026-09-05)
+
+This candidate is not published until the human release checklist in
+`RELEASING.md` is signed off and the tag-driven release succeeds.
+
+### Fixed
+
+- Streaming pages send `Cache-Control: private, no-store`, including loader
+  errors and redirects. HEAD follows the same cache policy without rendering
+  a body or populating ISR. Repeated query parameters retain their order and
+  all values in both streaming and buffered loader contexts.
+- Malformed percent-encoded action CSRF cookies produce a 403 response rather
+  than an uncaught decoding error. Server-action imports fail closed before
+  browser bundling can expose their implementations.
+- Runtime-split fixes, strict loader-data serialization, stale build-output
+  cleanup, and consistent response-hook/logger behavior are included from the
+  post-0.8.0 hardening work.
+
+### Adapter and deployment improvements
+
+- Cloudflare and Lambda adapters support server-rendered pages, global API
+  hooks, cookie sessions, and pure streaming helpers. Middleware and server
+  actions remain unsupported on these adapters; authorization must be enforced
+  in the handler or loader that accesses protected data.
+- Railway's self-host guide now has an executable CI check. Documentation URL
+  redirects and the docs-site dependency lockfile are corrected, and package
+  size budgets run on pull requests as well as release builds.
+
+### Dependencies and upgrade notes
+
+- Require independently published What Framework 0.13.5 and CelsianJS 0.6.2.
+  These releases fix reactive subscription/disposal behavior, query-cache key
+  identity, Node stream cancellation/backpressure, and SSE framing. Vura's
+  scaffold and examples use the same released upstream baseline.
+- Clear, rebuild, or isolate existing persistent ISR and response-cache entries
+  during upgrade. Entries created using older repeated-query normalization or
+  truncated key identity cannot have their original identity reconstructed.
+  Hashed Celsian cache invalidation reads stored key metadata and may add KV
+  reads; ordinary short-key cache hits do not add a metadata lookup.
+
 ## 0.8.0 - 2026-08-28
 
 ### Added
