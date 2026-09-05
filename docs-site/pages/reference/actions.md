@@ -160,8 +160,8 @@ export async function deleteTodo(id: string) {
 | Cloudflare adapter | Not yet |
 | Lambda adapter | Not yet |
 
-The two adapters bundle API routes as individual functions and serve pages as
-CDN assets; the action endpoint is not among them yet. The same is true of
+The two adapters support API routes and server-rendered pages, but the action
+endpoint is not implemented yet. The same is true of
 [middleware](/reference/middleware).
 
 ---
