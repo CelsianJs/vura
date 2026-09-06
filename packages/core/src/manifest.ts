@@ -19,98 +19,13 @@ import {
 } from '@celsian/vura-compiler';
 import { ACTIONS_DIR, actionModuleId, extractActionExports } from './actions-build.js';
 
-// ─── Types ───
-
-export type RouteKind = 'serverless' | 'hot' | 'task';
-export type PageMode = 'static' | 'server' | 'client' | 'hybrid';
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS';
-
-export interface ApiRoute {
-  /** File path relative to project root */
-  filePath: string;
-  /** URL pattern, e.g. /api/users/:id */
-  urlPattern: string;
-  /** HTTP methods exported by this file */
-  methods: HttpMethod[];
-  /** Deployment target */
-  kind: RouteKind;
-  /**
-   * Whether this route exports a `websocket(peer, req)` function.
-   * Only meaningful when kind === 'hot'. Optional so that older
-   * manifests/callers do not require backfilling the field.
-   */
-  hasWebsocket?: boolean;
-  /** Raw route config from the file */
-  config: Record<string, unknown>;
-}
-
-export interface PageRoute {
-  /** File path relative to project root */
-  filePath: string;
-  /** URL pattern, e.g. /blog/:slug */
-  urlPattern: string;
-  /** Rendering mode */
-  mode: PageMode;
-  /** Has layout wrapper */
-  layout?: string;
-  /**
-   * Ordered layout chain from outermost to innermost.
-   * Each entry is a file path (relative to project root) of a layout file.
-   * The page's content is wrapped by these layouts in order.
-   */
-  layouts?: string[];
-  /** Whether the page exports a `loader` (RFC 0001 server-side data fetching) */
-  hasLoader: boolean;
-  /** @deprecated Whether the page exports the superseded getServerData() */
-  hasGetServerData: boolean;
-  /** Raw page config from the file */
-  config: Record<string, unknown>;
-}
-
-/**
- * A layout file that wraps child pages.
- * Layouts nest following directory structure — parent wraps child.
- */
-export interface LayoutRoute {
-  /** File path relative to project root */
-  filePath: string;
-  /** Directory this layout covers (relative to pages dir, e.g. "" for root, "blog" for blog/) */
-  dirPattern: string;
-}
-
-/**
- * A file under `src/actions/`. Every function it exports is callable from the
- * browser through `POST /__vura/action`.
- */
-export interface ActionModule {
-  /** File path relative to project root */
-  filePath: string;
-  /** Stable id derived from the path, e.g. "todos" or "admin/users" */
-  moduleId: string;
-  /** Exported function names, in source order */
-  exports: string[];
-}
-
-export interface RouteManifest {
-  api: ApiRoute[];
-  pages: PageRoute[];
-  /** Layout files detected in the pages directory */
-  layouts: LayoutRoute[];
-  /**
-   * Project middleware, if `src/middleware.ts` exists. Path is relative to the
-   * project root. Absent when the project has none, which is the common case.
-   */
-  middleware?: string;
-  /**
-   * Server actions discovered under `src/actions/`.
-   *
-   * Optional so that adding it in 0.7 does not break the exported type for
-   * anyone constructing a manifest. `buildManifest` always sets it, to `[]`
-   * when the project has none.
-   */
-  actions?: ActionModule[];
-  timestamp: string;
-}
+// Keep existing core type imports compatible while the contract owns the DTO.
+import type {
+  RouteKind, PageMode, HttpMethod, ApiRoute, PageRoute, LayoutRoute, ActionModule, RouteManifest,
+} from '@celsian/vura-contract';
+export type {
+  RouteKind, PageMode, HttpMethod, ApiRoute, PageRoute, LayoutRoute, ActionModule, RouteManifest,
+} from '@celsian/vura-contract';
 
 // ─── HTTP Method Detection ───
 

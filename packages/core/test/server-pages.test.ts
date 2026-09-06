@@ -84,10 +84,12 @@ describe('server entry with page routes', () => {
           filePath: 'src/pages/dashboard.tsx',
           urlPattern: '/dashboard',
           mode: 'server',
+          hasLoader: false,
           hasGetServerData: true,
           config: { mode: 'server' },
         },
       ],
+      layouts: [],
       timestamp: new Date().toISOString(),
     };
 
@@ -113,10 +115,12 @@ describe('server entry with page routes', () => {
           filePath: 'src/pages/blog.tsx',
           urlPattern: '/blog',
           mode: 'server',
+          hasLoader: false,
           hasGetServerData: false,
           config: { mode: 'server', revalidate: 60 },
         },
       ],
+      layouts: [],
       timestamp: new Date().toISOString(),
     };
 
@@ -144,10 +148,12 @@ describe('server entry with page routes', () => {
           filePath: 'src/pages/index.tsx',
           urlPattern: '/',
           mode: 'static',
+          hasLoader: false,
           hasGetServerData: false,
           config: { mode: 'static' },
         },
       ],
+      layouts: [],
       timestamp: new Date().toISOString(),
     };
 
