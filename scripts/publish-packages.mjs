@@ -140,7 +140,9 @@ try {
     // emulates the full GHA env INCLUDING ACTIONS_ID_TOKEN_REQUEST_URL, but
     // Sigstore rejects its identity token (400 CA_CREATE_SIGNING_CERTIFICATE_
     // ERROR — failed the v0.5.6 publish). Depot releases ship without
-    // provenance; a GH workflow_dispatch re-publish re-attaches it.
+    // provenance. Do not republish an immutable version to "attach" provenance
+    // later; only future GitHub-hosted fallback publishes of not-yet-published
+    // versions can include npm provenance.
     if (!dryRun && process.env.NPM_PROVENANCE === '1' && process.env.ACTIONS_ID_TOKEN_REQUEST_URL) {
       args.push('--provenance');
     }
