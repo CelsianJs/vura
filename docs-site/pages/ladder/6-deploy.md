@@ -26,8 +26,9 @@ PORT=3000 NODE_ENV=production node dist/server/entry.js
 # → [vura] listening on port 3000
 ```
 
-That is it for a VPS or any machine with Node 20+. `dist/server/entry.js` is
-the unified server that handles static files, server-rendered pages, serverless
+These commands run inside an already-installed project on Node 20 or 22. For a
+fresh VPS, first follow the [Node / VPS copy and dependency-install procedure](/self-host/node-vps/).
+`dist/server/entry.js` is the unified server that handles static files, server-rendered pages, serverless
 API routes, hot routes, and task cron — one process, one port.
 
 For Docker, the build also emits `dist/Dockerfile` when the project has hot
@@ -47,9 +48,10 @@ and `kill_timeout = "30s"` so Fly never idle-stops a process holding live socket
 
 ## What hot routes need
 
-Hot routes (websockets, in-memory state) require a **persistent process**. They
-cannot run on Cloudflare Workers or AWS Lambda — those runtimes terminate the
-process between requests and cannot hold a WebSocket open.
+Vura hot routes (websockets, in-memory state) require a **persistent process**.
+Vura's current Cloudflare and Lambda adapters do not implement hot routes.
+This is a limitation of these adapters, not a claim that the hosting providers
+have no WebSocket capabilities.
 
 | Route kind | Node / VPS | Docker | Fly.io | Railway | CF Workers | Lambda |
 |---|---|---|---|---|---|---|
