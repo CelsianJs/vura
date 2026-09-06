@@ -25,6 +25,8 @@ jobs:
         run: npm --prefix docs-site install
       - name: Build docs site
         run: npm --prefix docs-site run build
+      - name: Verify no-JavaScript documentation navigation
+        run: node --test docs-site/test/mobile-navigation.check.mjs
       - name: Link check
         # Skip external GitHub URLs — their tree/ paths only resolve after the
         # PR is merged to main, so CI on a feature branch would always 404.

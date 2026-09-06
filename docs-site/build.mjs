@@ -143,7 +143,7 @@ function sidebarHtml(activePath) {
         const active =
           activePath === href ||
           (href !== '/' && activePath.startsWith(href + '/'));
-        return `      <li><a href="${href}"${active ? ' class="active"' : ''}>${label}</a></li>`;
+        return `      <li><a href="${href}"${active ? ' class="active"' : ''}${activePath === href ? ' aria-current="page"' : ''}>${label}</a></li>`;
       })
       .join('\n');
   }
@@ -201,9 +201,13 @@ function renderDocPage({ title, route, contentHtml }) {
     h('nav', { class: 'site-nav', dangerouslySetInnerHTML: { __html: navHtml() } })
   );
   const sidebarInner = sidebarHtml(route);
+  // Native disclosure keeps every docs destination reachable on narrow screens
+  // and with scripting disabled, without adding a second navigation controller.
+  const mobileNavigation = `<details class="mobile-docs-nav"><summary>Documentation</summary><nav aria-label="Documentation">${sidebarInner}</nav></details>`;
   const layout = renderToString(
     h('div', { class: 'layout' },
       h('aside', { class: 'sidebar', dangerouslySetInnerHTML: { __html: sidebarInner } }),
+      h('div', { class: 'mobile-docs-container', dangerouslySetInnerHTML: { __html: mobileNavigation } }),
       h('main', { class: 'content', dangerouslySetInnerHTML: { __html: contentHtml } })
     )
   );

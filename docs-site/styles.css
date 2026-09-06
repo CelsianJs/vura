@@ -157,6 +157,8 @@ nav.site-nav {
 }
 
 /* ─── Sidebar ─── */
+.mobile-docs-container { display: none; }
+
 .sidebar {
   position: fixed;
   top: var(--nav-height);
@@ -361,7 +363,24 @@ footer.site-footer.no-sidebar {
 
 /* ─── Responsive ─── */
 @media (max-width: 900px) {
+  .layout { display: block; }
   .sidebar { display: none; }
+  .mobile-docs-container { display: block; }
+  .mobile-docs-nav { border-bottom: 1px solid var(--border); }
+  .mobile-docs-nav > summary {
+    padding: 12px 24px;
+    min-height: 48px;
+    color: var(--text);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .mobile-docs-nav > summary:focus-visible,
+  .mobile-docs-nav a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -3px;
+  }
+  .mobile-docs-nav > nav { padding: 12px 0; }
+  .mobile-docs-nav .sidebar-nav li a { padding: 10px 24px; }
   .content { margin-left: 0; padding: 32px 24px 60px; }
   footer.site-footer { margin-left: 0; padding: 20px 24px; }
 }
