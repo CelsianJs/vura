@@ -1,6 +1,6 @@
 # Tasks
 
-A **task** is a route that runs off the request path — on a schedule, on demand, or enqueued from your own code. Tasks get typed inputs, automatic retries with backoff, and — with `ctx.step` — **durable execution** that survives restarts.
+A **task** is a route that runs off the request path — on a schedule, on demand, or enqueued from your own code. Tasks get typed inputs and automatic retries with backoff. `ctx.step` supports replay from recorded outputs; restart-durable delivery and waits currently require the managed broker. Standalone Node runs use in-process state and timers.
 
 This is the API reference. For a step-by-step walkthrough, start with the [Background task rung](/ladder/5-tasks).
 
@@ -110,7 +110,13 @@ enqueue(taskName: string, payload?: unknown, opts?: EnqueueOptions): Promise<Enq
 
 ## Durable steps — `ctx.step`
 
-Long tasks that call other services, wait for a child task, sleep, or block on approval need **durable execution**: work already done must not be redone if the process restarts, and waits must survive. Vura provides this through **step memoization** (the Inngest model) — no long-lived process.
+Long tasks can use **step memoization** to reuse recorded outputs on replay.
+With the managed broker persisting completed steps and re-dispatching runs,
+waits can suspend without keeping a process alive. Standalone Node does not
+provide that persistence or re-dispatch loop. Memoization is not an exactly-once
+guarantee for external side effects: an effect may succeed before its checkpoint
+is persisted. Use provider idempotency keys or transactional deduplication for
+payments, emails, and other non-idempotent writes.
 
 ```ts
 export async function POST({ input, step }) {
@@ -128,7 +134,7 @@ export async function POST({ input, step }) {
 
 ```ts
 await chargeCard();                     // ❌ runs on every replay — double charge
-await step.run('charge', chargeCard);   // ✅ runs once; replays return the record
+await step.run('charge', chargeCard);   // reuses a recorded result; chargeCard must be idempotent
 ```
 
 Reads and pure computation are safe to leave in the body.
@@ -137,10 +143,10 @@ Reads and pure computation are safe to leave in the body.
 
 | Call | Signature | What it does |
 |---|---|---|
-| `step.run` | `run<T>(key, fn): Promise<T>` | Runs `fn` once, memoized under `key`. Replays return the recorded output. |
+| `step.run` | `run<T>(key, fn): Promise<T>` | Runs `fn` when no recorded result exists. Replays reuse the recorded output; external effects still need idempotency. |
 | `step.enqueue` | `enqueue(key, task, payload?, opts?): Promise<{ runId }>` | Memoized enqueue. Fire-and-forget. |
 | `step.waitForTask` | `waitForTask(key, task, payload?, opts?): Promise<ChildRunResult>` | Enqueues a child and **waits** for its `{ ok, result?, error? }`. A child failure is **returned**, never thrown. |
-| `step.sleep` | `sleep(key, seconds): Promise<void>` | Sleep for a duration, durably. |
+| `step.sleep` | `sleep(key, seconds): Promise<void>` | Durable wait with the managed broker; in-process timer otherwise. |
 | `step.sleepUntil` | `sleepUntil(key, date): Promise<void>` | Sleep until an absolute instant (`Date` or ISO string). |
 | `step.waitForToken` | `waitForToken<T>(key, { timeoutSeconds? }): Promise<{ payload?: T } \| { timedOut: true }>` | Wait for an externally-completed token. |
 
@@ -150,7 +156,7 @@ Every `key` must be **unique within one run** — reusing a key throws a `Duplic
 
 When your handler hits a `waitForTask` / `sleep` / `sleepUntil` / `waitForToken` that isn't already satisfied, the step throws an internal `SuspendSignal` that unwinds the handler and **suspends** the run. This is not a failure and consumes **no retry attempt** — the run envelope reports `ok: true` with a `suspended` waitpoint and the steps completed so far. On the platform, when the waitpoint completes, Vura re-dispatches the **same run** with the accumulated `steps` map, and your handler replays to the next wait or to completion.
 
-### Local dev
+### Local dev and standalone self-hosting
 
 Under `vura dev` (and any self-hosted run with no platform), there's no durable queue, so waits resolve **best-effort in-process**:
 
@@ -223,6 +229,6 @@ Every execution produces an envelope carrying the full retry history:
 |---|---|
 | Node / VPS, Docker, Fly, Railway | Tasks run inside the same server process. The in-process cron engine fires schedules. No external queue or worker needed. |
 | Cloudflare Workers | Cron schedules are wired to the Worker's `scheduled` event via generated `wrangler.toml` triggers. |
-| Vura Platform | Durable broker, at-least-once delivery, durable `delaySeconds`, and real `ctx.step` suspend/resume. |
+| Vura Platform | Broker integration for at-least-once delivery, durable `delaySeconds`, and `ctx.step` suspend/resume; requires managed-service access. |
 
 See [Route kinds](/reference/route-kinds) and the [Adapters reference](/reference/adapters) for the full per-target picture.

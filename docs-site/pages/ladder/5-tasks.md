@@ -225,11 +225,13 @@ without a token.
 
 ## Durable steps (`ctx.step`)
 
-Long tasks that call out to other services, wait for a child task, sleep for a
-while, or block on human approval need **durable execution**: if the process
-restarts (or a serverless invocation ends) the work already done must not be
-redone, and the wait must survive. Vura gives you this without long-lived
-processes via **step memoization** — the same model as Inngest.
+Long tasks can use **step memoization** to reuse recorded outputs on replay.
+Restart-durable delivery and waits currently require the managed broker to
+persist steps and re-dispatch runs. Standalone Node keeps task state and waits
+in-process; it does not provide that persistence loop. An external effect can
+succeed before its checkpoint is persisted, so payments and other
+non-idempotent writes still need provider idempotency keys or transactional
+deduplication. A step is not an exactly-once side-effect guarantee.
 
 The task handler receives a `step` object on its context:
 
@@ -240,7 +242,7 @@ export const route = { kind: 'task', retries: 3 };
 export async function POST({ input, step }) {
   const user = input as { userId: string };
 
-  // Runs once, then replays its recorded output on every re-invocation.
+  // Reuses its recorded output on replay when a checkpoint exists.
   const profile = await step.run('load-profile', async () => {
     return await db.users.find(user.userId);
   });
@@ -264,10 +266,10 @@ export async function POST({ input, step }) {
 
 | Call | What it does |
 |---|---|
-| `step.run(key, fn)` | Runs `fn` **once**, memoized under `key`. On replay, returns the recorded output without running `fn`. |
+| `step.run(key, fn)` | Runs `fn` when no recorded result exists; reuses recorded output on replay. External effects still need idempotency. |
 | `step.enqueue(key, task, payload?, opts?)` | Enqueues a task (memoized), returns `{ runId }`. Fire-and-forget. |
 | `step.waitForTask(key, task, payload?, opts?)` | Enqueues a child and **waits** for its terminal `{ ok, result?, error? }`. A child failure is **returned**, never thrown. |
-| `step.sleep(key, seconds)` | Sleep for a duration, durably. |
+| `step.sleep(key, seconds)` | Durable wait with the managed broker; in-process timer otherwise. |
 | `step.sleepUntil(key, date)` | Sleep until an absolute instant. |
 | `step.waitForToken(key, { timeoutSeconds? })` | Wait for an externally-completed token; resolves to `{ payload }` or `{ timedOut: true }`. |
 
@@ -290,7 +292,7 @@ export async function POST({ step }) {
   // ❌ BAD: runs on every replay — the user gets charged multiple times.
   await chargeCard();
 
-  // ✅ GOOD: runs exactly once; replays return the recorded result.
+  // Reuses a recorded result; chargeCard must also use a stable idempotency key.
   await step.run('charge', () => chargeCard());
 }
 ```

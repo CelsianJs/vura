@@ -2,7 +2,7 @@
 
 Vura is a meta-framework: file routing, a build, and a server runtime, fusing
 [What Framework](https://whatfw.com) on the client with
-[CelsianJS](https://celsian.dev) on the server.
+[CelsianJS](https://github.com/CelsianJs/celsian) on the server.
 
 This file is for whoever is editing the framework itself. If you are *using*
 Vura, the docs are at [vura.io](https://vura.io).

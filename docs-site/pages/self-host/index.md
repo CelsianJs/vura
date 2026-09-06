@@ -1,6 +1,6 @@
 # Self-host guides
 
-`vura build` emits a `dist/` directory. Everything in it runs without Vura Platform credentials: cache revalidation, websockets, background tasks, and cron all work in the plain Node output. No account required.
+`vura build` emits a `dist/` directory. Cache revalidation, websockets, ordinary background tasks, and cron run in the plain Node output without Vura Platform credentials. No account required. Standalone task state and waits are in-process; restart-durable queue delivery and suspend/resume currently require the managed broker.
 
 ## Route kind support by target
 
@@ -38,13 +38,20 @@ without a page serves 404 for it).
 
 ## The CI-tested promise
 
+**Middleware and actions:** `src/middleware.ts` and server actions run in Node,
+Docker, Fly, and Railway output, but are not executed by the Cloudflare or Lambda
+adapters. On those targets, authorization must live in the API handler or page
+loader accessing protected data. Server-page support does not imply middleware
+or action support. See [middleware](/reference/middleware/) and
+[actions](/reference/actions/).
+
 Every guide below runs in CI on every commit — the exact commands you'll paste, executed by the seven jobs in [`.github/workflows/selfhost.yml`](https://github.com/CelsianJs/vura/blob/main/.github/workflows/selfhost.yml). If a guide breaks, the build is red.
 
 The CI jobs execute fenced code blocks extracted directly from each guide, so a guide can never silently drift from what CI actually runs.
 
 ## No-gating commitment
 
-No framework capability is gated on the managed platform or any paid tier. The MIT license and no-gating commitment are documented in [GOVERNANCE.md](https://github.com/CelsianJs/vura/blob/main/GOVERNANCE.md) and enforced by [`tests/self-host-audit/`](https://github.com/CelsianJs/vura/tree/main/tests/self-host-audit) — assertions A0–A12 run in CI on every commit via the `selfhost-audit` job in `.github/workflows/ci.yml`.
+The MIT license and commitment not to move framework features behind the managed service are documented in [GOVERNANCE.md](https://github.com/CelsianJs/vura/blob/main/GOVERNANCE.md). The [`self-host audit`](https://github.com/CelsianJs/vura/tree/main/tests/self-host-audit) verifies ordinary Node capabilities without platform credentials, including assertions A0–A12. It does not prove restart-durable task execution or identical capabilities on every target; those limitations are stated above.
 
 ## Choose a target
 
