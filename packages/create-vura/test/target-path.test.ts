@@ -122,4 +122,15 @@ describe('create-vura target path', () => {
     expect(pwd.status, pwd.stderr).toBe(0);
     expect(pwd.stdout.trim()).toBe(target);
   });
+
+  it('does not print an option-like cd argument for a relative dash-prefixed target', () => {
+    const cwd = tempRoot('dash-cwd');
+    const res = scaffold('./-demo', cwd);
+    expect(res.status, res.stderr).toBe(0);
+    const cdLine = res.stdout.split('\n').map((line) => line.trim()).find((line) => line.startsWith('cd '));
+    expect(cdLine).toBe('cd ./-demo');
+    const pwd = spawnSync('/bin/sh', ['-c', `${cdLine} && pwd`], { cwd, encoding: 'utf8' });
+    expect(pwd.status, pwd.stderr).toBe(0);
+    expect(pwd.stdout.trim()).toBe(join(cwd, '-demo'));
+  });
 });

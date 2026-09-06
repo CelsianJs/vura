@@ -83,6 +83,7 @@ const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
 
 function quoteShellPath(value: string): string {
+  if (value.startsWith('-')) value = `./${value}`;
   if (/^[A-Za-z0-9_./:-]+$/.test(value)) return value;
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
