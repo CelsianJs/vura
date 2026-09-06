@@ -29,7 +29,7 @@ afterAll(async () => {
   await server?.kill();
 });
 
-const base = () => `http://localhost:${server.port}`;
+const base = () => server.url;
 
 /** Read a response body chunk by chunk, stamping when each marker first appears. */
 async function readTimeline(
@@ -161,7 +161,7 @@ describe('S3: `vura dev` streams the same page the same way', () => {
     await dev?.kill();
   });
 
-  const devBase = () => `http://localhost:${dev.port}`;
+  const devBase = () => dev.url;
 
   it('delivers the shell before the slow data in dev too', async () => {
     const { res, html, seenAt, chunks } = await readTimeline(`${devBase()}/streamed`, [

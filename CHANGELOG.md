@@ -1,10 +1,9 @@
 # Changelog
 
-## 0.8.1 - Release candidate (2026-09-05)
+## 0.8.1 - 2026-09-06
 
-This candidate is not published until the agent-verified release evidence and
-any applicable human-only product acceptance in `RELEASING.md` are complete,
-and the tag-driven release succeeds.
+Publication is complete only when the evidence requirements in `RELEASING.md`
+and the tag-driven release succeed. A source merge alone is not publication.
 
 ### Fixed
 
@@ -18,6 +17,9 @@ and the tag-driven release succeeds.
 - Runtime-split fixes, strict loader-data serialization, stale build-output
   cleanup, and consistent response-hook/logger behavior are included from the
   post-0.8.0 hardening work.
+- Scaffold next-step POSIX commands correctly handle paths with spaces,
+  apostrophes, and leading dashes. Self-host audit requests use explicit IPv4
+  loopback addresses rather than ambiguous `localhost` resolution.
 
 ### Adapter and deployment improvements
 
@@ -28,13 +30,21 @@ and the tag-driven release succeeds.
 - Railway's self-host guide now has an executable CI check. Documentation URL
   redirects and the docs-site dependency lockfile are corrected, and package
   size budgets run on pull requests as well as release builds.
+- Mobile documentation navigation works without JavaScript; wide capability
+  tables scroll within the page and remain keyboard accessible. Deployment and
+  task documentation, including exported API comments, now qualify private-beta
+  access, runtime installation, adapter limitations, checkpoint replay, and
+  idempotency requirements for external side effects.
 
 ### Dependencies and upgrade notes
 
-- Require independently published What Framework 0.13.5 and CelsianJS 0.6.2.
+- Require independently published What Framework 0.13.6 and CelsianJS 0.6.2.
   These releases fix reactive subscription/disposal behavior, query-cache key
   identity, Node stream cancellation/backpressure, and SSE framing. Vura's
   scaffold and examples use the same released upstream baseline.
+- What 0.13.6 also hardens its standalone full-stack scaffolder. Updating runtime
+  dependencies does not rewrite an existing What-generated `server.js`; follow
+  the upstream migration notes for those applications.
 - Clear, rebuild, or isolate existing persistent ISR and response-cache entries
   during upgrade. Entries created using older repeated-query normalization or
   truncated key identity cannot have their original identity reconstructed.

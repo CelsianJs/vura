@@ -1,13 +1,18 @@
 # Releasing Vura
 
-Releases are tag-driven (`v*`) through `.github/workflows/release.yml`
-(verify matrix → publish with provenance). Use a classic npm Automation token
-in the `NPM_TOKEN` secret (expiring tokens have killed publishes before).
+Releases are tag-driven (`v*`) through `.depot/workflows/release.yml`
+(verify matrix → publish → registry smoke). The manual GitHub fallback is
+`.github/workflows/release.yml`, dispatched against the release tag; only that
+GitHub-hosted publisher explicitly enables npm provenance. Do not claim
+provenance for a Depot publish, or run both publishers concurrently. Use the
+configured `NPM_TOKEN` secret and verify its publish authority through the
+release tooling rather than assuming a token type or expiry policy.
 
 > **Token hygiene:** rotate the npm token if it has ever appeared in a
 > chat transcript, browser session, or screenshot — even in a private
-> context. A rotated token takes ~30 seconds on npmjs.com; a leaked token
-> can be used to overwrite or unpublish releases.
+> context. A leaked publish token can authorize malicious new releases or
+> other package changes within its permissions. Never print token values in
+> release evidence, commands, or screenshots.
 
 ## Release evidence and acceptance
 

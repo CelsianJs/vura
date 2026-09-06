@@ -23,7 +23,11 @@ Run it:
 PORT=3000 NODE_ENV=production node dist/server/entry.js
 ```
 
-No install step — `dist/server/entry.js` is a self-contained bundle. See the [Node / VPS](/self-host/node-vps/) and [Docker](/self-host/docker/) guides.
+Install the output's production dependencies before starting it on a fresh host.
+Server page modules keep `what-framework` external, and hot routes need `ws`.
+Use the emitted `dist/package.json` when present; follow the
+[Node / VPS](/self-host/node-vps/) or [Docker](/self-host/docker/) guide for the
+complete copy/install/start sequence. The entry file alone is not the deployment.
 
 **Route kind support:** all (serverless, hot, task).
 
@@ -114,9 +118,10 @@ server serves it either way. A deployment with no pages **and** no
 surface, an unmatched path answers the way the Node server does: JSON under
 `/api/` and `/__vura/`, the 404 page everywhere else.
 
-A `server` page that imports a Node built-in **fails the build**, by name:
-Workers have no `node:` modules, and shipping the Worker without that page
-would serve a 404 for it while the build reported success.
+A `server` page importing `node:fs` **fails this adapter's current build**, by
+name. This describes the generated adapter's compatibility configuration, not
+all Node compatibility features offered by Cloudflare. Shipping the Worker
+without that page would serve a 404 while the build reported success.
 
 **Not served the same as Node:** a page declaring `revalidate` renders on every
 request rather than being cached, because the Worker carries no ISR engine.
@@ -147,7 +152,7 @@ export async function GET(req, reply) {
 [vura] revalidateTag("posts") is a no-op inside Workers today — call your cache host's /__vura/revalidate webhook instead.
 ```
 
-Workers have no local ISR cache, and pulling the full `what-isr` runtime into every Worker bundle would inflate it for no gain. To invalidate ISR cache from a Worker, make an HTTP POST to your Node server's `/__vura/revalidate` endpoint with the `x-vura-revalidate-secret` header. This is the same stub the Lambda adapter emits; see below.
+This generated Worker has no local ISR cache, so the adapter does not include the full `what-isr` runtime. To invalidate ISR cache from a Worker, make an HTTP POST to your Node server's `/__vura/revalidate` endpoint with the `x-vura-revalidate-secret` header. This is the same stub the Lambda adapter emits; see below.
 
 ---
 
@@ -258,7 +263,7 @@ This is intentional: pulling the full `what-isr` runtime into every function bun
 
 ## `@celsian/vura-adapter-vura`
 
-> **Closed alpha — not publicly available yet.** The package is published to npm but the Vura managed platform is in closed alpha. `npm install @celsian/vura-adapter-vura` succeeds, but the adapter cannot connect to the platform without an alpha access grant. Use `adapter-lambda` or `adapter-cloudflare` for self-hosted deployments today.
+> **Private beta.** [Signup](https://app.vura.io/signup) requires an access code. The adapter package is published, but installing it does not grant managed-service access. The built-in Node output and Cloudflare/Lambda adapters remain available for self-hosting within their support matrices.
 
 **Config (preview):**
 
@@ -272,7 +277,11 @@ export default defineConfig({
 });
 ```
 
-No framework capability is gated on this adapter. Everything (websockets, cache revalidation, tasks, cron) works fully self-hosted via the Node, Lambda, or Cloudflare adapters. This adapter is a convenience for teams on the managed platform once access is available.
+Self-hosted Node supports websockets, cache revalidation, ordinary tasks, and
+cron. Durable task delivery and restart-safe waits currently require the managed
+broker; standalone task state and waits are in-process. Cloudflare and Lambda
+have additional limitations, including no hot routes, middleware, or server
+actions. See the [self-host support matrix](/self-host/).
 
 ---
 

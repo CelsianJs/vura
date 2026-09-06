@@ -9,7 +9,7 @@
     "preview": "node build.mjs && npx --yes serve dist -l 4179"
   },
   "dependencies": {
-    "what-framework": "^0.13.5",
+    "what-framework": "^0.13.6",
     "marked": "^15.0.0"
   },
   "devDependencies": {

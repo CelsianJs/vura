@@ -5,17 +5,18 @@ You need production.
 ## Two doors, stated honestly
 
 **Self-host** — `vura build` emits a `dist/` directory. You run it with Node,
-Docker, Fly.io, Railway, Cloudflare Workers, or AWS Lambda. Everything works
-with zero platform credentials: cache revalidation, websockets, tasks, and
-cron all run in the plain Node output.
+Docker, Fly.io, Railway, Cloudflare Workers, or AWS Lambda, within each target's
+support matrix. Cache revalidation, websockets, ordinary tasks, and cron run in
+the plain Node output without platform credentials. Its task state and waits
+are in-process, not restart-durable.
 
-**Vura managed deploy** — `vura deploy` is the one-command managed path. The
-current open-source CLI exits with a non-zero code and the message
-"vura deploy is not available in the open-source CLI yet." — the command is
-not implemented in the open-source CLI.
+**Vura managed deploy** — `vura deploy` ships in the open-source CLI. It requires
+authentication, a linked project, a completed build, and the managed adapter.
+The service is in private beta; [signup](https://app.vura.io/signup) requires an
+access code. Installing the package does not grant service access.
 
-Neither door gates capability. The managed deploy saves effort; it does not
-withhold features.
+The framework remains MIT-licensed. Managed deployment saves operational work,
+but its durable task broker is not part of the standalone Node runner today.
 
 ## Self-host: the Node three-liner
 
@@ -25,8 +26,9 @@ PORT=3000 NODE_ENV=production node dist/server/entry.js
 # → [vura] listening on port 3000
 ```
 
-That is it for a VPS or any machine with Node 20+. `dist/server/entry.js` is
-the unified server that handles static files, server-rendered pages, serverless
+These commands run inside an already-installed project on Node 20 or 22. For a
+fresh VPS, first follow the [Node / VPS copy and dependency-install procedure](/self-host/node-vps/).
+`dist/server/entry.js` is the unified server that handles static files, server-rendered pages, serverless
 API routes, hot routes, and task cron — one process, one port.
 
 For Docker, the build also emits `dist/Dockerfile` when the project has hot
@@ -46,9 +48,10 @@ and `kill_timeout = "30s"` so Fly never idle-stops a process holding live socket
 
 ## What hot routes need
 
-Hot routes (websockets, in-memory state) require a **persistent process**. They
-cannot run on Cloudflare Workers or AWS Lambda — those runtimes terminate the
-process between requests and cannot hold a WebSocket open.
+Vura hot routes (websockets, in-memory state) require a **persistent process**.
+Vura's current Cloudflare and Lambda adapters do not implement hot routes.
+This is a limitation of these adapters, not a claim that the hosting providers
+have no WebSocket capabilities.
 
 | Route kind | Node / VPS | Docker | Fly.io | Railway | CF Workers | Lambda |
 |---|---|---|---|---|---|---|
@@ -66,10 +69,11 @@ cannot support it — it does not silently omit the route.
 vura deploy
 ```
 
-This is the zero-config path: no `dist/` to manage, no server to provision.
-The current open-source CLI exits with a non-zero code and the message
-"vura deploy is not available in the open-source CLI yet." — the command is
-not implemented in the open-source CLI.
+First authenticate with `vura login`, link a project, install
+`@celsian/vura-adapter-vura`, and run `vura build`. The command uploads the
+existing `dist/` output; `--prod` selects production instead of a preview.
+Missing credentials, project linkage, build output, or adapter support produce
+a non-zero exit. See the [CLI reference](/reference/cli/) for exact commands.
 
 ## Next
 

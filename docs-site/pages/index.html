@@ -14,9 +14,9 @@
 <section class="the-line">
   <h2>The one-line change</h2>
   <p>
-    Every other stack has a cliff: the day your app needs a persistent
-    connection, the answer is "go glue a second platform onto your frontend."
-    Vura's answer is an export.
+    When your app needs a persistent connection, Vura lets you declare a hot
+    route in the same project. Deploy it to a persistent Node host alongside
+    your pages and API routes.
   </p>
   <div class="code-compare">
     <div>
@@ -56,7 +56,7 @@ export function websocket(peer, req) {
   <ol class="ladder">
     <li><a href="/ladder/0-create/"><strong>Create</strong> — <code>npm create vura@latest</code>, a running app</a></li>
     <li><a href="/ladder/1-static/"><strong>Static page</strong> — <code>page = { mode: 'static' }</code>, zero JS shipped</a></li>
-    <li><a href="/ladder/2-cache/"><strong>Server + cache</strong> — <code>mode: 'server', revalidate: 60, tags: ['posts']</code>, then <code>revalidateTag('posts')</code> for a single-call global purge</a></li>
+    <li><a href="/ladder/2-cache/"><strong>Server + cache</strong> — <code>mode: 'server', revalidate: 60, tags: ['posts']</code>, then <code>revalidateTag('posts')</code> for tag invalidation; CDN purge requires a configured adapter</a></li>
     <li><a href="/ladder/3-api/"><strong>API route</strong> — drop a handler in <code>src/api/</code>, serverless by default, typed client call</a></li>
     <li><a href="/ladder/4-hot/"><strong>Hot route</strong> — <code>export const kind = 'hot'</code>: websockets, state, no timeout</a></li>
     <li><a href="/ladder/5-tasks/"><strong>Task</strong> — <code>route = { kind: 'task' }, schedule: '0 3 * * *'</code>: off the request path, retried</a></li>
@@ -80,10 +80,11 @@ export function websocket(peer, req) {
     <a href="/self-host/">Self-host guides →</a></p>
   </div>
   <div class="pillar">
-    <h3>Nothing is platform-gated</h3>
+    <h3>Run the framework yourself</h3>
     <p>Cache revalidation, websockets, tasks, and cron all run in a plain
-    self-hosted Node build with zero platform credentials. The managed platform
-    saves you effort; it never withholds capability.</p>
+    self-hosted Node build with zero platform credentials. Task state and waits
+    are in-process there; restart-durable task execution currently requires the
+    managed broker. <a href="/self-host/">See target capabilities →</a></p>
   </div>
 </section>
 

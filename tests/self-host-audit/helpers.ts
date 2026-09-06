@@ -905,6 +905,8 @@ export async function startSinkhole(): Promise<{
 
 export async function bootServer(env: Record<string, string>): Promise<{
   port: number;
+  url: string;
+  wsUrl: string;
   kill: () => Promise<void>;
   stdout: () => string;
 }> {
@@ -954,6 +956,8 @@ export async function bootServer(env: Record<string, string>): Promise<{
 
   return {
     port,
+    url: `http://127.0.0.1:${port}`,
+    wsUrl: `ws://127.0.0.1:${port}`,
     kill: () => new Promise<void>((resolve) => {
       proc.once('exit', () => resolve());
       proc.kill('SIGTERM');
@@ -974,6 +978,8 @@ export async function bootServer(env: Record<string, string>): Promise<{
  */
 export async function bootDevServer(env: Record<string, string> = {}): Promise<{
   port: number;
+  url: string;
+  wsUrl: string;
   kill: () => Promise<void>;
   stdout: () => string;
 }> {
@@ -1023,6 +1029,8 @@ export async function bootDevServer(env: Record<string, string> = {}): Promise<{
 
   return {
     port,
+    url: `http://127.0.0.1:${port}`,
+    wsUrl: `ws://127.0.0.1:${port}`,
     kill: () => new Promise<void>((resolve) => {
       proc.once('exit', () => resolve());
       proc.kill('SIGTERM');

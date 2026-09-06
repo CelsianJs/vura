@@ -39,7 +39,7 @@ afterAll(async () => {
   await server?.kill();
 });
 
-const base = () => `http://localhost:${server.port}`;
+const base = () => server.url;
 
 /** onResponse is fire-and-forget, so give the line a moment to reach stdout. */
 async function settled(): Promise<string> {
@@ -129,13 +129,13 @@ describe('S4: `vura dev` runs onResponse for a failed request too', () => {
   }
 
   it('logs a failed request with the status that was sent', async () => {
-    const res = await fetch(`http://localhost:${dev.port}/api/explode`);
+    const res = await fetch(`${dev.url}/api/explode`);
     expect(res.status).toBe(500);
     expect(await devOutput()).toContain('AUDIT-ONRESPONSE /api/explode status=500 hadError=true');
   }, 60_000);
 
   it('logs a successful request as it always did', async () => {
-    const res = await fetch(`http://localhost:${dev.port}/api/counter`);
+    const res = await fetch(`${dev.url}/api/counter`);
     expect(res.status).toBe(200);
     expect(await devOutput()).toContain('AUDIT-ONRESPONSE /api/counter status=200 hadError=false');
   }, 60_000);

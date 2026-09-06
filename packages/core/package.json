@@ -39,8 +39,8 @@
     "@celsian/vura-compiler": "workspace:0.8.1",
     "@noble/hashes": "^2.4.0",
     "esbuild": "^0.28.2",
-    "what-framework": "^0.13.5",
-    "what-isr": "^0.13.5"
+    "what-framework": "^0.13.6",
+    "what-isr": "^0.13.6"
   },
   "publishConfig": {
     "access": "public"

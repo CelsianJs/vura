@@ -100,4 +100,37 @@ describe('create-vura target path', () => {
     expect(existsSync(join(cwd, 'My App!', 'package.json'))).toBe(true);
     expect(JSON.parse(readFileSync(join(cwd, 'My App!', 'package.json'), 'utf8')).name).toBe('my-app');
   });
+
+  it('prints a shell-safe cd step for paths with spaces and apostrophes', () => {
+    const cwd = tempRoot('quoted-cwd');
+    const targetArg = "My App's Demo";
+    const target = join(cwd, targetArg);
+
+    const res = scaffold(targetArg, cwd);
+
+    expect(res.status, res.stderr).toBe(0);
+    const cdLine = res.stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line.startsWith('cd '));
+    expect(cdLine).toBe(`cd 'My App'\\''s Demo'`);
+
+    const pwd = spawnSync('/bin/sh', ['-c', `${cdLine} && pwd`], {
+      cwd,
+      encoding: 'utf8',
+    });
+    expect(pwd.status, pwd.stderr).toBe(0);
+    expect(pwd.stdout.trim()).toBe(target);
+  });
+
+  it('does not print an option-like cd argument for a relative dash-prefixed target', () => {
+    const cwd = tempRoot('dash-cwd');
+    const res = scaffold('./-demo', cwd);
+    expect(res.status, res.stderr).toBe(0);
+    const cdLine = res.stdout.split('\n').map((line) => line.trim()).find((line) => line.startsWith('cd '));
+    expect(cdLine).toBe('cd ./-demo');
+    const pwd = spawnSync('/bin/sh', ['-c', `${cdLine} && pwd`], { cwd, encoding: 'utf8' });
+    expect(pwd.status, pwd.stderr).toBe(0);
+    expect(pwd.stdout.trim()).toBe(join(cwd, '-demo'));
+  });
 });

@@ -82,6 +82,12 @@ const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
 
+function quoteShellPath(value: string): string {
+  if (value.startsWith('-')) value = `./${value}`;
+  if (/^[A-Za-z0-9_./:-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 // ─── Argument Parsing ────────────────────────────────────────────────
 interface Args {
   projectName: string | null;
@@ -627,7 +633,7 @@ ${bold('Options:')}
   console.log();
   console.log(bold(green('  Done! ')) + `Your Vura project is ready.\n`);
   console.log(bold('  Next steps:\n'));
-  if (displayPath !== '.') console.log(`    cd ${displayPath}`);
+  if (displayPath !== '.') console.log(`    cd ${quoteShellPath(displayPath)}`);
   console.log(`    ${pm === 'npm' ? 'npm run' : pm} dev\n`);
   console.log(dim('  Docs: https://vura.io'));
   console.log();
