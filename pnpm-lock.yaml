@@ -89,7 +89,7 @@ importers:
   packages/adapter-cloudflare:
     dependencies:
       '@celsian/vura-core':
-        specifier: workspace:0.8.1
+        specifier: workspace:0.8.2
         version: link:../core
       esbuild:
         specifier: ^0.28.2
@@ -98,7 +98,7 @@ importers:
   packages/adapter-lambda:
     dependencies:
       '@celsian/vura-core':
-        specifier: workspace:0.8.1
+        specifier: workspace:0.8.2
         version: link:../core
       esbuild:
         specifier: ^0.28.2
@@ -107,13 +107,13 @@ importers:
   packages/adapter-vura:
     dependencies:
       '@celsian/vura-core':
-        specifier: workspace:0.8.1
+        specifier: workspace:0.8.2
         version: link:../core
 
   packages/cli:
     dependencies:
       '@celsian/vura-core':
-        specifier: workspace:0.8.1
+        specifier: workspace:0.8.2
         version: link:../core
       esbuild:
         specifier: ^0.28.2
@@ -123,7 +123,7 @@ importers:
         version: 0.13.6(@babel/core@7.29.7)
     devDependencies:
       '@celsian/vura-adapter-vura':
-        specifier: workspace:0.8.1
+        specifier: workspace:0.8.2
         version: link:../adapter-vura
       '@types/ws':
         specifier: ^8.18.1
@@ -140,6 +140,8 @@ importers:
         specifier: ^3.8.6
         version: 3.8.6(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@26.4.0)(emnapi@1.11.2)
 
+  packages/contract: {}
+
   packages/core:
     dependencies:
       '@celsian/core':
@@ -149,7 +151,7 @@ importers:
         specifier: ^0.6.2
         version: 0.6.2(ws@8.21.3)
       '@celsian/vura-compiler':
-        specifier: workspace:0.8.1
+        specifier: workspace:0.8.2
         version: link:../compiler
       '@noble/hashes':
         specifier: ^2.4.0
@@ -183,7 +185,7 @@ importers:
   packages/vite-plugin:
     dependencies:
       '@celsian/vura-core':
-        specifier: workspace:0.8.1
+        specifier: workspace:0.8.2
         version: link:../core
       esbuild:
         specifier: ^0.28.2

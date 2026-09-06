@@ -1,4 +1,5 @@
 export const publishPackages = [
+  'packages/contract',
   'packages/core',
   'packages/compiler',
   'packages/cli',
