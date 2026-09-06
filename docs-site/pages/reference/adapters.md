@@ -118,9 +118,10 @@ server serves it either way. A deployment with no pages **and** no
 surface, an unmatched path answers the way the Node server does: JSON under
 `/api/` and `/__vura/`, the 404 page everywhere else.
 
-A `server` page that imports a Node built-in **fails the build**, by name:
-Workers have no `node:` modules, and shipping the Worker without that page
-would serve a 404 for it while the build reported success.
+A `server` page importing `node:fs` **fails this adapter's current build**, by
+name. This describes the generated adapter's compatibility configuration, not
+all Node compatibility features offered by Cloudflare. Shipping the Worker
+without that page would serve a 404 while the build reported success.
 
 **Not served the same as Node:** a page declaring `revalidate` renders on every
 request rather than being cached, because the Worker carries no ISR engine.
@@ -151,7 +152,7 @@ export async function GET(req, reply) {
 [vura] revalidateTag("posts") is a no-op inside Workers today — call your cache host's /__vura/revalidate webhook instead.
 ```
 
-Workers have no local ISR cache, and pulling the full `what-isr` runtime into every Worker bundle would inflate it for no gain. To invalidate ISR cache from a Worker, make an HTTP POST to your Node server's `/__vura/revalidate` endpoint with the `x-vura-revalidate-secret` header. This is the same stub the Lambda adapter emits; see below.
+This generated Worker has no local ISR cache, so the adapter does not include the full `what-isr` runtime. To invalidate ISR cache from a Worker, make an HTTP POST to your Node server's `/__vura/revalidate` endpoint with the `x-vura-revalidate-secret` header. This is the same stub the Lambda adapter emits; see below.
 
 ---
 

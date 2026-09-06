@@ -32,3 +32,16 @@ test('every documentation page exposes the complete navigation without JavaScrip
     assert.doesNotMatch(mobile[0], /\bon(?:click|keydown)=/i, 'native disclosure must work without script handlers');
   }
 });
+
+test('documentation tables have a focusable scroll region without losing table semantics', () => {
+  let tables = 0;
+  for (const path of documents(dist)) {
+    const html = readFileSync(path, 'utf8');
+    const count = [...html.matchAll(/<table\b/g)].length;
+    if (!count) continue;
+    tables += count;
+    const regions = [...html.matchAll(/<div class="table-scroll" role="region" aria-label="Scrollable table" tabindex="0"><table\b/g)].length;
+    assert.equal(regions, count, `${path}: each table must scroll within its container`);
+  }
+  assert.ok(tables > 0, 'exercise actual documentation tables');
+});

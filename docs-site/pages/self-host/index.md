@@ -13,7 +13,7 @@
 | [Cloudflare Workers](/self-host/cloudflare/) | yes | no | yes |
 | [AWS Lambda](/self-host/lambda/) | yes | no | yes |
 
-Hot routes (WebSockets, in-memory state) require a persistent process. Cloudflare Workers and Lambda terminate the process between invocations and cannot hold a socket open. `vura build` warns by name when hot routes are excluded.
+Vura hot routes (WebSockets, in-memory state) require a persistent process. Vura's current Cloudflare and Lambda adapters do not implement that hot-route contract; use the persistent Node output for these routes. This does not describe all WebSocket capabilities offered by those providers. `vura build` warns by name when hot routes are excluded.
 
 ## Page mode support by target
 

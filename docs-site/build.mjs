@@ -308,7 +308,9 @@ function walkPagesSync(dir, routeBase) {
       // Extract title from first h1
       const titleMatch = src.match(/^#\s+(.+)$/m);
       const title = titleMatch ? titleMatch[1].trim() : route.split('/').pop() || 'Vura';
-      const contentHtml = marked.parse(src);
+      const contentHtml = marked.parse(src)
+        .replace(/<table\b[^>]*>/g, (table) => `<div class="table-scroll" role="region" aria-label="Scrollable table" tabindex="0">${table}`)
+        .replace(/<\/table>/g, '</table></div>');
       const html = renderDocPage({ title, route, contentHtml });
       write(route, html);
       count++;
