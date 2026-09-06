@@ -36,8 +36,6 @@ wrangler dev
 
 ## Documentation
 
-_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
-
 - [Self-host on Cloudflare — /self-host/cloudflare/](https://vura.io/self-host/cloudflare/)
 - [Adapters overview — /self-host/](https://vura.io/self-host/)
 

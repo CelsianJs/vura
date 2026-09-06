@@ -2,8 +2,9 @@
 
 ## 0.8.1 - Release candidate (2026-09-05)
 
-This candidate is not published until the human release checklist in
-`RELEASING.md` is signed off and the tag-driven release succeeds.
+This candidate is not published until the agent-verified release evidence and
+any applicable human-only product acceptance in `RELEASING.md` are complete,
+and the tag-driven release succeeds.
 
 ### Fixed
 
