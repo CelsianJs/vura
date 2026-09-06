@@ -1,0 +1,27 @@
+{
+  "name": "@celsian/vura-contract",
+  "version": "0.8.2",
+  "description": "Dependency-free, versioned Vura manifest contract and capability negotiation",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -b",
+    "prepack": "pnpm run build"
+  },
+  "sideEffects": false,
+  "publishConfig": { "access": "public" },
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/CelsianJs/vura.git" },
+  "homepage": "https://github.com/CelsianJs/vura#readme",
+  "bugs": { "url": "https://github.com/CelsianJs/vura/issues" },
+  "engines": { "node": ">=20 <23" }
+}
