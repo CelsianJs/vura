@@ -133,6 +133,12 @@ runtime/placement/target marker, or nonempty `config.machine` implies dedicated
 placement. Other API routes imply function placement. This reproduces the existing
 compiler's compatibility direction without rewriting old fields or introducing a
 second compute normalization implementation. Resource profiles are not features.
+Resolved `hot` routes cannot declare function compute, and resolved `serverless`
+routes cannot declare dedicated compute. A present source `config.kind` must
+preserve task workload semantics and cannot turn a declared hot route into a
+serverless route. The compiler-valid source `config.kind: serverless` with resolved
+`kind: hot` is retained: dedicated placement can cause that normalization. Tasks
+remain valid on either compute class, including historical omitted config fields.
 
 `evaluateCapabilities` revalidates the manifest (with legacy compatibility), unions
 derived and declared requirements, and returns `compatible`, `requiredFeatures`,

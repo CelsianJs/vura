@@ -209,6 +209,21 @@ export function validateManifest(input: unknown, options: ParseManifestOptions =
     check.array(route.methods, `${path}.methods`, (method, p) => check.enum(method, httpMethods, p));
     check.optional(route, 'hasWebsocket', path, (v, p) => check.boolean(v, p));
     check.config(route.config, `${path}.config`, 'api');
+    if (isObject(route.config)) {
+      const compute = isObject(route.config.compute) ? route.config.compute : {};
+      if ((route.kind === 'hot' && compute.class === 'function') ||
+          (route.kind === 'serverless' && compute.class === 'dedicated')) {
+        check.issue(`${path}.config.compute.class`, 'Compute class conflicts with resolved route kind');
+      }
+      // The compiler preserves source config.kind, so serverless -> hot is a
+      // valid dedicated-placement normalization. Task semantics never change.
+      const sourceKind = route.config.kind;
+      if (typeof sourceKind === 'string' && routeKinds.includes(sourceKind) &&
+          ((sourceKind === 'task') !== (route.kind === 'task') ||
+            (sourceKind === 'hot' && route.kind !== 'hot'))) {
+        check.issue(`${path}.config.kind`, 'Declared workload conflicts with resolved route kind');
+      }
+    }
     if (route.hasWebsocket === true && route.kind !== 'hot') check.issue(`${path}.hasWebsocket`, 'WebSocket routes require kind: hot');
   });
   check.array(value.pages, '$.pages', (page, path) => {

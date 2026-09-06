@@ -159,6 +159,48 @@ describe('manifest contract', () => {
     expect(deriveRequiredFeatures(fixture)).toContain('dedicated-compute');
   });
 
+  it.each(['legacy', 'v1'])('rejects contradictory resolved kind and compute before admitting a target (%s)', format => {
+    for (const [kind, computeClass] of [['hot', 'function'], ['serverless', 'dedicated']] as const) {
+      const fixture = empty();
+      fixture.api = [{ filePath: 'src/api/x.ts', urlPattern: '/api/x', methods: ['GET'], kind,
+        config: { compute: { class: computeClass } } }];
+      const input = format === 'v1' ? versioned(fixture) : fixture;
+      expect(() => parseManifest(input, { allowLegacy: true })).toThrow('$.api[0].config.compute.class');
+      expect(() => evaluateCapabilities(input, { name: 'Functions only', supportedFeatures: ['api', 'function-compute'] }))
+        .toThrow('Compute class conflicts with resolved route kind');
+      expect(() => evaluateCapabilities(input, { name: 'All features', supportedFeatures: MANIFEST_FEATURES }))
+        .toThrow('Compute class conflicts with resolved route kind');
+    }
+  });
+
+  it.each(['legacy', 'v1'])('rejects incompatible declared workload and resolved kind (%s)', format => {
+    for (const [kind, sourceKind] of [
+      ['serverless', 'hot'], ['serverless', 'task'], ['hot', 'task'], ['task', 'serverless'], ['task', 'hot'],
+    ] as const) {
+      const fixture = empty();
+      fixture.api = [{ filePath: 'src/api/x.ts', urlPattern: '/api/x', methods: ['GET'], kind,
+        config: { kind: sourceKind } }];
+      expect(() => parseManifest(format === 'v1' ? versioned(fixture) : fixture, { allowLegacy: true }))
+        .toThrow('$.api[0].config.kind');
+    }
+  });
+
+  it.each(['legacy', 'v1'])('preserves valid normalized source kind and independent task placement (%s)', format => {
+    const fixture = empty();
+    fixture.api = [
+      { filePath: 'src/api/x.ts', urlPattern: '/api/x', methods: ['GET'], kind: 'hot',
+        config: { kind: 'serverless', compute: { class: 'dedicated' } } },
+      { filePath: 'src/api/a.ts', urlPattern: '/api/a', methods: ['POST'], kind: 'task',
+        config: { kind: 'task', compute: { class: 'function', memory: '1gb' } } },
+      { filePath: 'src/api/b.ts', urlPattern: '/api/b', methods: ['POST'], kind: 'task',
+        config: { kind: 'task', hot: true, compute: { class: 'dedicated' } } },
+      { filePath: 'src/api/c.ts', urlPattern: '/api/c', methods: ['POST'], kind: 'task', config: {} },
+    ];
+    const input = format === 'v1' ? versioned(fixture) : fixture;
+    expect(parseManifest(input, { allowLegacy: true })).toBe(input);
+    expect(evaluateCapabilities(input, { name: 'Verified fixture target', supportedFeatures: MANIFEST_FEATURES }).compatible).toBe(true);
+  });
+
   it('refuses unsupported targets with actionable feature diagnostics', () => {
     const result = evaluateCapabilities(versioned(), { name: 'Test Worker', supportedFeatures: ['api', 'server-pages'] });
     expect(result.compatible).toBe(false);
