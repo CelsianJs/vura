@@ -11,7 +11,8 @@ Vura, the docs are at [vura.io](https://vura.io).
 
 | Package | What it is |
 |---|---|
-| `packages/core` | Route manifest, build, server runtime, page rendering. Everything else depends on it. |
+| `packages/contract` | Pure legacy/v1 manifest data contract and capability evaluation, with no runtime dependencies. Reader-first rollout; producers are not switched yet. |
+| `packages/core` | Route manifest, build, server runtime, page rendering. Runtime/build consumers depend on it; the contract and compiler packages stay independent. |
 | `packages/cli` | `vura dev` / `build` / `deploy` / `admin`. Owns the esbuild wiring. |
 | `packages/compiler` | Restricted static-literal parsers for route/page config. Never evaluates project code. |
 | `packages/create-vura` | The scaffold. |

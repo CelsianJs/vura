@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.8.2 - unreleased
+
+### Versioned manifest contract foundation
+
+- Added `@celsian/vura-contract`, a dependency-free package with the existing
+  manifest DTOs, a v1 schema, explicit legacy parsing, required-feature
+  derivation, and target-capability refusal diagnostics.
+- Rejects unknown schema versions/features, underdeclared requirements, and
+  contradictory resolved workload/compute metadata. Compatible legacy metadata
+  is preserved, including middleware, actions, nested layouts and loader flags.
+- Release verification installs the contract alone, checks its zero-transitive-
+  dependency tree and strict declarations without Node/DOM types, then verifies
+  it alongside the other eight packed packages.
+
+This release is the reader-contract foundation, not a producer or deployment
+cutover. Existing builds still emit unversioned manifests; no current deployment
+reader or adapter is changed to enforce the new evaluator. Roll out compatible
+readers before emitting v1 manifests or imposing a new-admission cutoff.
+Capability declarations describe requirements, not proof of provider support.
+
+Publication remains separate from a source merge; follow `RELEASING.md`.
+
 ## 0.8.1 - 2026-09-06
 
 Publication is complete only when the evidence requirements in `RELEASING.md`

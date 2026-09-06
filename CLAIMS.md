@@ -59,6 +59,30 @@ covered by the current release review. The native prototype remains private.
 
 ---
 
+## Manifest contract foundation (unreleased)
+
+The dependency-free `@celsian/vura-contract` package validates legacy/v1
+manifest metadata and evaluates explicitly declared target capabilities.
+`pnpm verify:contract` proves a contract-only tarball installation with no
+transitive dependencies, executable ESM parsing/refusal, and strict TypeScript
+declarations without Node or DOM ambient types. The scanner compatibility
+suite is `packages/core/test/manifest-contract.test.ts`.
+
+Row 16 ledger addition: the new contract tarball measured 13,780 bytes on
+Node 22.13.1, including declarations, source maps and its normative README.
+Its initial ceiling is 14,000 bytes (220 bytes of headroom); existing package
+ceilings are unchanged. This is a packaging limit, not a browser bundle size
+or comparative speed claim.
+
+The prerelease consistency review added 490 packed bytes over the first
+13,290-byte candidate to reject contradictory workload/placement metadata
+before target admission. This initial ledger measures that corrected artifact;
+it does not relax any existing package's ceiling.
+
+This foundation does not switch build producers to v1, adopt the parser in
+deployed readers, establish a legacy-admission cutoff, or certify target
+support. Reader adoption and registry publication are separate release gates.
+
 ## Sign-off
 
 ### 0.8.1 candidate — scoped agent factual review, 2026-09-06

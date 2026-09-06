@@ -263,6 +263,7 @@ export async function main() {
     completedChecks.push('direct installed CLI bin help');
 
     const importCheck = `
+      await import('@celsian/vura-contract');
       await import('@celsian/vura-core');
       await import('@celsian/vura-compiler');
       await import('@celsian/vura-adapter-cloudflare');

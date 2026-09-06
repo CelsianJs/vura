@@ -133,6 +133,7 @@ loaders on those targets. See the [target limitations](https://vura.io/self-host
 
 ## Packages
 
+- `@celsian/vura-contract` — dependency-free legacy/v1 manifest validation and capability evaluation ([contract and rollout guide](packages/contract/README.md)); new in the unreleased 0.8.2 candidate, not yet adopted by deployment readers.
 - `@celsian/vura-core` — manifest scanning, build pipeline, generated production server, and runtime helpers.
 - `@celsian/vura-cli` — `vura` command-line interface (historically named `then`/`thenjs`; only `vura` ships as a bin).
 - `@celsian/vura-adapter-lambda` — AWS Lambda/API Gateway deployment artifacts.

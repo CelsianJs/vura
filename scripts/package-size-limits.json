@@ -1,5 +1,6 @@
 {
   "_why": "Packed tarball ceilings, in bytes. They are ledgers, not targets: raise one only with a measured number and a matching entry in CLAIMS.md row 16. Measured with `pnpm package:size`, Node 20 and Node 22 agreeing to the byte. Three limits move at 2026-08-29, and most of the growth landed on main before the branch that raises them: core 181278 at 0.8.0, 192457 after the four audit close-out branches, 201371 after pages on the serverless adapters (#124), 216236 with cookie sessions and the pure streaming helpers on top; Cloudflare 11737 -> 15081 -> 18701 -> 19041; Lambda 14517 -> 17177 -> 23234 -> 23565. All three were already over their old ceilings on main. The new numbers sit just above the measurement (core +2764, the same 1.3-1.5% margin 184000 left over 181278; Cloudflare +959; Lambda +935) rather than at a comfortable round distance, so the next real growth still has to argue for itself.",
+  "@celsian/vura-contract": 14000,
   "@celsian/vura-core": 219000,
   "@celsian/vura-compiler": 15000,
   "@celsian/vura-cli": 58000,
