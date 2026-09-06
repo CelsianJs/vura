@@ -82,6 +82,24 @@ automated test is not a reason to transfer verification to the user.
       `pnpm verify:registry` succeeds against all published packages;
       attach the workflow and registry evidence before checking this box
 
+If the publish job uploaded all packages but the post-publish registry smoke
+fails during npm propagation, do **not** rerun the publisher, move the tag, or
+try to overwrite immutable npm packages. Wait for registry propagation, then
+run the verification-only recovery workflow against the already-published
+version:
+
+```bash
+depot ci dispatch --repo CelsianJs/vura --workflow verify-registry.yml --ref main --input version=X.Y.Z
+# GitHub-hosted verification-only fallback:
+gh workflow run verify-registry.yml --repo CelsianJs/vura --ref main -f version=X.Y.Z
+```
+
+The recovery workflow performs only registry consumer verification; it has
+`contents: read`, no npm credentials, and no publish step.
+Use a reviewed checker ref containing the workflow; older immutable release tags
+may predate it. The version input pins the packages being tested independently
+of the checker ref. Record both refs in the release evidence.
+
 When the release commit changes, rerun affected checks and CI on the final commit.
 Any reused evidence must identify its original commit and explain why the tested
 inputs are unchanged. No silent carry-forward of checks from an older candidate.
