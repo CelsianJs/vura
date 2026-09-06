@@ -35,10 +35,7 @@ thenPlugin({ root: '/path/to/project' })
 
 ## Documentation
 
-_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
-
-- [Project structure — /reference/scaffold/](https://vura.io/ladder/0-create/)
-- [Dev server — /ladder/0-create/](https://vura.io/ladder/0-create/)
+- [Scaffold and dev server — /ladder/0-create/](https://vura.io/ladder/0-create/)
 
 ## License
 

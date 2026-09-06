@@ -9,51 +9,77 @@ in the `NPM_TOKEN` secret (expiring tokens have killed publishes before).
 > context. A rotated token takes ~30 seconds on npmjs.com; a leaked token
 > can be used to overwrite or unpublish releases.
 
-## The v0.5 "hosting-ready" gate
+## Release evidence and acceptance
 
-A release tag may not be pushed until every box is checked, by a human,
-in the release PR description:
+Agents own reproducible verification and may check its boxes in the release PR
+after inspecting the evidence. Humans are not asked to open CI pages, rerun
+commands, check links, or certify factual claims an agent can verify.
 
-### CI — all green on the release commit
+Copy the unchecked template below into each release PR. Record the verified
+commit, evidence links, limitations, and verifier; an old checked list is not
+evidence for a new release. Missing evidence stays an **agent-owned open item**,
+not a human approval request. Neither agents nor humans may check an item that
+has not actually passed.
 
-- [x] `CI / verify (20)` and `CI / verify (22)` — lint, build, test,
+A tag may be pushed only after the pre-release evidence and any applicable
+human-only acceptance items are complete. Publication is a separate final step;
+do not check its box before publication succeeds. This policy does not grant
+credentials, waive security findings, or authorize unrelated production changes.
+
+### Agent-owned pre-release evidence
+
+- [ ] `CI / verify (20)` and `CI / verify (22)` — lint, build, test,
       verify-publish, audit (matrix: Node 20 + 22)
-- [x] `CI / selfhost-audit` — assertions A0–A12 (no-platform-gating)
-- [x] `Self-host guides / scaffold` + all five target jobs:
+- [ ] `CI / selfhost-audit` — assertions A0–A12 (no-platform-gating)
+- [ ] `Self-host guides / scaffold` + all six target jobs:
       `Self-host guides / node-vps`,
       `Self-host guides / docker`,
       `Self-host guides / fly`,
+      `Self-host guides / railway`,
       `Self-host guides / cloudflare`,
       `Self-host guides / lambda`
-- [x] `Docs site / build` — docs build + 0 broken links + version badge matches
-
-### Audits
-
-- [x] `/smoke-audit` pass on the release candidate (scaffold from the packed
+- [ ] `Docs site / build` — docs build + link check + version badge matches;
+      record exclusions rather than claiming untested external links passed
+- [ ] `/smoke-audit` pass on the release candidate (scaffold from the packed
       tarballs, follow the docs as a new user, browser-check the docs site);
       report attached to the release PR, zero CRITICAL/HIGH findings open
-- [x] CLAIMS.md signed off against the built docs site (dated sign-off line
-      updated for this version)
-
-### Docs
-
-- [x] vura.io deploy is live and serving the release version in the nav badge
-      (build-time version stamp — verify with:
-      `curl -s https://vura.io/ | grep -o 'v[0-9.]*' | head -1`)
-- [x] Every package README's docs links resolve (linkinator against vura.io)
-
-### Versioning & publish
-
-- [x] `pnpm release:check` passes (note: will error if the version is already
+- [ ] `CLAIMS.md` factually reviewed against the built docs and executable
+      evidence; dated agent sign-off updated for this version with limitations
+- [ ] vura.io deploy is live and serving the release version in the nav badge;
+      verify the live response, not a cached search result
+- [ ] Every package README's docs links resolve; check response status and
+      destination content, and record missing anchors or misleading destinations
+- [ ] `pnpm release:check` passes on a clean tree (will error if already
       published — that is the correct behavior; bump before tagging)
-- [x] `pnpm package:size` — no package over its limit in
+- [ ] `pnpm package:size` — no package over its limit in
       `scripts/package-size-limits.json`
-- [x] CHANGELOG.md entry for the version
-- [x] Tag `vX.Y.Z`, push, watch `release.yml`, then run
-      `pnpm verify:registry` against the published packages
+- [ ] `CHANGELOG.md` entry matches the changes, dependencies, limitations, and
+      upgrade requirements; agents verify this against source and tests
 
-If any box cannot be checked, the release waits. No exceptions for "docs-only"
-or "it's just the badge" — those are exactly the drift this gate exists to stop.
+### Human-only acceptance — only where human judgment is needed
+
+List concrete URLs, scenarios, and the decision needed, not a generic
+"verify features work" gate. Agents still perform browser interaction, functional,
+accessibility, and regression tests that they can execute. Human review covers
+subjective visual/product fit, business acceptance of disclosed limitations, or
+real-world scenarios requiring a person's unavailable access, hardware, or context.
+If no such item applies, record that rationale instead of inventing a human gate.
+
+- [ ] Applicable visual/product acceptance: describe the exact judgment here,
+      or record why no human-only acceptance is needed for this release
+
+Never check a human-only acceptance item on someone's behalf. A failed or missing
+automated test is not a reason to transfer verification to the user.
+
+### Agent-owned publication — after pre-release acceptance
+
+- [ ] Tag `vX.Y.Z`, push, watch `release.yml`, and confirm
+      `pnpm verify:registry` succeeds against all published packages;
+      attach the workflow and registry evidence before checking this box
+
+When the release commit changes, rerun affected checks and CI on the final commit.
+Any reused evidence must identify its original commit and explain why the tested
+inputs are unchanged. No silent carry-forward of checks from an older candidate.
 
 ---
 

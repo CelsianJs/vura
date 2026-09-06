@@ -46,13 +46,11 @@ export default defineConfig({
 
 ## Documentation
 
-_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
-
 - [Quick start — /ladder/0-create/](https://vura.io/ladder/0-create/)
 - [Config reference — /reference/config/](https://vura.io/reference/config/)
-- [API routes — /reference/api-routes/](https://vura.io/ladder/3-api/)
-- [Cache revalidation — /reference/cache/](https://vura.io/ladder/2-cache/)
-- [Auth helpers — /reference/auth/](https://vura.io/reference/route-kinds/)
+- [API routes — /ladder/3-api/](https://vura.io/ladder/3-api/)
+- [Server pages and caching — /ladder/2-cache/](https://vura.io/ladder/2-cache/)
+- [Route kinds — /reference/route-kinds/](https://vura.io/reference/route-kinds/)
 
 ## License
 

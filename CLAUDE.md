@@ -96,5 +96,9 @@ scanning runs before anything is built.
   written entry* saying what was added and why.
 - **Prove absence by execution, not by grep.** A missing symbol is not a
   missing feature. Run it.
-- **Release gate.** `RELEASING.md` is checked by a human before a tag is
-  pushed. `pnpm release:check` needs a clean tree, so commit first.
+- **Release evidence.** Follow `RELEASING.md`: agents verify and check CI,
+  builds, tests, links, factual claims, and publication evidence. Reserve human
+  acceptance for explicit visual/product judgments or inaccessible real-world
+  scenarios; missing automated evidence remains agent-owned. Never attest to
+  human acceptance on someone's behalf. `pnpm release:check` needs a clean tree,
+  so commit first, and identify the verified commit in the release PR.

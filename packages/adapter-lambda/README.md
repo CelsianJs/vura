@@ -36,8 +36,6 @@ sam local start-api
 
 ## Documentation
 
-_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
-
 - [Self-host on Lambda — /self-host/lambda/](https://vura.io/self-host/lambda/)
 - [Adapters overview — /self-host/](https://vura.io/self-host/)
 

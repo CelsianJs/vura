@@ -23,9 +23,7 @@ export default defineConfig({
 
 ## Documentation
 
-_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
-
-- [Platform overview — /self-host/](https://vura.io/self-host/)
+- [Self-host alternatives — /self-host/](https://vura.io/self-host/)
 - [MIT forever commitment — GOVERNANCE.md](https://github.com/CelsianJs/vura/blob/main/GOVERNANCE.md)
 
 ## License
