@@ -40,7 +40,7 @@ afterAll(async () => {
   await server?.kill();
 });
 
-const base = () => `http://localhost:${server.port}`;
+const base = () => server.url;
 
 function payloadOf(html: string): Record<string, any> {
   const match = html.match(
