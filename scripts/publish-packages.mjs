@@ -49,33 +49,40 @@ function assertNpmIdentity() {
   return res.stdout.trim();
 }
 
+function safeNpmErrorCode(res) {
+  const output = `${res.stdout ?? ''}\n${res.stderr ?? ''}`;
+  const match = output.match(/\bnpm ERR! code ([A-Z0-9_-]+)\b/i) ?? output.match(/\b(E\d{3}|E[A-Z0-9_-]+)\b/);
+  return match?.[1] ?? 'UNKNOWN';
+}
+
 function assertPackageWriteAccess(plannedPackages) {
   const identity = assertNpmIdentity();
-  // Query the user, not the organization: an organization's package inventory
-  // does not establish this account's access and omits unscoped create-vura.
-  const res = spawnSync('npm', ['access', 'list', 'packages', identity, '--json'], {
-    cwd: root,
-    encoding: 'utf8',
-    stdio: 'pipe',
-    env: process.env,
-  });
-  if (res.status !== 0) {
-    throw new Error(`Unable to read npm package access for ${identity} (exit ${res.status}); refusing publish before any upload.`);
+  const denied = [];
+  for (const { name } of plannedPackages) {
+    const res = spawnSync('npm', ['access', 'list', 'collaborators', name, identity, '--json'], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: 'pipe',
+      env: process.env,
+    });
+    if (res.status !== 0) {
+      throw new Error(`Unable to confirm npm collaborator access for ${name} as ${identity} (exit ${res.status}, code=${safeNpmErrorCode(res)}); refusing publish before any upload.`);
+    }
+    let collaborators;
+    try {
+      collaborators = JSON.parse(res.stdout);
+    } catch {
+      throw new Error(`npm collaborator preflight for ${name} returned invalid JSON; refusing publish before any upload.`);
+    }
+    if (collaborators === null || typeof collaborators !== 'object' || Array.isArray(collaborators)) {
+      throw new Error(`npm collaborator preflight for ${name} must return a collaborator-to-permission object; refusing publish before any upload.`);
+    }
+    if (collaborators[identity] !== 'read-write') denied.push(name);
   }
-  let access;
-  try {
-    access = JSON.parse(res.stdout);
-  } catch {
-    throw new Error('npm package-access preflight returned invalid JSON; refusing publish before any upload.');
-  }
-  if (access === null || typeof access !== 'object' || Array.isArray(access)) {
-    throw new Error('npm package-access preflight must return a package-to-permission object; refusing publish before any upload.');
-  }
-  const denied = plannedPackages.filter(({ name }) => !Object.hasOwn(access, name) || access[name] !== 'read-write');
   if (denied.length > 0) {
-    throw new Error(`npm account ${identity} has no confirmed read-write access to: ${denied.map(({ name }) => name).join(', ')}. Refusing publish before any upload. Resolve package access first; a first publication requires a separately reviewed bootstrap, not an assumed namespace grant. See RELEASING.md.`);
+    throw new Error(`npm account ${identity} has no confirmed package-specific read-write collaborator access to: ${denied.join(', ')}. Refusing publish before any upload. Resolve package access first; a first publication requires a separately reviewed bootstrap, not an assumed namespace grant. See RELEASING.md.`);
   }
-  console.log(`npm account package-access preflight passed for all ${plannedPackages.length} packages as ${identity}; token restrictions and package 2FA policy still apply at publish time.`);
+  console.log(`npm package-specific collaborator preflight passed for all ${plannedPackages.length} packages as ${identity}; token restrictions and package 2FA policy still apply at publish time.`);
 }
 
 function assertVersionNotPublished(name, version) {

@@ -14,13 +14,15 @@ release tooling rather than assuming a token type or expiry policy.
 > other package changes within its permissions. Never print token values in
 > release evidence, commands, or screenshots.
 
-Before any upload, the publisher resolves the npm identity and runs
-`npm access list packages <username> --json`. Every planned package, including
-unscoped `create-vura`, must have an explicit `read-write` entry. Empty,
+Before any upload, the publisher resolves the npm identity once and then runs
+`npm access list collaborators <package> <username> --json` for every planned
+package. The package-specific collaborator map must show that identity as
+`read-write` for each package, including unscoped `create-vura`. Empty,
 malformed, missing, or read-only access fails the whole preflight before packing
-or publishing; an organization's package list is not account-access evidence.
-This checks account access, not all granular-token restrictions or package 2FA
-requirements. The registry still enforces those at publish time.
+or publishing; an organization's package list and the account-wide
+`npm access list packages <username>` inventory are not sufficient evidence.
+This checks package-level account access, not all granular-token restrictions or
+package 2FA requirements. The registry still enforces those at publish time.
 
 `pnpm release:check` and publisher `--dry-run` deliberately stay credential-free:
 they check artifacts and the version plan, not live account access. The real
