@@ -14,6 +14,26 @@ release tooling rather than assuming a token type or expiry policy.
 > other package changes within its permissions. Never print token values in
 > release evidence, commands, or screenshots.
 
+Before any upload, the publisher resolves the npm identity and runs
+`npm access list packages <username> --json`. Every planned package, including
+unscoped `create-vura`, must have an explicit `read-write` entry. Empty,
+malformed, missing, or read-only access fails the whole preflight before packing
+or publishing; an organization's package list is not account-access evidence.
+This checks account access, not all granular-token restrictions or package 2FA
+requirements. The registry still enforces those at publish time.
+
+`pnpm release:check` and publisher `--dry-run` deliberately stay credential-free:
+they check artifacts and the version plan, not live account access. The real
+publisher performs the authenticated preflight before **any** upload, so an ACL
+rejection cannot itself leave a partially uploaded batch. Mocked CLI regressions
+verify that ordering and failure handling; they do not verify a live credential.
+Keep npm credentials out of pull-request verification jobs.
+
+A new package with no access entry requires a separately reviewed first
+publication that establishes its exact name, scope and ownership. The batch
+publisher deliberately does not infer permission to create a package from its
+absence. Do not bypass the check or grant broader access just to make CI green.
+
 ## Release evidence and acceptance
 
 Agents own reproducible verification and may check its boxes in the release PR

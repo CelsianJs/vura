@@ -35,13 +35,6 @@ function validateDistTag(tag) {
     throw new Error(`Refusing semver-looking npm dist-tag: ${tag}`);
   }
 }
-
-
-function scopedPackageName(name) {
-  const match = /^(@[^/]+)\//.exec(name);
-  return match?.[1] ?? null;
-}
-
 function assertNpmIdentity() {
   const res = spawnSync('npm', ['whoami'], {
     cwd: root,
@@ -56,29 +49,33 @@ function assertNpmIdentity() {
   return res.stdout.trim();
 }
 
-function assertScopePublishAuthority(plannedPackages) {
-  const scopes = [...new Set(plannedPackages.map((item) => scopedPackageName(item.name)).filter(Boolean))];
-  if (scopes.length === 0) return;
-
+function assertPackageWriteAccess(plannedPackages) {
   const identity = assertNpmIdentity();
-  for (const scope of scopes) {
-    const res = spawnSync('npm', ['access', 'list', 'packages', scope, '--json'], {
-      cwd: root,
-      encoding: 'utf8',
-      stdio: 'pipe',
-      env: process.env,
-    });
-    if (res.status !== 0) {
-      const output = `${res.stdout}\n${res.stderr}`.trim();
-      throw new Error(`npm user ${identity} does not have confirmed access to ${scope}; refusing publish before namespace authority is resolved\n${output}`);
-    }
-    try {
-      JSON.parse(res.stdout || '{}');
-    } catch {
-      throw new Error(`npm access preflight for ${scope} returned non-JSON output; refusing publish before namespace authority is resolved\n${res.stdout}`);
-    }
+  // Query the user, not the organization: an organization's package inventory
+  // does not establish this account's access and omits unscoped create-vura.
+  const res = spawnSync('npm', ['access', 'list', 'packages', identity, '--json'], {
+    cwd: root,
+    encoding: 'utf8',
+    stdio: 'pipe',
+    env: process.env,
+  });
+  if (res.status !== 0) {
+    throw new Error(`Unable to read npm package access for ${identity} (exit ${res.status}); refusing publish before any upload.`);
   }
-  console.log(`npm namespace authority preflight passed for ${scopes.join(', ')} as ${identity}`);
+  let access;
+  try {
+    access = JSON.parse(res.stdout);
+  } catch {
+    throw new Error('npm package-access preflight returned invalid JSON; refusing publish before any upload.');
+  }
+  if (access === null || typeof access !== 'object' || Array.isArray(access)) {
+    throw new Error('npm package-access preflight must return a package-to-permission object; refusing publish before any upload.');
+  }
+  const denied = plannedPackages.filter(({ name }) => !Object.hasOwn(access, name) || access[name] !== 'read-write');
+  if (denied.length > 0) {
+    throw new Error(`npm account ${identity} has no confirmed read-write access to: ${denied.map(({ name }) => name).join(', ')}. Refusing publish before any upload. Resolve package access first; a first publication requires a separately reviewed bootstrap, not an assumed namespace grant. See RELEASING.md.`);
+  }
+  console.log(`npm account package-access preflight passed for all ${plannedPackages.length} packages as ${identity}; token restrictions and package 2FA policy still apply at publish time.`);
 }
 
 function assertVersionNotPublished(name, version) {
@@ -115,7 +112,7 @@ if (planned.length === 0) {
 }
 
 console.log(`Publish plan: ${planned.length} package(s), dist-tag=${distTag}, dry-run=${dryRun ? 'yes' : 'no'}`);
-if (!dryRun) assertScopePublishAuthority(planned);
+if (!dryRun) assertPackageWriteAccess(planned);
 for (const item of planned) {
   assertVersionNotPublished(item.name, item.version);
 }
