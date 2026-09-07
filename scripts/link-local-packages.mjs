@@ -21,7 +21,7 @@
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join, resolve, relative, isAbsolute, dirname } from 'node:path';
+import { join, resolve, relative, isAbsolute, dirname, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { publishPackages } from './package-list.mjs';
@@ -77,7 +77,7 @@ function packPackage(pkgRelPath) {
 function toFileRef(tarball) {
   // Check if the tarball is within the target directory
   const rel = relative(absTarget, tarball);
-  if (!rel.startsWith('..')) {
+  if (rel && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)) {
     // Relative to the target dir — portable across runner machines
     return `file:./${rel}`;
   }
@@ -101,7 +101,8 @@ const targetPkgJsonPath = join(absTarget, 'package.json');
 const targetPkgJson = JSON.parse(await readFile(targetPkgJsonPath, 'utf8'));
 
 let rewroteCount = 0;
-for (const section of ['dependencies', 'devDependencies', 'peerDependencies']) {
+const consumerDependencySections = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
+for (const section of consumerDependencySections) {
   if (!targetPkgJson[section]) continue;
   for (const [name, tarball] of tarballsByName) {
     if (name in targetPkgJson[section]) {
@@ -112,23 +113,40 @@ for (const section of ['dependencies', 'devDependencies', 'peerDependencies']) {
 }
 
 // Local tarballs can introduce new internal transitive dependencies that the
-// published package at the same version does not yet declare. Add those as
-// direct file dependencies in the disposable consumer so npm cannot silently
-// satisfy them with a stale registry artifact during pre-publish testing.
+// published package at the same version does not yet declare. npm follows nested
+// file: package metadata for these unpublished candidates, but pnpm resolves the
+// tarball's bare semver internal dependencies from the registry unless the
+// disposable consumer explicitly pins the candidate closure. Add those internal
+// runtime edges as direct file dependencies so pnpm, npm, and linked smoke
+// installs all test the same local package graph instead of falling back to a
+// stale or missing registry artifact.
 targetPkgJson.dependencies ??= {};
 const localRoots = new Set(
-  Object.keys(targetPkgJson.dependencies).filter((name) => tarballsByName.has(name)),
+  consumerDependencySections.flatMap((section) =>
+    Object.keys(targetPkgJson[section] ?? {}).filter((name) => tarballsByName.has(name)),
+  ),
 );
 const queue = [...localRoots];
+if (localRoots.size > 0) {
+  targetPkgJson.pnpm ??= {};
+  targetPkgJson.pnpm.overrides ??= {};
+  for (const packageName of localRoots) {
+    targetPkgJson.pnpm.overrides[packageName] = toFileRef(tarballsByName.get(packageName));
+  }
+}
 while (queue.length > 0) {
   const packageName = queue.shift();
   const metadata = packageMetadataByName.get(packageName);
-  for (const dependencyName of Object.keys(metadata?.dependencies ?? {})) {
-    if (!tarballsByName.has(dependencyName) || localRoots.has(dependencyName)) continue;
-    localRoots.add(dependencyName);
-    queue.push(dependencyName);
-    targetPkgJson.dependencies[dependencyName] = toFileRef(tarballsByName.get(dependencyName));
-    rewroteCount++;
+  for (const section of ['dependencies', 'optionalDependencies']) {
+    for (const dependencyName of Object.keys(metadata?.[section] ?? {})) {
+      if (!tarballsByName.has(dependencyName) || localRoots.has(dependencyName)) continue;
+      localRoots.add(dependencyName);
+      queue.push(dependencyName);
+      const fileRef = toFileRef(tarballsByName.get(dependencyName));
+      targetPkgJson.dependencies[dependencyName] = fileRef;
+      targetPkgJson.pnpm.overrides[dependencyName] = fileRef;
+      rewroteCount++;
+    }
   }
 }
 
