@@ -13,7 +13,7 @@ only with a row here; a row needs a command someone else can run, or it's cut.
 | 5 | "`revalidateTag` / cache invalidation works self-hosted" | GOVERNANCE.md | Scope to projects where a CDN adapter is configured; "global/CDN purge" wording only appears where CDN adapter docs exist | qualified — "global/CDN purge" wording only where a CDN adapter is configured |
 | 6 | "Hot routes: no timeout, in-memory state, websockets" | docs-site `/ladder/4-hot` | `packages/core/test/hot-routes.test.ts` (15 tests as of de932e2 — was 12 when this row was written; all 15 pass, re-run 2026-06-11); "no timeout" = no framework-imposed limit; host/platform limits still apply (4-hot page documents `kill_timeout` etc.) | verified at code level (count corrected 12→15) |
 | 7 | "One-line change to promote a route to hot" (kind='hot') | (future landing) | Literally one export-field change; rung-4 docs page will show the actual diff | verified |
-| 8 | "Built on What Framework + CelsianJS" | README.md | Read `packages/core/package.json` for dependency ranges; runtime composition lives in `packages/core/src/`. The final 0.8.1 constraints use independently published What `^0.13.6` and Celsian `^0.6.2`. What publication and registry smoke passed in workflow `34007968069` before this dependency update. | source and upstream registry verified; Vura publication has its own release evidence |
+| 8 | "Built on What Framework + CelsianJS" | README.md | Read `packages/core/package.json` for dependency ranges; runtime composition lives in `packages/core/src/`. The unreleased 0.8.3 candidate requires independently published What `^0.13.8` and Celsian `^0.6.3`. What 0.13.8 publication passed in [workflow 34076453796](https://github.com/CelsianJs/what-framework/actions/runs/34076453796); Celsian 0.6.3 read-only registry recovery passed in [workflow 34078378075](https://github.com/CelsianJs/celsian/actions/runs/34078378075) with artifact `10002874855`. Vura publication has its own release evidence after tagging and publishing. | source and upstream registry verified; Vura candidate publication not yet verified |
 | 9 | "12 KB runtime" (What Framework) | `sites/landing/index.html` (now redirected) | This number belongs to the What Framework project, not Vura. **Not verified within this repo.** Must not appear in Vura-owned pages until confirmed by a reproducible measurement in the what-framework repo. | removed from sites/landing (redirect); **banned from Vura-owned copy until externally sourced** |
 | 10 | "Static pages ship zero JavaScript" (in landing code example comment) | `sites/landing/index.html` (now redirected) | Same as row 4 — code comment in a demo snippet, inherently illustrative. Landing page replaced with redirect; if reused in future docs, must link to the CI assertion. | removed from sites/landing (redirect) |
 | 11 | "Fast by default" (signal reactivity) | `sites/landing/index.html` (now redirected) | Vague superlative with no benchmark. **Banned outright** from Vura-controlled copy unless replaced with a reproducible benchmark number. | removed from sites/landing (redirect) |
@@ -59,7 +59,7 @@ covered by the current release review. The native prototype remains private.
 
 ---
 
-## Manifest contract foundation (unreleased)
+## Manifest contract foundation (0.8.2)
 
 The dependency-free `@celsian/vura-contract` package validates legacy/v1
 manifest metadata and evaluates explicitly declared target capabilities.
@@ -84,6 +84,41 @@ deployed readers, establish a legacy-admission cutoff, or certify target
 support. Reader adoption and registry publication are separate release gates.
 
 ## Sign-off
+
+### 0.8.3 candidate — scoped agent factual review, 2026-09-07
+
+Reviewed the Node-reader release payload and independently published What
+0.13.8 / Celsian 0.6.3 baseline. The nine public JS packages are synchronized;
+the native prototype remains private. Readers validate before build output
+changes, preserve compatible unversioned input, and reject non-task schedules.
+No versioned producer, legacy cutoff, or provider-capability rollout is implied.
+
+The clean `pnpm release:check` passed at `a0cb60e` with Node 22.13.1 and pnpm
+10.11.0: 1,274 tests across 98 files, hygiene/build, production audit, all nine
+packed-consumer checks, unchanged package-size ceilings, publish dry-run, and
+clean-tree assertion. The two-worker release profile retains all test/hook
+deadlines. Later release-gate comments do not change execution; public package,
+scaffold and docs-site inputs remain unchanged from candidate `5f4778a`.
+
+Fresh packed `create-vura` consumers passed npm and pnpm installation, build,
+production pages/APIs/404s, and CLI checks. The npm consumer additionally passed
+WebSocket and browser counter interaction. The pnpm consumer's nested
+core/compiler/contract resolved to its own 0.8.3 tarballs; frozen installation
+and build also passed after moving the source/lock/tarballs to another directory.
+This tests candidate artifacts, not unpublished registry versions or source
+aliases. Independent review and CI evidence is attached to release PR #147.
+
+Candidate docs built 33 pages. Local desktop/mobile navigation and 48 links from
+11 README files were checked, including destination content and anchors. The
+protected Vercel preview was not bypassed; local rendering is not live 0.8.3
+deployment proof. npmjs.com HTML pages blocked scripted access, so registry
+metadata was checked separately. Known non-blocking findings remain: mobile
+homepage overflow, missing description/canonical metadata on documentation
+pages, and an optional task-input build warning. No new speed claim is made.
+
+This is agent factual verification, not human visual acceptance, managed
+customer-flow approval, provider certification, or publication approval.
+Final tag/registry verification and live release-version checks remain pending.
 
 ### 0.8.1 candidate — scoped agent factual review, 2026-09-06
 

@@ -1,6 +1,6 @@
 {
   "name": "@celsian/vura-contract",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "Dependency-free, versioned Vura manifest contract and capability negotiation",
   "type": "module",
   "main": "dist/index.js",
