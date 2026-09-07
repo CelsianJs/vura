@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { parseCLI } from 'vitest/node';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const execFileAsync = promisify(execFile);
@@ -21,24 +22,22 @@ async function fixture(options = {}) {
   const bin = join(dir, 'bin');
   await mkdir(bin);
   const callsPath = join(dir, 'calls.jsonl');
-  const preamble = `#!${process.execPath}
+  const toolRunnerPath = join(dir, 'fake-tool.cjs');
+  await writeFile(toolRunnerPath, `
 const { appendFileSync } = require('node:fs');
-const args = process.argv.slice(2);
-appendFileSync(${JSON.stringify(callsPath)}, JSON.stringify({ tool: process.argv[1].split('/').pop(), args, env: { VURA_PUBLISH_DRY_RUN: process.env.VURA_PUBLISH_DRY_RUN } }) + '\\n');
-`;
-  await writeFile(join(bin, 'pnpm'), `${preamble}
-if (${JSON.stringify(options.failTool ?? '')} === 'pnpm' && args.join(' ') === ${JSON.stringify(options.failArgs?.join(' ') ?? '')}) {
-  console.error('simulated pnpm failure');
-  process.exit(27);
+const [tool, ...args] = process.argv.slice(2);
+appendFileSync(${JSON.stringify(callsPath)}, JSON.stringify({ tool, args, env: { VURA_PUBLISH_DRY_RUN: process.env.VURA_PUBLISH_DRY_RUN } }) + '\\n');
+if (${JSON.stringify(options.failTool ?? '')} === tool && args.join(' ') === ${JSON.stringify(options.failArgs?.join(' ') ?? '')}) {
+  console.error(\`simulated \${tool} failure\`);
+  process.exit(tool === 'pnpm' ? 27 : 28);
 }
 process.exit(0);
+`);
+  await writeFile(join(bin, 'pnpm'), `#!/bin/sh
+exec ${JSON.stringify(process.execPath)} ${JSON.stringify(toolRunnerPath)} pnpm "$@"
 `, { mode: 0o755 });
-  await writeFile(join(bin, 'node'), `${preamble}
-if (${JSON.stringify(options.failTool ?? '')} === 'node' && args.join(' ') === ${JSON.stringify(options.failArgs?.join(' ') ?? '')}) {
-  console.error('simulated node failure');
-  process.exit(28);
-}
-process.exit(0);
+  await writeFile(join(bin, 'node'), `#!/bin/sh
+exec ${JSON.stringify(process.execPath)} ${JSON.stringify(toolRunnerPath)} node "$@"
 `, { mode: 0o755 });
 
   return {
@@ -65,7 +64,7 @@ describe('release-check gate fanout', () => {
       { tool: 'pnpm', args: ['run', 'assert:release-private'], env: {} },
       { tool: 'pnpm', args: ['run', 'lint'], env: {} },
       { tool: 'pnpm', args: ['run', 'build'], env: {} },
-      { tool: 'pnpm', args: ['run', 'test', '--', '--maxWorkers=2'], env: {} },
+      { tool: 'pnpm', args: ['run', 'test', '--maxWorkers=2'], env: {} },
       { tool: 'pnpm', args: ['run', 'audit'], env: {} },
       { tool: 'pnpm', args: ['run', 'verify:publish'], env: {} },
       { tool: 'pnpm', args: ['run', 'package:size'], env: {} },
@@ -75,7 +74,7 @@ describe('release-check gate fanout', () => {
   });
 
   it('propagates a failing gate and does not run later gates', async () => {
-    const f = await fixture({ failTool: 'pnpm', failArgs: ['run', 'test', '--', '--maxWorkers=2'] });
+    const f = await fixture({ failTool: 'pnpm', failArgs: ['run', 'test', '--maxWorkers=2'] });
 
     await expect(f.run()).rejects.toMatchObject({
       code: 1,
@@ -86,7 +85,14 @@ describe('release-check gate fanout', () => {
       { tool: 'pnpm', args: ['run', 'assert:release-private'], env: {} },
       { tool: 'pnpm', args: ['run', 'lint'], env: {} },
       { tool: 'pnpm', args: ['run', 'build'], env: {} },
-      { tool: 'pnpm', args: ['run', 'test', '--', '--maxWorkers=2'], env: {} },
+      { tool: 'pnpm', args: ['run', 'test', '--maxWorkers=2'], env: {} },
     ]);
+  });
+
+  it('passes the worker cap in the form Vitest parses as an option', () => {
+    expect(parseCLI(['vitest', 'run', '--maxWorkers=2']).options).toMatchObject({
+      maxWorkers: 2,
+    });
+    expect(parseCLI(['vitest', 'run', '--', '--maxWorkers=2']).options).not.toHaveProperty('maxWorkers');
   });
 });
