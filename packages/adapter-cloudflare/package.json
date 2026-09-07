@@ -1,6 +1,6 @@
 {
   "name": "@celsian/vura-adapter-cloudflare",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -20,7 +20,7 @@
     "prepack": "pnpm run build"
   },
   "dependencies": {
-    "@celsian/vura-core": "workspace:0.8.2",
+    "@celsian/vura-core": "workspace:0.8.3",
     "esbuild": "^0.28.2"
   },
   "publishConfig": {

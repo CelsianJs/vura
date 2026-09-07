@@ -12,7 +12,12 @@ const steps = [
   pnpmStep(['run', 'assert:release-private']),
   pnpmStep(['run', 'lint']),
   pnpmStep(['run', 'build']),
-  pnpmStep(['run', 'test']),
+  // The full release test gate builds many nested fixture apps and generated
+  // server/function bundles. Two Vitest workers keep useful fanout while
+  // avoiding the local/CI oversubscription that makes fixture-level 15s tests
+  // and 30s hooks race each other. The normal `pnpm test` script and Vitest
+  // config stay unchanged for everyday development and matrix CI.
+  pnpmStep(['run', 'test', '--maxWorkers=2']),
   pnpmStep(['run', 'audit']),
   pnpmStep(['run', 'verify:publish']),
   pnpmStep(['run', 'package:size']),
