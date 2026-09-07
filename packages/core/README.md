@@ -46,7 +46,7 @@ export default defineConfig({
 
 ## Documentation
 
-### Build manifest compatibility (unreleased reader integration)
+### Build manifest compatibility (0.8.3)
 
 `build()` and direct `generateServerEntry()` validate metadata using
 `@celsian/vura-contract` before producing output. Current unversioned manifests

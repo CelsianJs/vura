@@ -16,7 +16,7 @@
   routes are rejected instead of silently ignored.
 
 These reader changes landed after the immutable v0.8.2 tag and are included in
-the 0.8.3 release candidate. Versioned manifest emission remains unchanged.
+version 0.8.3. Versioned manifest emission remains unchanged.
 
 ## 0.8.2 - 2026-09-07
 
