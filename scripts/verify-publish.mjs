@@ -125,9 +125,11 @@ async function rewriteScaffoldDeps(scaffoldDir, tarballsByName) {
   // Core now consumes the fallback compiler's static parser. Add its local
   // tarball explicitly so this unpublished canary cannot fall back to the
   // registry package that shares the current version number.
-  const compilerTarball = tarballsByName.get('@celsian/vura-compiler');
-  if (compilerTarball && packageJson.dependencies?.['@celsian/vura-core']) {
-    packageJson.dependencies['@celsian/vura-compiler'] = `file:${compilerTarball}`;
+  if (packageJson.dependencies?.['@celsian/vura-core']) {
+    for (const name of ['@celsian/vura-compiler', '@celsian/vura-contract']) {
+      const tarball = tarballsByName.get(name);
+      if (tarball) packageJson.dependencies[name] = `file:${tarball}`;
+    }
   }
   await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
 }

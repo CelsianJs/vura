@@ -31,6 +31,7 @@ import type { RouteManifest, ApiRoute, PageRoute } from './manifest.js';
 import type { ThenConfig, AdapterBuildContext } from './config.js';
 import type { VuraCacheConfig } from './runtime/cache.js';
 import { vuraCoreRuntimeShimContents } from './runtime-shim.js';
+import { readNodeManifest } from './node-manifest.js';
 
 
 const CORE_PACKAGE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -116,6 +117,7 @@ function findGlobalHooksFile(projectRoot: string): string | null {
  * build error (live client not serializable — use createVuraCache instead).
  */
 export function generateServerEntry(manifest: RouteManifest, projectRoot: string, globalHooksFile?: string | null, cacheConfig?: VuraCacheConfig): string {
+  manifest = readNodeManifest(manifest);
   // Reset used var names for each server entry generation
   _usedVarNames.clear();
 
@@ -714,6 +716,9 @@ export async function build(
   config: ThenConfig,
   projectRoot: string,
 ): Promise<BuildResult> {
+  // Refuse invalid/unsupported artifacts before mkdir, writes, source bundling,
+  // pruning, or adapter dispatch. Validation preserves the full input object.
+  manifest = readNodeManifest(manifest);
   const outDir = join(projectRoot, 'dist');
   const serverDir = join(outDir, 'server');
   const functionsDir = join(outDir, 'functions');

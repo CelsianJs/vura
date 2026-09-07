@@ -46,6 +46,19 @@ export default defineConfig({
 
 ## Documentation
 
+### Build manifest compatibility (unreleased reader integration)
+
+`build()` and direct `generateServerEntry()` validate metadata using
+`@celsian/vura-contract` before producing output. Current unversioned manifests
+remain accepted explicitly; unknown versions, required features, and invalid
+metadata fail before build-directory writes. The scanner still emits legacy
+manifests during the reader-first rollout.
+
+The Node capability declaration describes the existing build-and-serve pipeline,
+not provider provisioning or isolation. Schedules require task routes; a
+schedule on an ordinary API route is refused rather than silently ignored.
+Adapters must establish their own capability support.
+
 - [Quick start — /ladder/0-create/](https://vura.io/ladder/0-create/)
 - [Config reference — /reference/config/](https://vura.io/reference/config/)
 - [API routes — /ladder/3-api/](https://vura.io/ladder/3-api/)

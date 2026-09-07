@@ -153,6 +153,9 @@ importers:
       '@celsian/vura-compiler':
         specifier: workspace:0.8.2
         version: link:../compiler
+      '@celsian/vura-contract':
+        specifier: workspace:0.8.2
+        version: link:../contract
       '@noble/hashes':
         specifier: ^2.4.0
         version: 2.4.0

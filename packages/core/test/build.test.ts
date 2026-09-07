@@ -132,6 +132,7 @@ describe('generateServerEntry — pages and layouts wiring', () => {
         filePath: 'src/pages/index.tsx',
         urlPattern: '/',
         mode: 'server',
+        hasLoader: false,
         hasGetServerData: false,
         config: { title: 'Home', mode: 'server' },
         layouts: ['src/pages/_layout.tsx'],
