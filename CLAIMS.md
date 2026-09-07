@@ -85,6 +85,41 @@ support. Reader adoption and registry publication are separate release gates.
 
 ## Sign-off
 
+### 0.8.3 candidate — scoped agent factual review, 2026-09-07
+
+Reviewed the Node-reader release payload and independently published What
+0.13.8 / Celsian 0.6.3 baseline. The nine public JS packages are synchronized;
+the native prototype remains private. Readers validate before build output
+changes, preserve compatible unversioned input, and reject non-task schedules.
+No versioned producer, legacy cutoff, or provider-capability rollout is implied.
+
+The clean `pnpm release:check` passed at `a0cb60e` with Node 22.13.1 and pnpm
+10.11.0: 1,274 tests across 98 files, hygiene/build, production audit, all nine
+packed-consumer checks, unchanged package-size ceilings, publish dry-run, and
+clean-tree assertion. The two-worker release profile retains all test/hook
+deadlines. Later release-gate comments do not change execution; public package,
+scaffold and docs-site inputs remain unchanged from candidate `5f4778a`.
+
+Fresh packed `create-vura` consumers passed npm and pnpm installation, build,
+production pages/APIs/404s, and CLI checks. The npm consumer additionally passed
+WebSocket and browser counter interaction. The pnpm consumer's nested
+core/compiler/contract resolved to its own 0.8.3 tarballs; frozen installation
+and build also passed after moving the source/lock/tarballs to another directory.
+This tests candidate artifacts, not unpublished registry versions or source
+aliases. Independent review and CI evidence is attached to release PR #147.
+
+Candidate docs built 33 pages. Local desktop/mobile navigation and 48 links from
+11 README files were checked, including destination content and anchors. The
+protected Vercel preview was not bypassed; local rendering is not live 0.8.3
+deployment proof. npmjs.com HTML pages blocked scripted access, so registry
+metadata was checked separately. Known non-blocking findings remain: mobile
+homepage overflow, missing description/canonical metadata on documentation
+pages, and an optional task-input build warning. No new speed claim is made.
+
+This is agent factual verification, not human visual acceptance, managed
+customer-flow approval, provider certification, or publication approval.
+Final tag/registry verification and live release-version checks remain pending.
+
 ### 0.8.1 candidate — scoped agent factual review, 2026-09-06
 
 Reviewed by the claims-audit agent against source baseline `d25a6d9` and the
