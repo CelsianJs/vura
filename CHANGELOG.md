@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Dependencies and tested baseline
+
+- The next release candidate tracks the independently published What Framework
+  0.13.8 and CelsianJS 0.6.3 baselines across the framework packages,
+  scaffolder metadata, examples, docs-site build, and lockfiles.
+
 ### Node manifest readers
 
 - Node builds and direct server-entry generation validate manifests before
