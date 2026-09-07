@@ -13,7 +13,7 @@ only with a row here; a row needs a command someone else can run, or it's cut.
 | 5 | "`revalidateTag` / cache invalidation works self-hosted" | GOVERNANCE.md | Scope to projects where a CDN adapter is configured; "global/CDN purge" wording only appears where CDN adapter docs exist | qualified — "global/CDN purge" wording only where a CDN adapter is configured |
 | 6 | "Hot routes: no timeout, in-memory state, websockets" | docs-site `/ladder/4-hot` | `packages/core/test/hot-routes.test.ts` (15 tests as of de932e2 — was 12 when this row was written; all 15 pass, re-run 2026-06-11); "no timeout" = no framework-imposed limit; host/platform limits still apply (4-hot page documents `kill_timeout` etc.) | verified at code level (count corrected 12→15) |
 | 7 | "One-line change to promote a route to hot" (kind='hot') | (future landing) | Literally one export-field change; rung-4 docs page will show the actual diff | verified |
-| 8 | "Built on What Framework + CelsianJS" | README.md | Read `packages/core/package.json` for dependency ranges; runtime composition lives in `packages/core/src/`. The unreleased 0.8.3 candidate requires independently published What `^0.13.8` and Celsian `^0.6.3`. What 0.13.8 publication passed in [workflow 34076453796](https://github.com/CelsianJs/what-framework/actions/runs/34076453796); Celsian 0.6.3 read-only registry recovery passed in [workflow 34078378075](https://github.com/CelsianJs/celsian/actions/runs/34078378075) with artifact `10002874855`. Vura publication has its own release evidence after tagging and publishing. | source and upstream registry verified; Vura candidate publication not yet verified |
+| 8 | "Built on What Framework + CelsianJS" | README.md | Read `packages/core/package.json` for dependency ranges; runtime composition lives in `packages/core/src/`. Vura 0.8.3 requires independently published What `^0.13.8` and Celsian `^0.6.3`. What publication passed in [workflow 34076453796](https://github.com/CelsianJs/what-framework/actions/runs/34076453796); Celsian registry recovery passed in [workflow 34078378075](https://github.com/CelsianJs/celsian/actions/runs/34078378075). All nine Vura 0.8.3 packages passed [registry verification](https://depot.dev/orgs/wbjkqlz33v/workflows/5fd1l901qr?repo=CelsianJs%2Fvura). | source, upstream baseline and Vura registry publication verified |
 | 9 | "12 KB runtime" (What Framework) | `sites/landing/index.html` (now redirected) | This number belongs to the What Framework project, not Vura. **Not verified within this repo.** Must not appear in Vura-owned pages until confirmed by a reproducible measurement in the what-framework repo. | removed from sites/landing (redirect); **banned from Vura-owned copy until externally sourced** |
 | 10 | "Static pages ship zero JavaScript" (in landing code example comment) | `sites/landing/index.html` (now redirected) | Same as row 4 — code comment in a demo snippet, inherently illustrative. Landing page replaced with redirect; if reused in future docs, must link to the CI assertion. | removed from sites/landing (redirect) |
 | 11 | "Fast by default" (signal reactivity) | `sites/landing/index.html` (now redirected) | Vague superlative with no benchmark. **Banned outright** from Vura-controlled copy unless replaced with a reproducible benchmark number. | removed from sites/landing (redirect) |
@@ -84,6 +84,26 @@ deployed readers, establish a legacy-admission cutoff, or certify target
 support. Reader adoption and registry publication are separate release gates.
 
 ## Sign-off
+
+### 0.8.3 publication verification — 2026-09-07
+
+All nine packages are available as 0.8.3 and carry the `latest` dist-tag.
+The immutable release payload is `b31081ad06d06eb2b2e06621f9150efe6684fa66`.
+The initial publisher stopped before uploads because its account-wide npm
+lookup hit an organization-permission endpoint. Reviewed tooling at
+`36b00859316aca21222cc14d1a94dae8594f2ec4` uses package-specific collaborator
+checks and proves all tagged package/build inputs unchanged before recovery.
+The tag was not moved and no package version was republished.
+
+The [recovery workflow](https://depot.dev/orgs/wbjkqlz33v/workflows/5fd1l901qr?repo=CelsianJs%2Fvura)
+passed the complete release gate (1,282 tests), uploaded all nine packages, and
+passed registry install/import, CLI, scaffold build/boot and adapter-load smoke.
+Its registry artifact is `8982606003146560`. A separate clean registry consumer
+accepted legacy input, rejected unknown versions and non-task schedules through
+the published Node build API, and confirmed rejection created no output files.
+The live docs returned 200 with the v0.8.3 badge. This Depot publication has no
+npm provenance attestation; provider certification, managed customer-flow
+acceptance, and enterprise readiness are not implied.
 
 ### 0.8.3 candidate — scoped agent factual review, 2026-09-07
 
