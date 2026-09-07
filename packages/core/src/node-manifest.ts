@@ -2,6 +2,7 @@ import {
   evaluateCapabilities,
   ManifestValidationError,
   parseManifest,
+  type ManifestIssue,
   type ParsedManifest,
   type TargetCapabilities,
 } from '@celsian/vura-contract';
@@ -16,8 +17,8 @@ import {
  * dispatch. It does not promise isolated functions, machine provisioning,
  * resource enforcement, or an external scheduler. Adapters must negotiate their
  * own capabilities; this declaration cannot authorize a deployment target.
- * Scheduled execution is for task routes; raw schedule metadata on a non-task
- * route is preserved but does not register a cron job in the existing runtime.
+ * Scheduled execution is only for task routes; admission rejects schedules on
+ * other route kinds because the Node runtime would never register their cron.
  * Keep this explicit: adding a contract feature must not silently enable it.
  */
 const NODE_CAPABILITIES: TargetCapabilities = {
@@ -46,5 +47,16 @@ export function readNodeManifest(input: unknown): ParsedManifest {
   const manifest = parseManifest(input, { allowLegacy: true });
   const compatibility = evaluateCapabilities(manifest, NODE_CAPABILITIES);
   if (!compatibility.compatible) throw new ManifestValidationError(compatibility.diagnostics);
+  const scheduleIssues: ManifestIssue[] = [];
+  manifest.api.forEach((route, index) => {
+    if (route.kind !== 'task' && typeof route.config.schedule === 'string') {
+      scheduleIssues.push({
+        path: `$.api[${index}].config.schedule`,
+        code: 'unsupported_feature',
+        message: "Vura Node schedules only task routes: use kind: 'task' or remove config.schedule.",
+      });
+    }
+  });
+  if (scheduleIssues.length > 0) throw new ManifestValidationError(scheduleIssues);
   return manifest;
 }

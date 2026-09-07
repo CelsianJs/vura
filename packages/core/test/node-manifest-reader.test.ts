@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fork } from 'node:child_process';
-import { deriveRequiredFeatures, ManifestValidationError } from '@celsian/vura-contract';
+import { deriveRequiredFeatures, ManifestValidationError, type ParsedManifest } from '@celsian/vura-contract';
 import { build, generateServerEntry } from '../src/build.js';
 import { buildManifest, type RouteManifest } from '../src/manifest.js';
 import { readNodeManifest } from '../src/node-manifest.js';
@@ -22,6 +22,14 @@ function project(files: Record<string, string> = {}): string {
 function manifest(): RouteManifest {
   return { api: [], pages: [], layouts: [], timestamp: '2026-09-06T00:00:00.000Z' };
 }
+function scheduledManifest(kind: 'serverless' | 'hot' | 'task', compute: 'function' | 'dedicated', format: string): ParsedManifest {
+  const legacy: RouteManifest = {
+    ...manifest(),
+    api: [{ filePath: 'src/api/scheduled.ts', urlPattern: '/api/scheduled', methods: ['POST'], kind,
+      config: { schedule: '0 3 * * *', compute: { class: compute } } }],
+  };
+  return format === 'legacy' ? legacy : { ...legacy, schemaVersion: 1, requiredFeatures: deriveRequiredFeatures(legacy) };
+}
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -34,6 +42,11 @@ describe('Node manifest reader admission', () => {
     { name: 'malformed timestamp', value: () => ({ ...manifest(), timestamp: '' }), code: 'invalid_type' },
     { name: 'contradictory placement', value: () => ({ ...manifest(), api: [{ filePath: 'src/api/missing.ts', urlPattern: '/api/missing', methods: ['GET'], kind: 'hot', config: { compute: { class: 'function' } } }] }), code: 'invalid_value' },
     { name: 'missing declared requirement', value: () => ({ ...manifest(), schemaVersion: 1, requiredFeatures: [], middleware: 'src/middleware.ts' }), code: 'missing_feature' },
+    ...['legacy', 'v1'].flatMap(format => (['serverless', 'hot'] as const).map(kind => ({
+      name: `${format} ${kind} non-task schedule`,
+      value: () => scheduledManifest(kind, kind === 'hot' ? 'dedicated' : 'function', format),
+      code: 'unsupported_feature',
+    }))),
   ];
 
   it.each(invalid)('rejects $name before output writes, source bundling, or adapter dispatch', async ({ value, code }) => {
@@ -51,6 +64,9 @@ describe('Node manifest reader admission', () => {
     expect(readdirSync(join(root, 'dist/server')).sort()).toEqual(['entry.js', 'obsolete.js']);
     expect(readdirSync(join(root, 'dist/functions'))).toEqual(['package.json']);
     expect(buildEnd).not.toHaveBeenCalled();
+    if (code === 'unsupported_feature') {
+      expect(() => readNodeManifest(value())).toThrow("kind: 'task' or remove config.schedule");
+    }
   });
 
   it.each(invalid)('guards direct generateServerEntry against $name', ({ value }) => {
@@ -62,6 +78,16 @@ describe('Node manifest reader admission', () => {
     await expect(build({ ...manifest(), schemaVersion: 99 } as RouteManifest, {}, root)).rejects.toThrow(ManifestValidationError);
     expect(readdirSync(root)).toEqual([]);
   });
+
+  it.each(['legacy', 'v1'].flatMap(format => (['function', 'dedicated'] as const).map(compute => ({ format, compute }))))(
+    'admits a $format scheduled task on $compute compute without changing metadata', ({ format, compute }) => {
+      const input = scheduledManifest('task', compute, format);
+      const before = JSON.stringify(input);
+      expect(readNodeManifest(input)).toBe(input);
+      expect(generateServerEntry(input, '/unused')).toContain('"schedule":"0 3 * * *"');
+      expect(JSON.stringify(input)).toBe(before);
+    },
+  );
 
   it.each(['legacy', 'v1'])('retains the complete %s DTO without normalizing raw metadata', format => {
     const legacy: RouteManifest = {
