@@ -27,7 +27,9 @@ export function assertReleasePayload(tag, commit, cwd = process.cwd()) {
   if (git('status', '--porcelain').trim()) throw new Error('Recovery requires a clean checkout.');
   const resolved = git('rev-parse', '--verify', `refs/tags/${tag}^{commit}`).trim();
   if (resolved !== commit) throw new Error(`Release tag ${tag} does not match the supplied immutable commit.`);
-  const changed = git('diff', '--name-only', '-z', commit, 'HEAD').split('\0').filter(Boolean);
+  // Include both sides of a rename so moving payload into an allowed tooling
+  // path cannot hide the deletion of a tagged input.
+  const changed = git('diff', '--no-renames', '--name-only', '-z', commit, 'HEAD').split('\0').filter(Boolean);
   const forbidden = changed.filter((path) => !toolingPaths.has(path));
   if (forbidden.length) throw new Error(`Tagged release payload changed; refusing recovery: ${forbidden.join(', ')}`);
   for (const path of publishPackages) {

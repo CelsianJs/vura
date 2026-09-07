@@ -19,6 +19,7 @@ async function fixture() {
   const put = async (name, body) => { await mkdir(dirname(join(dir, name)), { recursive: true }); await writeFile(join(dir, name), body); };
   const commit = () => { git('add', '.'); git('-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'fixture'); return git('rev-parse', 'HEAD'); };
   for (const path of publishPackages) await put(`${path}/package.json`, '{"version":"0.8.3"}');
+  await put('packages/core/src/marker.js', 'export const marker = true;');
   const sha = commit();
   git('-c', 'tag.gpgsign=false', 'tag', 'v0.8.3');
   return { dir, git, put, commit, sha };
@@ -48,4 +49,11 @@ it('rejects dirty checkout, mismatched tag identity and invalid refs', async () 
   expect(() => assertReleasePayload('v0.8.4', f.sha, f.dir)).toThrow('does not match release tag');
   await f.put('untracked', 'dirty');
   expect(() => assertReleasePayload('v0.8.3', f.sha, f.dir)).toThrow('clean checkout');
+});
+
+it('rejects moving tagged input to an otherwise allowed tooling path', async () => {
+  const f = await fixture();
+  f.git('mv', 'packages/core/src/marker.js', 'README.md');
+  f.commit();
+  expect(() => assertReleasePayload('v0.8.3', f.sha, f.dir)).toThrow('Tagged release payload changed');
 });
