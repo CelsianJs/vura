@@ -1,6 +1,18 @@
 # Changelog
 
-## 0.8.2 - unreleased
+## Unreleased
+
+### Node manifest readers
+
+- Node builds and direct server-entry generation validate manifests before
+  creating output or bundling. Core manifest types use the canonical contract.
+- Compatible unversioned manifests remain supported; schedules on non-task
+  routes are rejected instead of silently ignored.
+
+These reader changes landed after the immutable v0.8.2 tag and are not included
+in its published packages. Versioned manifest emission remains unchanged.
+
+## 0.8.2 - 2026-09-07
 
 ### Versioned manifest contract foundation
 
@@ -20,7 +32,10 @@ reader or adapter is changed to enforce the new evaluator. Roll out compatible
 readers before emitting v1 manifests or imposing a new-admission cutoff.
 Capability declarations describe requirements, not proof of provider support.
 
-Publication remains separate from a source merge; follow `RELEASING.md`.
+All nine packages are published and the tag-driven registry consumer smoke
+passed. See the [release workflow](https://depot.dev/orgs/wbjkqlz33v/workflows/6cghtwdq5m?repo=CelsianJs%2Fvura).
+The immutable tag targets `20974a652eaa1ee18e774670eb2b2026abd9c4d1`.
+This Depot publication does not include npm provenance attestations.
 
 ## 0.8.1 - 2026-09-06
 
