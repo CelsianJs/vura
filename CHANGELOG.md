@@ -2,6 +2,12 @@
 
 ## 0.8.3 - 2026-09-07
 
+All nine JavaScript packages are published and verified from the npm registry.
+The [verified publication](https://depot.dev/orgs/wbjkqlz33v/workflows/5fd1l901qr?repo=CelsianJs%2Fvura)
+used repaired publishing tooling while preserving the immutable tag's package
+inputs at `b31081ad06d06eb2b2e06621f9150efe6684fa66`. This Depot publication does
+not include npm provenance attestations.
+
 ### Dependencies and tested baseline
 
 - Tracks the independently published What Framework 0.13.8 and CelsianJS 0.6.3
