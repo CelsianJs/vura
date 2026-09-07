@@ -59,7 +59,7 @@ covered by the current release review. The native prototype remains private.
 
 ---
 
-## Manifest contract foundation (unreleased)
+## Manifest contract foundation (0.8.2)
 
 The dependency-free `@celsian/vura-contract` package validates legacy/v1
 manifest metadata and evaluates explicitly declared target capabilities.

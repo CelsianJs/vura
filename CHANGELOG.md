@@ -1,11 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.8.3 - 2026-09-07
 
 ### Dependencies and tested baseline
 
-- The next release candidate tracks the independently published What Framework
-  0.13.8 and CelsianJS 0.6.3 baselines across the framework packages,
+- Tracks the independently published What Framework 0.13.8 and CelsianJS 0.6.3
+  baselines across the framework packages,
   scaffolder metadata, examples, docs-site build, and lockfiles.
 
 ### Node manifest readers
@@ -15,8 +15,8 @@
 - Compatible unversioned manifests remain supported; schedules on non-task
   routes are rejected instead of silently ignored.
 
-These reader changes landed after the immutable v0.8.2 tag and are not included
-in its published packages. Versioned manifest emission remains unchanged.
+These reader changes landed after the immutable v0.8.2 tag and are included in
+the 0.8.3 release candidate. Versioned manifest emission remains unchanged.
 
 ## 0.8.2 - 2026-09-07
 
