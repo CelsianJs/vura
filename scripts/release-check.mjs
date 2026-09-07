@@ -17,7 +17,7 @@ const steps = [
   // avoiding the local/CI oversubscription that makes fixture-level 15s tests
   // and 30s hooks race each other. The normal `pnpm test` script and Vitest
   // config stay unchanged for everyday development and matrix CI.
-  pnpmStep(['run', 'test', '--', '--maxWorkers=2']),
+  pnpmStep(['run', 'test', '--maxWorkers=2']),
   pnpmStep(['run', 'audit']),
   pnpmStep(['run', 'verify:publish']),
   pnpmStep(['run', 'package:size']),
