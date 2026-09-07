@@ -14,13 +14,15 @@ release tooling rather than assuming a token type or expiry policy.
 > other package changes within its permissions. Never print token values in
 > release evidence, commands, or screenshots.
 
-Before any upload, the publisher resolves the npm identity and runs
-`npm access list packages <username> --json`. Every planned package, including
-unscoped `create-vura`, must have an explicit `read-write` entry. Empty,
+Before any upload, the publisher resolves the npm identity once and then runs
+`npm access list collaborators <package> <username> --json` for every planned
+package. The package-specific collaborator map must show that identity as
+`read-write` for each package, including unscoped `create-vura`. Empty,
 malformed, missing, or read-only access fails the whole preflight before packing
-or publishing; an organization's package list is not account-access evidence.
-This checks account access, not all granular-token restrictions or package 2FA
-requirements. The registry still enforces those at publish time.
+or publishing; an organization's package list and the account-wide
+`npm access list packages <username>` inventory are not sufficient evidence.
+This checks package-level account access, not all granular-token restrictions or
+package 2FA requirements. The registry still enforces those at publish time.
 
 `pnpm release:check` and publisher `--dry-run` deliberately stay credential-free:
 they check artifacts and the version plan, not live account access. The real
@@ -123,6 +125,26 @@ of the checker ref. Record both refs in the release evidence.
 When the release commit changes, rerun affected checks and CI on the final commit.
 Any reused evidence must identify its original commit and explain why the tested
 inputs are unchanged. No silent carry-forward of checks from an older candidate.
+
+### Repairing tooling after a tagged publisher fails before uploads
+
+Do not move the immutable tag. When **none** of its package versions were
+uploaded, reviewed publishing-tool fixes may use Depot's `publish-recovery.yml`.
+It requires the existing stable tag and its exact commit, permits only a small
+allowlist of tooling/documentation differences, verifies all package versions
+match the tag, and runs the complete clean release gate before authenticated
+publication. Package sources, manifests, lockfiles and the publish list cannot
+change. Run only one publisher at a time.
+
+```sh
+depot ci dispatch --repo CelsianJs/vura --workflow publish-recovery.yml --ref main \
+  --input release_tag=vX.Y.Z --input release_commit=FULL_IMMUTABLE_COMMIT
+```
+
+The dry-run gate rejects already-published versions, so this is not a partial-
+upload or registry-propagation recovery path. Use verification-only recovery
+after all uploads succeed. Record both the immutable payload commit and the
+reviewed tooling/workflow commit in release evidence.
 
 ---
 

@@ -28,7 +28,9 @@ async function fixture(options = {}) {
     await mkdir(join(dir, packagePath), { recursive: true });
     await writeFile(join(dir, packagePath, 'package.json'), JSON.stringify({ name: pkg.name, version: '0.0.0-test' }));
   }
-  const access = Object.hasOwn(options, 'access') ? options.access : Object.fromEntries(packages.map((name) => [name, 'read-write']));
+  const collaboratorMaps = Object.hasOwn(options, 'collaborators')
+    ? options.collaborators
+    : Object.fromEntries(packages.map((name) => [name, { 'release-tester': 'read-write' }]));
   const callsPath = join(dir, 'calls.jsonl');
   const preamble = `#!/usr/bin/env node
 const { appendFileSync } = require('node:fs');
@@ -39,9 +41,22 @@ const log = (tool) => appendFileSync(${JSON.stringify(callsPath)}, JSON.stringif
 log('npm');
 if (args[0] === 'whoami') { console.log('release-tester'); process.exit(0); }
 if (args[0] === 'access') {
-  if (${Boolean(options.accessError)}) { console.error('403 simulated access denial'); process.exit(1); }
-  console.log(${JSON.stringify(typeof access === 'string' ? access : JSON.stringify(access))});
-  process.exit(0);
+  if (args[1] === 'list' && args[2] === 'packages') {
+    console.error('npm ERR! code E403');
+    console.error('npm ERR! 403 simulated account-wide package inventory denial');
+    process.exit(1);
+  }
+  if (args[1] === 'list' && args[2] === 'collaborators') {
+    if (${Boolean(options.collaboratorError)}) { console.error('npm ERR! code E403'); process.exit(1); }
+    const packageName = args[3];
+    const collaborators = ${JSON.stringify(
+      typeof collaboratorMaps === 'string'
+        ? collaboratorMaps
+        : Object.fromEntries(Object.entries(collaboratorMaps).map(([name, value]) => [name, typeof value === 'string' ? value : JSON.stringify(value)])),
+    )};
+    console.log(Object.hasOwn(collaborators, packageName) ? collaborators[packageName] : '{}');
+    process.exit(0);
+  }
 }
 if (args[0] === 'view') { console.error('E404 version not found'); process.exit(1); }
 if (args[0] === 'publish') { process.exit(0); }
@@ -69,51 +84,58 @@ process.exit(99);
 
 describe('publish-packages npm package access preflight', () => {
   it.each([
-    ['access denial', { accessError: true }],
-    ['empty access map', { access: {} }],
-    ['invalid JSON', { access: 'not json' }],
-    ['array response', { access: [] }],
-    ['null response', { access: null }],
-    ['numeric response', { access: 42 }],
-  ])('refuses %s before version lookup, packing or publishing', async (_name, options) => {
-    const f = await fixture(options);
+    ['collaborator denial', () => ({ collaboratorError: true })],
+    ['invalid JSON', (names) => ({ collaborators: Object.fromEntries(names.map((name) => [name, name === '@celsian/vura-core' ? 'not json' : { 'release-tester': 'read-write' }])) })],
+    ['array response', (names) => ({ collaborators: Object.fromEntries(names.map((name) => [name, name === '@celsian/vura-core' ? [] : { 'release-tester': 'read-write' }])) })],
+    ['null response', (names) => ({ collaborators: Object.fromEntries(names.map((name) => [name, name === '@celsian/vura-core' ? null : { 'release-tester': 'read-write' }])) })],
+    ['numeric response', (names) => ({ collaborators: Object.fromEntries(names.map((name) => [name, name === '@celsian/vura-core' ? 42 : { 'release-tester': 'read-write' }])) })],
+  ])('refuses %s before version lookup, packing or publishing', async (_name, optionsForNames) => {
+    const names = (await fixture()).packages;
+    const f = await fixture(optionsForNames(names));
     await expect(f.run()).rejects.toMatchObject({ code: 1 });
-    expect(await f.calls()).toEqual([
-      { tool: 'npm', args: ['whoami'] },
-      { tool: 'npm', args: ['access', 'list', 'packages', 'release-tester', '--json'] },
-    ]);
+    const calls = await f.calls();
+    expect(calls[0]).toEqual({ tool: 'npm', args: ['whoami'] });
+    expect(calls.every((call) => call.args[0] !== 'view' && call.args[0] !== 'publish' && call.tool !== 'pnpm')).toBe(true);
   }, 120_000);
 
   it.each(['@celsian/vura-core', 'create-vura'])('refuses read-only access to %s before any upload', async (name) => {
     const names = (await fixture()).packages;
-    const access = Object.fromEntries(names.map((pkg) => [pkg, pkg === name ? 'read-only' : 'read-write']));
-    const f = await fixture({ access });
+    const collaborators = Object.fromEntries(names.map((pkg) => [pkg, { 'release-tester': pkg === name ? 'read-only' : 'read-write' }]));
+    const f = await fixture({ collaborators });
     await expect(f.run()).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining(name) });
-    expect((await f.calls()).map((call) => call.args[0])).toEqual(['whoami', 'access']);
+    const calls = await f.calls();
+    expect(calls[0].args[0]).toBe('whoami');
+    expect(calls.every((call) => call.args[0] !== 'view' && call.args[0] !== 'publish' && call.tool !== 'pnpm')).toBe(true);
   }, 120_000);
 
   it('refuses missing package access with explicit first-publication guidance', async () => {
     const names = (await fixture()).packages;
-    const f = await fixture({ access: Object.fromEntries(names.filter((name) => name !== 'create-vura').map((name) => [name, 'read-write'])) });
+    const f = await fixture({
+      collaborators: Object.fromEntries(names.map((name) => [name, name === 'create-vura' ? {} : { 'release-tester': 'read-write' }])),
+    });
     await expect(f.run()).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('first publication') });
-    expect((await f.calls()).map((call) => call.args[0])).toEqual(['whoami', 'access']);
+    const calls = await f.calls();
+    expect(calls[0].args[0]).toBe('whoami');
+    expect(calls.every((call) => call.args[0] !== 'view' && call.args[0] !== 'publish' && call.tool !== 'pnpm')).toBe(true);
   }, 120_000);
 
-  it('checks identity-level access for every package before packing or publishing', async () => {
+  it('uses package-specific collaborator checks even when account-wide package inventory would be denied', async () => {
     const f = await fixture();
     const result = await f.run();
     expect(result.stdout).toContain('token restrictions and package 2FA policy still apply');
     const calls = await f.calls();
-    expect(calls.slice(0, 2)).toEqual([
-      { tool: 'npm', args: ['whoami'] },
-      { tool: 'npm', args: ['access', 'list', 'packages', 'release-tester', '--json'] },
-    ]);
-    expect(calls.slice(2, 2 + f.packages.length).map((call) => call.args[0])).toEqual(f.packages.map(() => 'view'));
+    expect(calls[0]).toEqual({ tool: 'npm', args: ['whoami'] });
+    expect(calls.some((call) => call.args.slice(0, 3).join(' ') === 'access list packages')).toBe(false);
+    expect(calls.slice(1, 1 + f.packages.length)).toEqual(f.packages.map((name) => ({
+      tool: 'npm',
+      args: ['access', 'list', 'collaborators', name, 'release-tester', '--json'],
+    })));
+    expect(calls.slice(1 + f.packages.length, 1 + (2 * f.packages.length)).map((call) => call.args[0])).toEqual(f.packages.map(() => 'view'));
     expect(calls.filter((call) => call.args[0] === 'publish')).toHaveLength(f.packages.length);
   }, 120_000);
 
   it('keeps dry-run credential-free and never sends a real publish', async () => {
-    const f = await fixture({ accessError: true });
+    const f = await fixture({ collaboratorError: true });
     await f.run(['--dry-run']);
     const calls = await f.calls();
     expect(calls.some((call) => ['access', 'whoami'].includes(call.args[0]))).toBe(false);
