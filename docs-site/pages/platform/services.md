@@ -30,7 +30,7 @@ Or add them in the dashboard under **Settings → Services**. When `vura.json` h
 | `size` | `nano` 256 MB · `small` 512 MB (default) · `medium` 1 GB · `large` 2 GB / 2 vCPU. Pro allows up to 1 GB / 2 vCPU per machine, so `medium` is the largest size Pro plans currently reach |
 | `concurrency` | web only: connections one machine takes at once (default 250, max 2000) |
 
-Free and starter plans cap service size at `nano` (256 MB). Leave `size` off and it clamps down to the largest size your plan allows on its own, so a free or starter service with no `size` set runs as `nano` with nothing to change. Set a `size` yourself and it stays fixed: if it is still above your plan's cap, the deploy fails with 422 `SERVICE_SIZE_NOT_ALLOWED`.
+Services need an active paid plan, so a free plan cannot run them at any size. Leave `size` off and it clamps down to the largest size your plan allows on its own. A plan with a small cap shrinks that default to fit: on starter, which caps service size at 256 MB, a service with no `size` set runs as `nano` with nothing to change. Set a `size` yourself and it stays fixed: if it is still above your plan's cap, the deploy fails with 422 `SERVICE_SIZE_NOT_ALLOWED`.
 
 Service names start with a lowercase letter and use only lowercase letters, digits and `-`, up to 20 characters. They cannot contain `--`, start with `d-`, or end with `-`. A project has at most 10 services.
 
@@ -44,7 +44,7 @@ Your app must listen on `process.env.PORT` (3001) and host `process.env.HOST` (l
 
 ## Env vars per service
 
-On **Settings → Environment Variables**, choose **All services** or one service. A service gets the all-services values, overridden by its own. The build only sees all-services values. Names starting with `FLY_`, `R2_`, `CLOUDFLARE_`, `EDGE_`, `HOT_ORIGIN_`, `INTERNAL_EDGE_`, `VURA_ORIGIN_AUTH_`, `VURA_RUNTIME_` or `VURA_SERVICE_` are reserved at runtime; save them with target "Build" instead if you need them during the build.
+On **Settings → Environment Variables**, choose **All services** or one service. A service gets the all-services values, overridden by its own. The build only sees all-services values. Names starting with `FLY_`, `R2_`, `CLOUDFLARE_`, `EDGE_`, `HOT_ORIGIN_`, `INTERNAL_EDGE_`, `VURA_ORIGIN_AUTH_`, `VURA_RUNTIME_` or `VURA_SERVICE_` are reserved at runtime. If you need one during the build, save it for **All services** with target "Build" instead.
 
 ## Client IP
 
