@@ -2,7 +2,7 @@
 
 **What you'll have at the end:** one or more long-running processes, such as an API, a collector and a queue worker, running on Vura from their start commands, each on its own machine.
 
-> Services are rolling out team by team. If saving services says they are not enabled, ask us to turn them on. A deploy from a team without access fails with "Services are not enabled for this team yet."
+> Services are rolling out team by team. If saving services says they are not enabled, ask us to turn them on. A deploy from a team without access fails with "Services are not enabled for this team yet." Services also need an active paid plan on your team; a deploy without one fails with "Hot server placement requires an active paid plan."
 
 ## Declare services
 
@@ -30,7 +30,7 @@ Or add them in the dashboard under **Settings → Services**. When `vura.json` h
 | `size` | `nano` 256 MB · `small` 512 MB (default) · `medium` 1 GB · `large` 2 GB / 2 vCPU. Pro allows up to 1 GB / 2 vCPU per machine, so `medium` is the largest size Pro plans currently reach |
 | `concurrency` | web only: connections one machine takes at once (default 250, max 2000) |
 
-Free and starter plans cap service size at `nano` (256 MB); a service that asks for more fails the deploy with 422 `SERVICE_SIZE_NOT_ALLOWED`. If you copy the example above onto a free or starter plan, add `"size": "nano"` to each service.
+Free and starter plans cap service size at `nano` (256 MB). Leave `size` off and it clamps down to the largest size your plan allows on its own, so a free or starter service with no `size` set runs as `nano` with nothing to change. Set a `size` yourself and it stays fixed: if it is still above your plan's cap, the deploy fails with 422 `SERVICE_SIZE_NOT_ALLOWED`.
 
 Service names start with a lowercase letter and use only lowercase letters, digits and `-`, up to 20 characters. They cannot contain `--`, start with `d-`, or end with `-`. A project has at most 10 services.
 
