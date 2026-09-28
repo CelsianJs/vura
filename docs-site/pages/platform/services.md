@@ -2,7 +2,7 @@
 
 **What you'll have at the end:** one or more long-running processes, such as an API, a collector and a queue worker, running on Vura from their start commands, each on its own machine.
 
-> Services are rolling out team by team. If saving services says they are not enabled, ask us to turn them on.
+> Services are rolling out team by team. If saving services says they are not enabled, ask us to turn them on. A deploy from a team without access fails with "Services are not enabled for this team yet."
 
 ## Declare services
 
@@ -19,7 +19,7 @@ In `vura.json` at your project root:
 }
 ```
 
-Or add them in the dashboard under **Settings → Services**. When `vura.json` has `services`, it wins field by field. The dashboard marks fields it sets as "set in vura.json", and dashboard services the file leaves out as "not in vura.json".
+Or add them in the dashboard under **Settings → Services**. When `vura.json` has `services`, it wins field by field. The dashboard marks fields it sets as "Set in vura.json", and dashboard services the file leaves out as "not in vura.json".
 
 | Field | Meaning |
 |---|---|
@@ -29,6 +29,8 @@ Or add them in the dashboard under **Settings → Services**. When `vura.json` h
 | `health` | web: a path such as `"/health"` that must answer 2xx within 2 s (default: the port accepts connections). worker: `{ "port": 4711, "path": "/health" }` (default: the process is alive) |
 | `size` | `nano` 256 MB · `small` 512 MB (default) · `medium` 1 GB · `large` 2 GB / 2 vCPU. Pro allows up to 1 GB / 2 vCPU per machine, so `medium` is the largest size Pro plans currently reach |
 | `concurrency` | web only: connections one machine takes at once (default 250, max 2000) |
+
+Free and starter plans cap service size at `nano` (256 MB); a service that asks for more fails the deploy with 422 `SERVICE_SIZE_NOT_ALLOWED`. If you copy the example above onto a free or starter plan, add `"size": "nano"` to each service.
 
 Service names start with a lowercase letter and use only lowercase letters, digits and `-`, up to 20 characters. They cannot contain `--`, start with `d-`, or end with `-`. A project has at most 10 services.
 
