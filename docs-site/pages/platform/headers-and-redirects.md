@@ -56,7 +56,8 @@ A rule can't set these headers, and the build fails if one tries: `Cache-Tag`, `
 }
 ```
 
-- Redirects run before anything else, including your pages, API routes and services.
+- Redirects run before your pages and API routes.
+- On a project that runs [services](/platform/services), none of this page applies: every request goes straight to the service, before `vura.json` headers, redirects or the 404 page ever run. The service handles its own headers, redirects and missing routes.
 - The first matching rule wins.
 - `"permanent": true` sends `308`. Otherwise, which is the default, Vura sends `307`. Both keep the request method.
 - `destination` is a path starting with `/` or an `https://` URL.
@@ -156,7 +157,7 @@ If the file your build leaves behind breaks one of the rules on this page, the b
 ## Limits
 
 - 50 header rules and 50 redirects.
-- 50 headers per rule, with each value up to 4,096 characters.
+- Between 1 and 50 headers per rule (an empty rule fails the build), with each value up to 4,096 characters.
 - `headers` and `redirects`, together with the rest of your build config, must fit in 64 KB. There's no separate cap per list.
 - `source` up to 256 characters and 32 segments. `destination` up to 2,048 characters.
 
