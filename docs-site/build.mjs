@@ -102,6 +102,11 @@ const SELF_HOST = [
   ['/self-host/lambda', 'AWS Lambda'],
 ];
 
+const PLATFORM = [
+  ['/platform/services', 'Services'],
+  ['/platform/headers-and-redirects', 'Headers and redirects'],
+];
+
 // ---------------------------------------------------------------------------
 // Chrome HTML snippets
 // ---------------------------------------------------------------------------
@@ -164,6 +169,12 @@ ${renderGroup(REFERENCE)}
       <div class="sidebar-heading">Self-host</div>
       <ul class="sidebar-nav">
 ${renderGroup(SELF_HOST)}
+      </ul>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-heading">Vura Platform</div>
+      <ul class="sidebar-nav">
+${renderGroup(PLATFORM)}
       </ul>
     </div>
   `;
