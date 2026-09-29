@@ -116,7 +116,9 @@ If your output has a `404.html` at its root, Vura serves it with status `404` wh
 
 ## HEAD
 
-A `HEAD` request to a static file, the SPA shell or the 404 page gets the same status, headers and caching a `GET` would, with no body. A Function, Dedicated or service route only answers `HEAD` when your own code handles it: Vura's edge never turns a `HEAD` into a `GET` for server code, only for static paths.
+A `HEAD` request to a static file, the SPA shell or the 404 page gets the same status, headers and caching a `GET` would, with no body.
+
+A server-rendered page, Function or Dedicated, is published for `GET` only. `HEAD` on it always returns 404 at the edge, no matter what your own code does: Vura's edge only upgrades `HEAD` into a `GET` for static paths. Monitor a server-rendered page with `GET`, not `HEAD`.
 
 ## Caching
 
@@ -167,6 +169,7 @@ If the file your build leaves behind breaks one of the rules on this page, the b
 |---|---|
 | `"headers": [{ "source": "/(.*)", "headers": [{ "key": "X-Frame-Options", "value": "DENY" }] }]` | `"headers": [{ "source": "/(.*)", "headers": { "X-Frame-Options": "DENY" } }]` |
 | `"redirects"` with `permanent` | The same shape |
+| `permanent` omitted | Vercel sends 308, Vura sends 307. Set `permanent` explicitly. |
 | `"trailingSlash": false` | The redirect under "Trailing slashes" |
 | `"cleanUrls": true` | Not needed: `about.html` and `about/index.html` are both served at `/about` |
 | `"rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]` | Not needed: Vite apps get this automatically |
