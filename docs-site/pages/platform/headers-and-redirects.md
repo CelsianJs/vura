@@ -111,7 +111,7 @@ It sends `/pricing/` to `/pricing` and leaves `/` alone.
 If your output has a `404.html` at its root, Vura serves it with status `404` whenever a page or file doesn't exist. Without one, Vura shows its own 404 page.
 
 - This is for static and prerendered sites. `404.html` there is not a page of its own: `/404` also answers with status 404.
-- A single-page app still serves its `index.html` shell for `/404` and any other path without a file extension, so client-side routing keeps working. `404.html` on an SPA only answers for a genuinely missing file, such as an old `/assets/app-1234abcd.js`.
+- A single-page app still serves its `index.html` shell for `/404` and any other path without a file extension, so client-side routing keeps working. Any other HTML file in the build, such as a prerendered `pricing/index.html` or a `public/embed.html`, is served as its own page at its path, so it wins over a client-side route with the same path. `404.html` on an SPA only answers for a genuinely missing file, such as an old `/assets/app-1234abcd.js`.
 - `/api/*` and `/__tasks/*` keep Vura's JSON 404, so API clients still get JSON.
 
 ## HEAD
@@ -127,7 +127,7 @@ A server-rendered page, Function or Dedicated, is published for `GET` only. `HEA
 | Name with a content hash, such as `main-BNwSecox.js`, `index.a1b2c3d4.css` or `chunk-5XKQZ2LM.js` | `public, max-age=31536000, immutable` |
 | Everything else, including HTML | `public, max-age=0, must-revalidate` |
 
-Vura only treats a name as hashed when the hash looks random, so a file such as `settings.js` or `photo-20240101.jpg` is never cached for a year. A few real hashes look like words and keep revalidating. To cache a whole folder as immutable, add a `headers` rule like the `/assets/(.*)` example above.
+Vura only treats a name as hashed when the hash looks random, so a file such as `settings.js`, `IMG_1234.jpg` or `photo-20240101.jpg` is never cached for a year. The check is cautious: about one real hash in eight looks too much like a word and keeps revalidating, which costs a quick 304 and nothing else. Rarely, a hand-named file such as `hero-Web3Logo.png` looks random enough to be cached as immutable. A `headers` rule overrides the check either way: to cache a whole folder as immutable, add a rule like the `/assets/(.*)` example above.
 
 ## Headers written by your build
 
