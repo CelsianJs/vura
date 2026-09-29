@@ -104,6 +104,7 @@ const SELF_HOST = [
 
 const PLATFORM = [
   ['/platform/services', 'Services'],
+  ['/platform/headers-and-redirects', 'Headers and redirects'],
 ];
 
 // ---------------------------------------------------------------------------

@@ -18,6 +18,8 @@ access code. Installing the package does not grant service access.
 The framework remains MIT-licensed. Managed deployment saves operational work,
 but its durable task broker is not part of the standalone Node runner today.
 
+Response headers, redirects and your own 404 page are set in `vura.json`. See [Headers, redirects and 404 pages](/platform/headers-and-redirects).
+
 ## Self-host: the Node three-liner
 
 ```sh
