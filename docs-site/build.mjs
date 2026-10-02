@@ -115,7 +115,7 @@ const THEME_TOGGLE = `<button class="theme-toggle" aria-label="Toggle theme">
       <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
     </button>`;
 
-const GITHUB_LINK = `<a href="https://github.com/CelsianJs/vura" class="nav-github" target="_blank" rel="noopener">
+const GITHUB_LINK = `<a href="https://github.com/CelsianJs/vura" class="nav-github" target="_blank" rel="noopener" data-lf="nav.github">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
       GitHub
     </a>`;
@@ -181,6 +181,44 @@ ${renderGroup(PLATFORM)}
 }
 
 // ---------------------------------------------------------------------------
+// Little Friend analytics (littlefriend.io): journey mode with masked session
+// replay and scroll depth. The site key is public. Everything below runs only on
+// the production host, so previews, local builds and the --vura artifact served
+// elsewhere send nothing. Copies send which kind of block was copied, never its
+// text; a click on a link into the dashboard is the signup handoff.
+// ---------------------------------------------------------------------------
+const LITTLE_FRIEND = `<script>
+  (function (w, d, host) {
+    if (host !== 'vura.io' && host !== 'www.vura.io') return;
+    w.lf = w.lf || function () { (w.lf.q = w.lf.q || []).push(arguments); };
+    ['lf.js', 'lf-replay.js'].forEach(function (file) {
+      var s = d.createElement('script');
+      s.src = 'https://cdn.littlefriend.io/' + file;
+      s.async = false;
+      s.setAttribute('data-site', 'lf_jg7NE1oVlHETc0OHstDeWYRb');
+      if (file === 'lf.js') {
+        s.setAttribute('data-mode', 'journey');
+        s.setAttribute('data-scroll', '');
+      }
+      d.head.appendChild(s);
+    });
+    var INSTALL = /^\\s*(\\$\\s*)?((npm|pnpm|yarn|bun)\\s+(create|init|i|install|add)\\b|(npx|bunx|pnpm\\s+dlx)\\s+create-)/;
+    d.addEventListener('copy', function () {
+      var node = w.getSelection && w.getSelection().anchorNode;
+      var el = node && (node.nodeType === 1 ? node : node.parentElement);
+      var block = el && el.closest('pre, code');
+      if (!block) return;
+      var source = block.closest('.hero') ? 'home_hero' : block.classList.contains('install-cmd') ? 'home_cta' : 'docs';
+      w.lf('track', INSTALL.test(block.textContent) ? 'install.copy' : 'code.copy', { source: source });
+    });
+    d.addEventListener('click', function (e) {
+      var link = e.target && e.target.closest && e.target.closest('a[href^="https://app.vura.io"]');
+      if (link) w.lf('track', 'cta.signup');
+    });
+  })(window, document, location.hostname);
+</script>`;
+
+// ---------------------------------------------------------------------------
 // <head> template
 // ---------------------------------------------------------------------------
 function headHtml(title, { description, canonical } = {}) {
@@ -201,6 +239,7 @@ function headHtml(title, { description, canonical } = {}) {
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
   <script src="/theme.js"></script>
+${LITTLE_FRIEND}
 </head>`;
 }
 
