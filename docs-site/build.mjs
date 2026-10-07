@@ -181,8 +181,8 @@ ${renderGroup(PLATFORM)}
 }
 
 // ---------------------------------------------------------------------------
-// Little Friend analytics (littlefriend.io): journey mode with masked session
-// replay and scroll depth. The site key is public. Everything below runs only on
+// Little Friend analytics (littlefriend.io): journey mode with session replay
+// and scroll depth. The site key is public. Everything below runs only on
 // the production host, so previews, local builds and the --vura artifact served
 // elsewhere send nothing. Copies send which kind of block was copied, never its
 // text; a click on a link into the dashboard is the signup handoff.
