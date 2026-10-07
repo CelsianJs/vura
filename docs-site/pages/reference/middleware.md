@@ -1,6 +1,11 @@
 # Middleware
 
-Middleware runs before a request reaches anything else: before a static file is served, before an API route, before a page renders. It is one file, `src/middleware.ts`, and it is the place for the things that are true of many routes at once. An auth guard. A request id. A security header. A maintenance-mode switch.
+Middleware runs before application requests reach a static file, API route, or page. It is one file, `src/middleware.ts`, and it is the place for the things that are true of many routes at once. An auth guard. A request id. A security header. A maintenance-mode switch.
+
+Framework control endpoints are excluded, including `/__vura/action` and the
+task admin API. A page guard does not authenticate an action call: protected
+[server actions](/reference/actions) require their own caller and ownership
+checks, or an authenticated API route with access to the request.
 
 ```ts
 // src/middleware.ts
@@ -69,7 +74,7 @@ Headers you set before returning one of those come with it, so a request id is s
 
 ## The matcher
 
-Without `config.matcher`, middleware runs for every request. With one, it runs only for the paths it names.
+Without `config.matcher`, middleware runs for every application request. With one, it runs only for the paths it names. Framework control endpoints remain excluded in either case.
 
 ```ts
 export const config = {
