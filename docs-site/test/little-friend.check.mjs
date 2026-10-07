@@ -29,5 +29,7 @@ test('the privacy policy describes Little Friend and session replay', () => {
   const html = readFileSync(join(dist, 'privacy/index.html'), 'utf8');
   assert.match(html, /We use Little Friend for privacy-friendly analytics/);
   assert.match(html, /recordings are deleted within 7 days/);
+  assert.match(html, /We chose to show the text on our pages in these recordings/);
+  assert.doesNotMatch(html, /masked copy of the pages/);
   assert.doesNotMatch(html, /carries no third-party trackers/);
 });

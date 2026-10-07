@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Version 1.1.0** · Effective date: October 2, 2026
+**Version 1.2.0** · Effective date: October 6, 2026
 
 The Vura platform is owned and operated by **ZVN DEV**, of Lincoln, Rhode Island, USA — the company behind Vura.
 
@@ -40,7 +40,7 @@ The Service **does not set tracking or advertising cookies**, and we do not use 
 
 These are strictly functional and stay in your browser.
 
-**Analytics.** We use Little Friend for privacy-friendly analytics on vura.io and the dashboard. It sets no cookies and does not store IP addresses. To connect the pages you view in one visit, it keeps a random id in your browser tab's session storage. The visit ends after 30 minutes of inactivity, and the id is gone when you close the tab. If your browser sends Global Privacy Control, your visit is only counted, never connected. Some visits are recorded as a masked copy of the pages you view. Text stays hidden unless we chose to show it, form entries are never recorded, and recordings are deleted within 7 days. When you are signed in to the dashboard, a visit is also linked to your Vura account id (never your email address or name), so we can find and erase your recordings on request.
+**Analytics.** We use Little Friend for privacy-friendly analytics on vura.io and the dashboard. It sets no cookies and does not store IP addresses. To connect the pages you view in one visit, it keeps a random id in your browser tab's session storage. The visit ends after 30 minutes of inactivity, and the id is gone when you close the tab. If your browser sends Global Privacy Control, your visit is only counted, never connected. Some visits are recorded as a copy of the pages you view. We chose to show the text on our pages in these recordings. What you type or choose in forms is never recorded, email addresses and phone and card numbers stay masked, and recordings are deleted within 7 days. When you are signed in to the dashboard, a visit is also linked to your Vura account id (never your email address or name), so we can find and erase your recordings on request.
 
 ## 3. How we use information
 
