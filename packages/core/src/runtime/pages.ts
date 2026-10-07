@@ -87,6 +87,8 @@ export interface WhatPageRoute {
     revalidate?: number;
     tags?: string[];
     swr?: number;
+    /** Forwarded intact so what-isr can refuse malformed or unsupported declarations. */
+    vary?: unknown;
   };
   /** The vura RuntimePage, passed through for the render callback. */
   vura: RuntimePage;
@@ -130,6 +132,8 @@ export function buildWhatRoutes(pages: RuntimePage[]): WhatPageRoute[] {
             revalidate,
             ...(tags ? { tags } : {}),
             ...(swr != null ? { swr } : {}),
+            // Dropping this would turn a per-user cache into a shared public one.
+            ...(p.config.vary !== undefined ? { vary: p.config.vary } : {}),
           }
         : { mode: 'server' as const },
       vura: p,
