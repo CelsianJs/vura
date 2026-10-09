@@ -293,6 +293,9 @@ export async function startStandaloneServer(
       extraScripts: () => [...(page.mode === 'hybrid' ? [browserScriptPath(page)] : []), reloadScript],
     });
 
+  const devErrorDocument = (html: string, reloadScript: string): string =>
+    wrapDocument(html, { title: 'Vura — Development Error', meta: [], styles: [], scripts: [reloadScript], head: '' });
+
   const { existsSync } = await import('node:fs');
 
   // ── Middleware ──
@@ -346,10 +349,12 @@ export async function startStandaloneServer(
   }> {
     const routes: RuntimeApiRoute[] = [];
     for (const route of forManifest.api) {
-      if (route.kind === 'task') continue;
       // Cached: HTTP handlers and websocket() must observe the SAME module
       // instance (module-level state is shared between them, as in prod).
+      // Tasks need an initial committed instance too: a first dispatch after
+      // a rejected edit must not lazily load that rejected source from disk.
       const mod = await loadHandlerCached(route.filePath, cache);
+      if (route.kind === 'task') continue;
       routes.push({ ...route, module: mod });
     }
 
@@ -532,35 +537,35 @@ export async function startStandaloneServer(
     // keep a visitor away from a page, and a page may be a prerendered file.
     let middlewareHeaders: Headers | undefined;
     {
-      let runner;
       try {
-        runner = await currentMiddlewareRunner(requestManifest, requestModules);
-      } catch {
+        const runner = await currentMiddlewareRunner(requestManifest, requestModules);
+        if (runner.enabled) {
+          const webReq = new Request(url.toString(), {
+            method,
+            headers: req.headers as Record<string, string>,
+          });
+          const outcome = await runner.run(webReq, url);
+          if (outcome.response) {
+            const headers: Record<string, string> = {};
+            outcome.response.headers.forEach((v, k) => { headers[k] = v; });
+            res.writeHead(outcome.response.status, headers);
+            res.end(outcome.response.body ? await outcome.response.text() : '');
+            return;
+          }
+          middlewareHeaders = outcome.headers;
+        }
+        if (middlewareHeaders) {
+          for (const [k, v] of middlewareHeaders) {
+            if (!res.hasHeader(k)) res.setHeader(k, v);
+          }
+        }
+      } catch (err) {
+        logger.error(`[vura] middleware request failed: ${err instanceof Error ? err.message : String(err)}`);
         const html = req.headers.accept?.includes('text/html');
         res.writeHead(500, { 'Content-Type': html ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
-        const message = 'Middleware failed to load. See the dev server log.';
-        res.end(html ? wrapDocument(`<h1>500 — Server Error</h1><p>${message}</p>`, { scripts: [reloadScript] }) : message);
+        const message = 'Middleware failed. See the dev server log.';
+        res.end(html ? devErrorDocument(`<h1>500 — Server Error</h1><p>${message}</p>`, reloadScript) : message);
         return;
-      }
-      if (runner.enabled) {
-        const webReq = new Request(url.toString(), {
-          method,
-          headers: req.headers as Record<string, string>,
-        });
-        const outcome = await runner.run(webReq, url);
-        if (outcome.response) {
-          const headers: Record<string, string> = {};
-          outcome.response.headers.forEach((v, k) => { headers[k] = v; });
-          res.writeHead(outcome.response.status, headers);
-          res.end(outcome.response.body ? await outcome.response.text() : '');
-          return;
-        }
-        middlewareHeaders = outcome.headers;
-      }
-      if (middlewareHeaders) {
-        for (const [k, v] of middlewareHeaders) {
-          if (!res.hasHeader(k)) res.setHeader(k, v);
-        }
       }
     }
 
@@ -634,7 +639,7 @@ export async function startStandaloneServer(
         return;
       }
       try {
-        const mod = await loadHandler(taskRoute.filePath);
+        const mod = await loadHandlerCached(taskRoute.filePath, requestModules);
         if (typeof mod.POST !== 'function') {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Task must export POST handler' }));
@@ -662,12 +667,12 @@ export async function startStandaloneServer(
         // Off-platform child dispatcher so `step.waitForTask` resolves the child
         // in-process during `vura dev` (no durable platform → waits run locally).
         const localChildDispatch: LocalChildDispatch = async (childName, childPayload) => {
-          const childRoute = manifest.api.find(
+          const childRoute = requestManifest.api.find(
             (r) => r.kind === 'task' &&
               r.urlPattern.replace(/^\/api\//, '').replace(/\//g, '.') === childName,
           );
           if (!childRoute) return { ok: false, error: `Task not found: ${childName}` };
-          const childMod = await loadHandlerCached(childRoute.filePath);
+          const childMod = await loadHandlerCached(childRoute.filePath, requestModules);
           if (typeof childMod.POST !== 'function') return { ok: false, error: 'Task must export POST handler' };
           const childRes = await runTaskOnce({
             name: childName,
@@ -792,7 +797,7 @@ export async function startStandaloneServer(
         try {
           const mod = await loadHandlerCached(pageMatch.page.filePath, requestModules);
           const Component = mod.default;
-          const pageConfig = mod.page ?? {};
+          const pageConfig = (mod.page ?? {}) as Partial<Parameters<typeof wrapDocument>[1]>;
 
           // Client pages render entirely in the browser: serve the shell +
           // bundle. SSR'ing them here would call hooks (useSignal, useState)
@@ -878,7 +883,7 @@ export async function startStandaloneServer(
           log.error(`page render error ${url.pathname}`, { error: err.message });
           if (!res.writableEnded) {
             res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-            res.end(wrapDocument(`<h1>500 — Server Error</h1><pre>${escapeHtml(err.message)}</pre>`, { scripts: [reloadScript] }));
+            res.end(devErrorDocument(`<h1>500 — Server Error</h1><pre>${escapeHtml(err.message)}</pre>`, reloadScript));
           }
           return;
         }
@@ -888,7 +893,7 @@ export async function startStandaloneServer(
     // 404
     if (method === 'GET' && req.headers.accept?.includes('text/html')) {
       res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      res.end(wrapDocument('<h1>404 — Not Found</h1>', { scripts: [reloadScript] }));
+      res.end(devErrorDocument('<h1>404 — Not Found</h1>', reloadScript));
       return;
     }
     res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -959,9 +964,6 @@ export async function startStandaloneServer(
       // to reload. A failed page/middleware/task import is a failed generation,
       // not a success event followed by an unusable browser refresh.
       if (nextManifest.middleware) await currentMiddlewareRunner(nextManifest, nextModules);
-      for (const route of nextManifest.api) {
-        if (route.kind === 'task') await loadHandlerCached(route.filePath, nextModules);
-      }
       for (const page of nextManifest.pages) {
         await loadHandlerCached(page.filePath, nextModules);
         for (const layout of page.layouts ?? []) await loadHandlerCached(layout, nextModules);
