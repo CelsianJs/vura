@@ -15,6 +15,7 @@
 
 import { renderToString as builtinRenderToString } from 'what-framework/server';
 import { importRouteModule } from './shared.js';
+import { createStandaloneReload, sourceFingerprint, watchStandaloneSource } from './standalone-reload.js';
 import { resolve as nodeResolve, relative as nodeRelative } from 'node:path';
 import {
   buildManifest,
@@ -220,7 +221,7 @@ function printRouteTable(manifest: Awaited<ReturnType<typeof buildManifest>>): v
 }
 
 /**
- * Standalone dev server without Vite — for backend-only projects (CelsianJS).
+ * Standalone dev server without Vite, including page hydration and full reload.
  * Uses Node's built-in HTTP server with file watching.
  *
  * Exported for tests. Resolves once the server is listening and returns a
@@ -231,7 +232,6 @@ export async function startStandaloneServer(
   opts: DevOptions,
 ): Promise<{ server: import('node:http').Server; port: number; close: () => Promise<void> }> {
   const { createServer } = await import('node:http');
-  const { watch } = await import('node:fs');
   const { join } = await import('node:path');
 
   // Thin wrapper so call-sites inside this function keep the same shape
@@ -246,22 +246,24 @@ export async function startStandaloneServer(
   // imports a unique URL per call, so without this cache every connection got
   // a fresh instance. Cleared on fs-watcher rescan: edits still apply on the
   // next connection/request — the documented dev contract.
-  const moduleCache = new Map<string, Promise<Record<string, unknown>>>();
-  function loadHandlerCached(filePath: string): Promise<Record<string, unknown>> {
-    let mod = moduleCache.get(filePath);
+  type ModuleCache = Map<string, Promise<Record<string, unknown>>>;
+  let moduleCache: ModuleCache = new Map();
+  function loadHandlerCached(filePath: string, cache: ModuleCache = moduleCache): Promise<Record<string, unknown>> {
+    let mod = cache.get(filePath);
     if (!mod) {
       mod = loadHandler(filePath);
       // Never cache failures (e.g. a syntax error mid-edit): the next
       // connection retries the load instead of replaying the rejection.
       mod.catch(() => {
-        if (moduleCache.get(filePath) === mod) moduleCache.delete(filePath);
+        if (cache.get(filePath) === mod) cache.delete(filePath);
       });
-      moduleCache.set(filePath, mod);
+      cache.set(filePath, mod);
     }
     return mod;
   }
 
   const logger = getLogger();
+  let committedFingerprint = await sourceFingerprint(opts.projectRoot, GLOBAL_HOOKS_FILENAMES);
 
   /**
    * The render callback for one page request.
@@ -277,18 +279,18 @@ export async function startStandaloneServer(
    * page in dev rendered its markup and then never hydrated. The real mode
    * lives on the matched page, so that is what decides.
    */
-  const devRenderRouteFor = (page: PageRoute) =>
+  const devRenderRouteFor = (page: PageRoute, reloadScript: string) =>
     createVuraRenderRoute({
-      extraScripts: () => (page.mode === 'hybrid' ? [browserScriptPath(page)] : []),
+      extraScripts: () => [...(page.mode === 'hybrid' ? [browserScriptPath(page)] : []), reloadScript],
     });
 
   /**
    * The streaming counterpart, built from the same options as the string
    * renderer above so the two cannot disagree about which scripts a page gets.
    */
-  const devStreamRouteFor = (page: PageRoute) =>
+  const devStreamRouteFor = (page: PageRoute, reloadScript: string) =>
     createVuraStreamRoute({
-      extraScripts: () => (page.mode === 'hybrid' ? [browserScriptPath(page)] : []),
+      extraScripts: () => [...(page.mode === 'hybrid' ? [browserScriptPath(page)] : []), reloadScript],
     });
 
   const { existsSync } = await import('node:fs');
@@ -298,10 +300,10 @@ export async function startStandaloneServer(
   // the next request, and so module-level state in a middleware behaves the way
   // it does in a route. `manifest.middleware` is refreshed by the fs-watcher
   // rescan, so adding or deleting the file mid-session is picked up too.
-  async function currentMiddlewareRunner(forManifest: RouteManifest) {
+  async function currentMiddlewareRunner(forManifest: RouteManifest, cache: ModuleCache) {
     if (!forManifest.middleware) return createMiddlewareRunner(null);
     try {
-      const mod = await loadHandlerCached(forManifest.middleware);
+      const mod = await loadHandlerCached(forManifest.middleware, cache);
       return createMiddlewareRunner(mod as MiddlewareModule);
     } catch (err) {
       // A syntax error in middleware must not take the whole dev server down,
@@ -309,7 +311,7 @@ export async function startStandaloneServer(
       // relying on either. Say so, loudly, on every request until it is fixed.
       const error = err instanceof Error ? err : new Error(String(err));
       logger.error(`[vura] middleware failed to load: ${error.message}`);
-      return createMiddlewareRunner(null);
+      throw error;
     }
   }
 
@@ -329,7 +331,7 @@ export async function startStandaloneServer(
    * would rebuild against the stale route set (deleted files would be
    * re-esbuilt and throw forever; added files would be missed).
    */
-  async function buildStandaloneApiApp(forManifest: RouteManifest): Promise<{
+  async function buildStandaloneApiApp(forManifest: RouteManifest, cache: ModuleCache): Promise<{
     app: ReturnType<typeof createApiApp>;
     compiledApiRoutes: ReturnType<typeof compileRoutes>;
     /**
@@ -339,20 +341,22 @@ export async function startStandaloneServer(
      * the app and then never reached.
      */
     internalPaths: string[];
+    actionModules: Record<string, Record<string, unknown>>;
+    actionIds: Set<string>;
   }> {
     const routes: RuntimeApiRoute[] = [];
     for (const route of forManifest.api) {
       if (route.kind === 'task') continue;
       // Cached: HTTP handlers and websocket() must observe the SAME module
       // instance (module-level state is shared between them, as in prod).
-      const mod = await loadHandlerCached(route.filePath);
+      const mod = await loadHandlerCached(route.filePath, cache);
       routes.push({ ...route, module: mod });
     }
 
     let globalHooks: GlobalHooks | undefined;
     const hooksFile = findGlobalHooksFile();
     if (hooksFile) {
-      const hooksMod = await loadHandler(hooksFile);
+      const hooksMod = await loadHandlerCached(hooksFile, cache);
       const normalize = (v: unknown) =>
         v == null ? [] : Array.isArray(v) ? v : [v];
       globalHooks = {
@@ -379,17 +383,20 @@ export async function startStandaloneServer(
     };
 
     // Server actions. Loaded and registered on every rebuild, so editing an
-    // action file takes effect on the next request the way editing a route
-    // does. Registration is keyed by id, so a re-register replaces rather than
-    // duplicates; an action deleted from a file stops being callable only once
-    // the process restarts, which is the same limitation dev has for a deleted
-    // route module and is not worth a registry generation counter.
+    // action file takes effect after a successful rebuild. Registration is
+    // deferred to the commit point; failed candidates never change dispatch.
+    // This server's allowlist also makes deleted exports unreachable without
+    // clearing the process-global action registry owned by other runtimes.
     const actionModules: Record<string, Record<string, unknown>> = {};
+    const actionIds = new Set<string>();
     for (const mod of forManifest.actions ?? []) {
-      actionModules[mod.moduleId] = await loadHandler(mod.filePath);
+      const loaded = await loadHandlerCached(mod.filePath, cache);
+      actionModules[mod.moduleId] = loaded;
+      for (const [name, value] of Object.entries(loaded)) {
+        if (typeof value === 'function') actionIds.add(`${mod.moduleId}#${name}`);
+      }
     }
     const hasActions = Object.keys(actionModules).length > 0;
-    if (hasActions) registerActionModules(actionModules);
 
     // Compile route regexes for the path-existence pre-check (method-agnostic).
     const compiledApiRoutes = compileRoutes(routes);
@@ -398,11 +405,15 @@ export async function startStandaloneServer(
       app: createApiApp({ routes, globalHooks: mergedHooks, enableActions: hasActions }),
       compiledApiRoutes,
       internalPaths: hasActions ? [ACTION_ENDPOINT] : [],
+      actionModules,
+      actionIds,
     };
   }
 
   // Build initial CelsianApp and page route table
-  let { app: apiApp, compiledApiRoutes, internalPaths } = await buildStandaloneApiApp(manifest);
+  let { app: apiApp, compiledApiRoutes, internalPaths, actionModules, actionIds } = await buildStandaloneApiApp(manifest, moduleCache);
+  registerActionModules(actionModules);
+  const reload = createStandaloneReload();
   // In dev mode, compile ALL page routes — not just server/hybrid.
   // Static and server pages are SSR'd on the fly; client pages are served as
   // a shell + on-demand browser bundle (SSR'ing them would run hooks like
@@ -413,10 +424,10 @@ export async function startStandaloneServer(
   const browserScriptPath = (page: PageRoute): string =>
     '/_then/pages/' + page.filePath.replace(/^src\/pages\//, '').replace(/\.(tsx|jsx|ts|js)$/, '.js');
 
-  const browserBundleCache = new Map<string, string>();
+  let browserBundleCache = new Map<string, string>();
 
-  async function bundleBrowserPage(page: PageRoute): Promise<string> {
-    const cached = browserBundleCache.get(page.filePath);
+  async function bundleBrowserPage(page: PageRoute, cache = browserBundleCache): Promise<string> {
+    const cached = cache.get(page.filePath);
     if (cached !== undefined) return cached;
 
     const { build: esbuild } = await import('esbuild');
@@ -462,7 +473,7 @@ export async function startStandaloneServer(
     });
 
     const text = result.outputFiles[0]!.text;
-    browserBundleCache.set(page.filePath, text);
+    cache.set(page.filePath, text);
     return text;
   }
 
@@ -480,6 +491,17 @@ export async function startStandaloneServer(
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+    if (reload.handle(req, res, url)) return;
+    // A request stays on one committed generation, even across async renders.
+    const requestManifest = manifest;
+    const requestApiApp = apiApp;
+    const requestApiRoutes = compiledApiRoutes;
+    const requestPages = compiledPages;
+    const requestModules = moduleCache;
+    const requestBundles = browserBundleCache;
+    const requestInternalPaths = internalPaths;
+    const requestActionIds = actionIds;
+    const reloadScript = reload.scriptPath();
     const method = (req.method ?? 'GET').toUpperCase();
     const reqCtx = logger.requestStart(method, url.pathname);
     const log = logger.child(reqCtx.requestId);
@@ -510,7 +532,16 @@ export async function startStandaloneServer(
     // keep a visitor away from a page, and a page may be a prerendered file.
     let middlewareHeaders: Headers | undefined;
     {
-      const runner = await currentMiddlewareRunner(manifest);
+      let runner;
+      try {
+        runner = await currentMiddlewareRunner(requestManifest, requestModules);
+      } catch {
+        const html = req.headers.accept?.includes('text/html');
+        res.writeHead(500, { 'Content-Type': html ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+        const message = 'Middleware failed to load. See the dev server log.';
+        res.end(html ? wrapDocument(`<h1>500 — Server Error</h1><p>${message}</p>`, { scripts: [reloadScript] }) : message);
+        return;
+      }
       if (runner.enabled) {
         const webReq = new Request(url.toString(), {
           method,
@@ -583,7 +614,7 @@ export async function startStandaloneServer(
     }
 
     if (url.pathname === '/__tasks' && method === 'GET') {
-      const taskRoutes = manifest.api.filter(r => r.kind === 'task');
+      const taskRoutes = requestManifest.api.filter(r => r.kind === 'task');
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         tasks: taskRoutes.map(r => ({ name: r.urlPattern, config: r.config })),
@@ -593,7 +624,7 @@ export async function startStandaloneServer(
 
     if (url.pathname.startsWith('/__tasks/') && method === 'POST') {
       const taskName = url.pathname.slice('/__tasks/'.length);
-      const taskRoutes = manifest.api.filter(r => r.kind === 'task');
+      const taskRoutes = requestManifest.api.filter(r => r.kind === 'task');
       const taskRoute = taskRoutes.find(r =>
         r.urlPattern.replace(/^\/api\//, '').replace(/\//g, '.') === taskName
       );
@@ -686,12 +717,12 @@ export async function startStandaloneServer(
     }
 
     // Route info
-    if (url.pathname === '/' && manifest.pages.length === 0) {
+    if (url.pathname === '/' && requestManifest.pages.length === 0 && !req.headers.accept?.includes('text/html')) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         framework: 'Vura',
         mode: 'dev',
-        routes: manifest.api.map(r => r.methods.map(m => `${m} ${r.urlPattern}`)).flat(),
+        routes: requestManifest.api.map(r => r.methods.map(m => `${m} ${r.urlPattern}`)).flat(),
       }));
       return;
     }
@@ -702,10 +733,18 @@ export async function startStandaloneServer(
       // pattern matches this pathname, skip celsian entirely and fall through to
       // pages/404. This also correctly passes through intentional handler 404s —
       // if the route exists but returns 404, that response is delivered as-is.
-      if (matchApiPath(compiledApiRoutes, url.pathname) || internalPaths.includes(url.pathname)) {
+      if (matchApiPath(requestApiRoutes, url.pathname) || requestInternalPaths.includes(url.pathname)) {
         try {
+          if (url.pathname === ACTION_ENDPOINT && method === 'POST') {
+            const id = req.headers['x-vura-action'];
+            if (typeof id === 'string' && !requestActionIds.has(id)) {
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Action not found' }));
+              return;
+            }
+          }
           const webReq = nodeToWebRequest(req, url);
-          const webRes = await apiApp.handle(webReq);
+          const webRes = await requestApiApp.handle(webReq);
           // A matched route's response is always delivered — including intentional
           // 404s from the handler. The pre-check above guarantees the route exists.
           await writeWebResponse(res, webRes);
@@ -726,12 +765,12 @@ export async function startStandaloneServer(
     // Serve on-demand browser bundles for client/hybrid pages (mirrors the
     // production /_then/pages/*.js layout emitted by `vura build`).
     if (method === 'GET' && url.pathname.startsWith('/_then/pages/') && url.pathname.endsWith('.js')) {
-      const target = manifest.pages.find(
+      const target = requestManifest.pages.find(
         p => (p.mode === 'client' || p.mode === 'hybrid') && browserScriptPath(p) === url.pathname,
       );
       if (target) {
         try {
-          const code = await bundleBrowserPage(target);
+          const code = await bundleBrowserPage(target, requestBundles);
           res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
           res.end(code);
         } catch (err: any) {
@@ -748,10 +787,10 @@ export async function startStandaloneServer(
 
     // Try server-mode page matching (uses shared compilePageRoutes/matchPageRoute)
     if (method === 'GET' && !/\.\w+$/.test(url.pathname)) {
-      const pageMatch = matchPageRoute(compiledPages, url.pathname);
+      const pageMatch = matchPageRoute(requestPages, url.pathname);
       if (pageMatch) {
         try {
-          const mod = await loadHandler(pageMatch.page.filePath);
+          const mod = await loadHandlerCached(pageMatch.page.filePath, requestModules);
           const Component = mod.default;
           const pageConfig = mod.page ?? {};
 
@@ -763,10 +802,10 @@ export async function startStandaloneServer(
               title: pageConfig.title ?? 'Vura App',
               meta: pageConfig.meta ?? [],
               styles: pageConfig.styles ?? [],
-              scripts: [...(pageConfig.scripts ?? []), browserScriptPath(pageMatch.page)],
+              scripts: [...(pageConfig.scripts ?? []), browserScriptPath(pageMatch.page), reloadScript],
               head: pageConfig.head ?? '',
             });
-            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
             res.end(html);
             return;
           }
@@ -781,7 +820,7 @@ export async function startStandaloneServer(
             // where a developer meets the feature first.
             const layoutModules: Record<string, unknown>[] = [];
             for (const layoutPath of pageMatch.page.layouts ?? []) {
-              layoutModules.push(await loadHandler(layoutPath));
+              layoutModules.push(await loadHandlerCached(layoutPath, requestModules));
             }
 
             const runtimePage = {
@@ -804,18 +843,19 @@ export async function startStandaloneServer(
             // server that renders a streamed page as a string would hide
             // exactly the bugs streaming introduces.
             if (method === 'GET' && isStreamingPage(runtimePage as any)) {
-              const streamed = await devStreamRouteFor(pageMatch.page)({
+              const streamed = await devStreamRouteFor(pageMatch.page, reloadScript)({
                 path: url.pathname,
                 query: Object.fromEntries(url.searchParams.entries()),
                 route: { path: url.pathname, page: { mode: 'server' as const }, vura: runtimePage as any },
                 params: pageMatch.params,
                 request: webReq,
               });
+              streamed.headers.set('Cache-Control', 'no-store');
               await writeWebResponse(res, streamed);
               return;
             }
 
-            const result = await devRenderRouteFor(pageMatch.page)({
+            const result = await devRenderRouteFor(pageMatch.page, reloadScript)({
               path: url.pathname,
               query: Object.fromEntries(url.searchParams.entries()),
               config: { mode: 'server' as const },
@@ -827,6 +867,7 @@ export async function startStandaloneServer(
             res.writeHead(result.status, {
               'Content-Type': 'text/html; charset=utf-8',
               ...(result.headers ?? {}),
+              'Cache-Control': 'no-store',
             });
             res.end(result.html);
             return;
@@ -836,8 +877,8 @@ export async function startStandaloneServer(
           reportError(error, { method: 'GET', path: url.pathname, requestId: reqCtx.requestId }, logger);
           log.error(`page render error ${url.pathname}`, { error: err.message });
           if (!res.writableEnded) {
-            res.writeHead(500, { 'Content-Type': 'text/html' });
-            res.end(`<h1>500 — Server Error</h1><pre>${escapeHtml(err.message)}</pre>`);
+            res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+            res.end(wrapDocument(`<h1>500 — Server Error</h1><pre>${escapeHtml(err.message)}</pre>`, { scripts: [reloadScript] }));
           }
           return;
         }
@@ -845,8 +886,20 @@ export async function startStandaloneServer(
     }
 
     // 404
+    if (method === 'GET' && req.headers.accept?.includes('text/html')) {
+      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(wrapDocument('<h1>404 — Not Found</h1>', { scripts: [reloadScript] }));
+      return;
+    }
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not Found', path: url.pathname }));
+  });
+  // closeAllConnections() excludes upgraded sockets. Track them too so the
+  // exported lifecycle handle also closes hot-route WS clients reliably.
+  const sockets = new Set<import('node:net').Socket>();
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
   });
 
   // ─── WebSocket upgrades for hot routes ───
@@ -886,64 +939,91 @@ export async function startStandaloneServer(
     }));
   }
 
-  // Watch for file changes and re-scan manifest
-  const apiDir = join(opts.projectRoot, 'src', 'api');
-  const pagesDir = join(opts.projectRoot, 'src', 'pages');
-  const actionsDir = join(opts.projectRoot, 'src', 'actions');
-  const watchDirs = [apiDir, pagesDir, actionsDir];
-  const watchers: import('node:fs').FSWatcher[] = [];
-  for (const dir of watchDirs) {
+  // Coalesce saves and serialize rebuilds. Candidate caches stay private:
+  // HTTP/WS requests during a broken edit retain the old module identities.
+  let closed = false;
+  let rescanRequested = false;
+  let rescanTimer: ReturnType<typeof setTimeout> | undefined;
+  let rescanPromise: Promise<void> | undefined;
+  async function rescanSource(): Promise<void> {
+    rescanRequested = false;
     try {
-      const watcher = watch(dir, { recursive: true }, async (event, filename) => {
-        const prefix = dir === apiDir ? 'src/api' : 'src/pages';
-        console.log(`  [vura] ${event}: ${prefix}/${filename} — re-scanning routes`);
-        try {
-          const { buildManifest: rescan, compilePageRoutes: recompilePages } = await import('@celsian/vura-core');
-          const nextManifest = await rescan(opts.projectRoot);
-          const nextPages = recompilePages(nextManifest.pages);
-          // Build-then-swap: snapshot the module cache and clear it so the
-          // rebuild loads edited files; restore the snapshot on failure so
-          // HTTP and ws keep serving the SAME old instances during a broken
-          // edit (no ws/http state split until a successful rescan).
-          // Accepted residual: a ws connection arriving mid-rebuild may load
-          // and keep an orphaned fresh module instance until it reconnects —
-          // the failure path below restores a consistent old set for everyone
-          // else.
-          const prevModules = new Map(moduleCache);
-          moduleCache.clear();
-          try {
-            // Rebuild against the FRESH manifest (nextManifest) — `manifest`
-            // is only swapped after success, so building from the closure
-            // variable would use the stale route set (see buildStandaloneApiApp).
-            ({ app: apiApp, compiledApiRoutes, internalPaths } = await buildStandaloneApiApp(nextManifest));
-          } catch (err) {
-            moduleCache.clear();
-            for (const [k, v] of prevModules) moduleCache.set(k, v);
-            throw err;
-          }
-          manifest = nextManifest;
-          compiledPages = nextPages;
-          browserBundleCache.clear();
-          if (openWsConnections > 0) {
-            console.log('  [vura] routes re-scanned — open WebSocket clients keep their old room registry; reconnect to rejoin');
-          }
-        } catch (err) {
-          // A broken edit (e.g. syntax error) must not crash the dev server —
-          // keep serving the previous app; the next successful rescan recovers.
-          console.error(`  [vura] route re-scan failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      });
-      watchers.push(watcher);
-    } catch {
-      // Watch may fail if directory doesn't exist yet
+      const fingerprint = await sourceFingerprint(opts.projectRoot, GLOBAL_HOOKS_FILENAMES);
+      if (fingerprint === committedFingerprint || closed) return;
+      const nextManifest = await buildManifest(opts.projectRoot);
+      const nextPages = compilePageRoutes(nextManifest.pages);
+      const nextModules: ModuleCache = new Map();
+      const nextBundles = new Map<string, string>();
+      const next = await buildStandaloneApiApp(nextManifest, nextModules);
+      // Validate every server entry and browser bundle before telling a page
+      // to reload. A failed page/middleware/task import is a failed generation,
+      // not a success event followed by an unusable browser refresh.
+      if (nextManifest.middleware) await currentMiddlewareRunner(nextManifest, nextModules);
+      for (const route of nextManifest.api) {
+        if (route.kind === 'task') await loadHandlerCached(route.filePath, nextModules);
+      }
+      for (const page of nextManifest.pages) {
+        await loadHandlerCached(page.filePath, nextModules);
+        for (const layout of page.layouts ?? []) await loadHandlerCached(layout, nextModules);
+        if (page.mode === 'hybrid' || page.mode === 'client') await bundleBrowserPage(page, nextBundles);
+      }
+      if (closed) return;
+      // Saves arriving while esbuild ran invalidate the entire candidate.
+      if (await sourceFingerprint(opts.projectRoot, GLOBAL_HOOKS_FILENAMES) !== fingerprint) {
+        rescanRequested = true;
+        return;
+      }
+      if (closed) return;
+      registerActionModules(next.actionModules);
+      apiApp = next.app;
+      compiledApiRoutes = next.compiledApiRoutes;
+      internalPaths = next.internalPaths;
+      actionIds = next.actionIds;
+      manifest = nextManifest;
+      compiledPages = nextPages;
+      moduleCache = nextModules;
+      browserBundleCache = nextBundles;
+      committedFingerprint = fingerprint;
+      reload.publish();
+      console.log('  [vura] source updated — reloading browser pages');
+      if (openWsConnections > 0) {
+        console.log('  [vura] routes re-scanned — open WebSocket clients keep their old room registry; reconnect to rejoin');
+      }
+    } catch (err) {
+      console.error(`  [vura] route re-scan failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  // One SIGINT handler for all watchers — registered once, removed in close()
-  // so repeated startStandaloneServer() calls (tests) don't leak listeners.
-  const onSigint = (): void => {
-    for (const w of watchers) w.close();
-    process.exit(0);
-  };
+  function scheduleRescan(): void {
+    if (closed) return;
+    rescanRequested = true;
+    clearTimeout(rescanTimer);
+    rescanTimer = setTimeout(() => {
+      rescanTimer = undefined;
+      if (rescanPromise) return;
+      rescanPromise = rescanSource().finally(() => {
+        rescanPromise = undefined;
+        if (rescanRequested && !closed) scheduleRescan();
+      });
+    }, 60);
+    rescanTimer.unref();
+  }
+  const stopWatching = watchStandaloneSource(opts.projectRoot, GLOBAL_HOOKS_FILENAMES, scheduleRescan);
+  // Catch a save made between the initial source snapshot and watcher setup.
+  scheduleRescan();
+  let closing: Promise<void> | undefined;
+  function close(): Promise<void> {
+    return closing ??= (async () => {
+      closed = true;
+      process.off('SIGINT', onSigint);
+      clearTimeout(rescanTimer);
+      stopWatching();
+      reload.close();
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await rescanPromise;
+    })();
+  }
+  const onSigint = (): void => { void close().then(() => process.exit(0)); };
   process.on('SIGINT', onSigint);
 
   await new Promise<void>((resolve) => {
@@ -968,14 +1048,7 @@ export async function startStandaloneServer(
   return {
     server,
     port: address.port,
-    close: () =>
-      new Promise<void>((resolve) => {
-        process.off('SIGINT', onSigint);
-        for (const w of watchers) w.close();
-        // Force-close lingering (incl. upgraded) connections so close() can't hang.
-        (server as any).closeAllConnections?.();
-        server.close(() => resolve());
-      }),
+    close,
   };
 }
 
