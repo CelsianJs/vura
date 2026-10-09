@@ -30,14 +30,23 @@ function scriptTags(html: string): string[] {
 
 function isJsonDataScript(tag: string): boolean {
   const attributes = new Map<string, string>();
-  for (const match of tag.slice(7, -1).matchAll(/([^\s=<>/'"]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g)) {
+  for (const match of tag.slice(7, -1).matchAll(/([^\t\n\f\r =<>/'"]+)(?:[\t\n\f\r ]*=[\t\n\f\r ]*(?:"([^"]*)"|'([^']*)'|([^\t\n\f\r "'=<>`]+)))?/g)) {
     const name = match[1].toLowerCase();
     if (!attributes.has(name)) attributes.set(name, match[2] ?? match[3] ?? match[4] ?? '');
   }
-  return !attributes.has('src') && attributes.get('type')?.trim().toLowerCase() === 'application/json';
+  return !attributes.has('src') && /^[\t\n\f\r ]*application\/json[\t\n\f\r ]*$/.test(attributes.get('type')?.toLowerCase() ?? '');
 }
 
 describe('static-output assertion controls', () => {
+  it('uses HTML ASCII whitespace rather than JavaScript Unicode whitespace', () => {
+    for (const whitespace of ['\u00a0', '\u000b']) {
+      expect(isJsonDataScript(`<script type${whitespace}="application/json">`)).toBe(false);
+      expect(isJsonDataScript(`<script type="${whitespace}application/json">`)).toBe(false);
+      expect(isJsonDataScript(`<script type="application/json${whitespace}">`)).toBe(false);
+    }
+    expect(isJsonDataScript('<script type="\t application/json \r\n\f">')).toBe(true);
+  });
+
   it('detects uppercase and mixed-case executable script tags', () => {
     expect(scriptTags('<SCRIPT SRC="evil.js"></SCRIPT><ScRiPt>run()</ScRiPt>')).toEqual([
       '<SCRIPT SRC="evil.js">', '<ScRiPt>',
