@@ -57,8 +57,8 @@ import type {
 // CelsianApp type derived from createApiApp return — avoids needing @celsian/core as a direct dep
 type CelsianApp = ReturnType<typeof createApiApp>;
 import type { Plugin, ViteDevServer } from 'vite';
-import { existsSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 
 export interface ThenPluginOptions {
   /** Project root (default: process.cwd()) */
@@ -108,7 +108,8 @@ async function buildApiApp(
   manifest: RouteManifest,
   projectRoot: string,
   server: ViteDevServer,
-): Promise<CelsianApp> {
+  actionNamespace: string,
+): Promise<{ app: CelsianApp; actionModules: Record<string, Record<string, unknown>> }> {
   // Load each non-task route module
   const routes: RuntimeApiRoute[] = [];
   for (const route of manifest.api) {
@@ -146,19 +147,42 @@ async function buildApiApp(
   };
 
   const mergedHooks: GlobalHooks = {
-    onRequest: globalHooks?.onRequest ?? [],
+    onRequest: [...(globalHooks?.onRequest ?? [])],
     // Append dev hook after user hooks — never clobbers user hooks.
     onError: [...(globalHooks?.onError ?? []), devErrorHook],
     onResponse: globalHooks?.onResponse ?? [],
   };
 
   const actionModules: Record<string, Record<string, unknown>> = {};
+  const actionIds = new Set<string>();
   for (const action of manifest.actions ?? []) {
-    actionModules[action.moduleId] = await server.ssrLoadModule(`/${action.filePath}`);
+    const mod = await server.ssrLoadModule(`/${action.filePath}`);
+    actionModules[`${actionNamespace}/${action.moduleId}`] = mod;
+    for (const [name, value] of Object.entries(mod)) {
+      if (typeof value === 'function') actionIds.add(`${action.moduleId}#${name}`);
+    }
   }
   const enableActions = Object.keys(actionModules).length > 0;
-  if (enableActions) registerActionModules(actionModules);
-  return createApiApp({ routes, globalHooks: mergedHooks, enableActions });
+  // Each committed generation gets its own registry namespace. The browser
+  // keeps stable public ids; only this app's current allowlist can map them to
+  // callable ids. Deleted exports cannot reach an older global registration,
+  // and this server never clears or overwrites another app's action registry.
+  mergedHooks.onRequest!.push((req: any) => {
+    if (req.method !== 'POST' || new URL(req.url, 'http://localhost').pathname !== ACTION_ENDPOINT) return;
+    const id = req.headers.get('x-vura-action');
+    if (!id) return;
+    req.headers.set('x-vura-action', actionIds.has(id) ? `${actionNamespace}/${id}` : `${actionNamespace}/unregistered`);
+  });
+  return { app: createApiApp({ routes, globalHooks: mergedHooks, enableActions }), actionModules };
+}
+
+function realPath(path: string): string {
+  try { return realpathSync(path); } catch { return resolve(path); }
+}
+
+function isInside(directory: string, path: string): boolean {
+  const rel = relative(directory, path);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
 export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
@@ -186,7 +210,10 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
       const logger = getLogger();
 
       // Build the initial CelsianApp and compile route regexes for 404 pre-check
-      apiApp = await buildApiApp(manifest, projectRoot, server);
+      const actionServerId = `vite:${crypto.randomUUID()}`;
+      const initialApp = await buildApiApp(manifest, projectRoot, server, `${actionServerId}:0`);
+      registerActionModules(initialApp.actionModules);
+      apiApp = initialApp.app;
       compiledApiRoutes = compileRoutes(manifest.api.filter(r => r.kind !== 'task'));
 
       // ── Browser page bundles (client/hybrid) — on-demand esbuild, dev cache ──
@@ -199,10 +226,12 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
         '/_then/pages/' + page.filePath.replace(/^src\/pages\//, '').replace(/\.(tsx|jsx|ts|js)$/, '.js');
 
       const browserBundleCache = new Map<string, string>();
+      let sourceRevision = 0;
 
       async function bundleBrowserPage(page: PageRoute): Promise<string> {
         const cached = browserBundleCache.get(page.filePath);
         if (cached !== undefined) return cached;
+        const revision = sourceRevision;
 
         const { build: esbuild } = await import('esbuild');
         const { dirname, basename, resolve } = await import('node:path');
@@ -241,35 +270,34 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
         });
 
         const text = result.outputFiles[0]!.text;
-        browserBundleCache.set(page.filePath, text);
+        if (revision === sourceRevision) browserBundleCache.set(page.filePath, text);
         return text;
       }
 
       // Watch route, action, middleware and shared browser dependencies.
-      const apiDir = `${projectRoot}/src/api`;
-      const pagesDir = `${projectRoot}/src/pages`;
-      const actionsDir = `${projectRoot}/src/actions`;
-      const srcDir = `${projectRoot}/src`;
+      const srcDir = join(projectRoot, 'src');
       server.watcher.add(srcDir);
 
       // Open ws connection count — used by the rescan notice below.
       let openWsConnections = 0;
-      const rescanOnChange = async (file: string) => {
-        // Bundles can import shared components outside pages and actions too.
-        if (file.startsWith(srcDir + '/')) browserBundleCache.clear();
-        if ([apiDir, pagesDir, actionsDir].some(dir => file.startsWith(dir + '/')) ||
-          /^middleware\.(ts|tsx|js|jsx|mts|mjs)$/.test(relative(srcDir, file))) {
-          const rel = file.replace(projectRoot + '/', '');
-          console.log(`  [then] Route changed: ${rel}`);
+      let rebuild: Promise<void> | undefined;
+      const rebuildSources = async () => {
+        // Let Vite's watcher callback invalidate its SSR dependency graph
+        // before loading it. Multiple events share one loop; an obsolete build
+        // never registers actions or swaps the live app/manifest.
+        await new Promise<void>(done => setImmediate(done));
+        let revision: number;
+        do {
+          revision = sourceRevision;
           try {
             const nextManifest = await buildManifest(projectRoot);
-            // Rebuild the CelsianApp and route regexes with fresh modules,
-            // swapping only on success — a broken edit (syntax error) must
-            // not crash the dev server via an unhandled rejection.
-            apiApp = await buildApiApp(nextManifest, projectRoot, server);
+            const nextApp = await buildApiApp(nextManifest, projectRoot, server, `${actionServerId}:${revision}`);
+            const nextApiRoutes = compileRoutes(nextManifest.api.filter(r => r.kind !== 'task'));
+            if (revision !== sourceRevision) continue;
+            registerActionModules(nextApp.actionModules);
+            apiApp = nextApp.app;
             manifest = nextManifest;
-            compiledApiRoutes = compileRoutes(manifest.api.filter(r => r.kind !== 'task'));
-            // Drop stale client/hybrid bundles so page edits apply on next request.
+            compiledApiRoutes = nextApiRoutes;
             browserBundleCache.clear();
             // The rebuilt app has a NEW wsRegistry; peers connected before this
             // rescan stay in the old one, so broadcasts split until reconnect.
@@ -279,12 +307,65 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
           } catch (err) {
             console.error(`  [then] route re-scan failed: ${err instanceof Error ? err.message : String(err)}`);
           }
+        } while (revision !== sourceRevision);
+      };
+      const rescanOnChange = (file: string) => {
+        if (!isInside(resolve(srcDir), resolve(file))) return;
+        sourceRevision++;
+        browserBundleCache.clear();
+        if (!rebuild) {
+          rebuild = rebuildSources().finally(() => { rebuild = undefined; });
         }
+        return rebuild;
       };
 
       server.watcher.on('change', rescanOnChange);
       server.watcher.on('add', rescanOnChange);
       server.watcher.on('unlink', rescanOnChange);
+
+      // Vite's default source server can serve private modules directly,
+      // bypassing the browser bundle's action stubs. This HTTP-only boundary
+      // blocks normal, ?raw, encoded and /@fs URLs; ssrLoadModule still loads
+      // the real modules internally. Real paths cover symlinked sources too.
+      server.middlewares.use(async (req, res, next) => {
+        // Requests arriving during an edit observe one fully committed source
+        // generation, including action deletions and shared dependency edits.
+        if (rebuild) await rebuild;
+        let pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+        try {
+          // Nested escaping must never turn a private-source path into a
+          // fallback to Vite's less restrictive URL decoding.
+          for (let i = 0; i < 8; i++) {
+            const decoded = decodeURIComponent(pathname);
+            if (decoded === pathname) break;
+            pathname = decoded;
+          }
+        } catch {
+          res.statusCode = 400;
+          res.end('Invalid source path');
+          return;
+        }
+        const base = server.config.base;
+        if (base !== '/' && pathname.startsWith(base)) pathname = '/' + pathname.slice(base.length);
+        const source = pathname.startsWith('/@fs/')
+          ? pathname.slice('/@fs'.length)
+          : resolve(projectRoot, '.' + pathname);
+        const candidate = realPath(source);
+        const privateDirectories = ['actions', 'api'].map(dir => realPath(join(srcDir, dir)));
+        const privateFiles = [manifest.middleware, ...(manifest.actions ?? []).map(action => action.filePath), ...manifest.api.map(route => route.filePath)]
+          .filter((file): file is string => file !== undefined)
+          .map(file => realPath(resolve(projectRoot, file)));
+        if (privateDirectories.some(dir => isInside(dir, candidate)) ||
+          ['actions', 'api'].some(dir => isInside(resolve(srcDir, dir), resolve(source))) || privateFiles.includes(candidate) ||
+          /^middleware\.(?:tsx?|jsx?|mts|mjs)$/.test(relative(realPath(srcDir), candidate))) {
+          res.statusCode = 403;
+          res.setHeader('Cache-Control', 'private, no-store');
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.end('Server-only source');
+          return;
+        }
+        next();
+      });
 
       // ─── WebSocket upgrades for hot routes ───
       // Vite's own HMR websocket shares this HTTP server: its listener only
@@ -379,6 +460,7 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
       // ─── Task management middleware ───
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+
         const method = (req.method ?? 'GET').toUpperCase();
 
         if (!url.pathname.startsWith('/__tasks')) {

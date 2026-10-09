@@ -12,6 +12,8 @@ Static, server, and hybrid pages use the shared Vura renderer, including hooks, 
 
 `src/middleware.ts` runs before pages, APIs, and static serving. Server actions under `src/actions` are registered at `/__vura/action`, and their browser imports become fetch stubs instead of shipping server code. The native action endpoint enforces same-origin and CSRF checks, **not user authorization**: middleware skips framework-internal endpoints, so enforce session and permission checks inside your action handlers.
 
+Direct HTTP requests for action, API, and middleware source are blocked, including Vite's raw and filesystem URLs; internal server module loading remains available. Source edits rebuild the API/action generation and invalidate browser bundles, including changes to shared dependencies. Deleted or renamed actions stop being callable after a successful rescan without clearing another app's action registry.
+
 ## Install
 
 ```sh
