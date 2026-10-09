@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { compileRoutes, matchApiPath, compilePageRoutes, matchPageRoute } from '../src/match.js';
 import type { ApiRoute, PageRoute } from '../src/manifest.js';
+import { fileToUrlPattern } from '../src/manifest.js';
 
 const apiRoutes: ApiRoute[] = [
   { filePath: 'src/api/hello.ts', urlPattern: '/api/hello', methods: ['GET'], kind: 'serverless', config: {} },
@@ -88,6 +89,26 @@ describe('compilePageRoutes', () => {
 });
 
 describe('matchPageRoute', () => {
+  it('matches the named catch-all emitted by the file scanner', () => {
+    const page: PageRoute = { filePath: 'src/pages/docs/[...rest].tsx', urlPattern: fileToUrlPattern('docs/[...rest].tsx', ''), mode: 'server', config: {} };
+    expect(page.urlPattern).toBe('/docs/*rest');
+    const compiled = compilePageRoutes([page]);
+    expect(matchPageRoute(compiled, '/docs/a/b')?.params).toEqual({ rest: 'a/b' });
+    expect(matchPageRoute(compiled, '/docs/a/brest')?.params).toEqual({ rest: 'a/brest' });
+    expect(matchPageRoute(compiled, '/docs/hello%20world/a%2Fb')?.params).toEqual({ rest: 'hello world/a/b' });
+    expect(matchPageRoute(compiled, '/docs/%ZZ')?.params).toEqual({ rest: '%ZZ' });
+    expect(matchPageRoute(compiled, '/docs/')?.params).toEqual({ rest: '' });
+    expect(matchPageRoute(compiled, '/docs')).toBeNull();
+  });
+
+  it('combines scanner-generated dynamic and named catch-all API segments', () => {
+    const route: ApiRoute = { filePath: 'src/api/v1.0/[id]/[...rest].ts', urlPattern: fileToUrlPattern('v1.0/[id]/[...rest].ts', '/api'), methods: ['GET'], kind: 'serverless', config: {} };
+    const compiled = compileRoutes([route]);
+    expect(compiled[0].paramNames).toEqual(['id', 'rest']);
+    expect(matchApiPath(compiled, '/api/v1.0/42/a/b')).toBe(true);
+    expect(matchApiPath(compiled, '/api/v1X0/42/a/b')).toBe(false);
+  });
+
   it('matches the root page', () => {
     const result = matchPageRoute(pageRoutes, '/');
     expect(result).not.toBeNull();

@@ -54,10 +54,15 @@ function compilePattern(pattern: string): { regex: RegExp; paramNames: string[] 
       paramNames.push(name);
       regexStr += '([^/]+)';
     } else if (pattern[i] === '*') {
-      // Wildcard — capture rest of path
-      paramNames.push('*');
-      regexStr += '(.*)';
+      // Named or anonymous wildcard — capture rest of path
+      let name = '';
       i++;
+      while (i < pattern.length && /[a-zA-Z0-9_]/.test(pattern[i])) {
+        name += pattern[i];
+        i++;
+      }
+      paramNames.push(name || '*');
+      regexStr += '(.*)';
     } else {
       // Escape regex-special characters
       const ch = pattern[i];

@@ -333,7 +333,9 @@ function matchRoute(pathname, method) {
         while (i < route.pattern.length && /[a-zA-Z0-9_]/.test(route.pattern[i])) { name += route.pattern[i]; i++; }
         paramNames.push(name); regexStr += '([^/]+)';
       } else if (route.pattern[i] === '*') {
-        paramNames.push('*'); regexStr += '(.*)'; i++;
+        let name = ''; i++;
+        while (i < route.pattern.length && /[a-zA-Z0-9_]/.test(route.pattern[i])) { name += route.pattern[i]; i++; }
+        paramNames.push(name || '*'); regexStr += '(.*)';
       } else {
         const ch = route.pattern[i];
         if ('.+?^\${}()|[]\\\\'.includes(ch)) regexStr += '\\\\' + ch;
