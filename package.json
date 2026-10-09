@@ -42,12 +42,15 @@
     ],
     "overrides": {
       "@types/node": "26.4.0",
-      "js-yaml": "^4.3.1"
+      "js-yaml": "^4.3.2",
+      "sharp": "^0.35.5",
+      "undici": "^7.29.1",
+      "source-map-js": "^1.2.2"
     }
   },
   "dependencies": {
-    "what-core": "^0.13.8",
-    "what-framework": "^0.13.8"
+    "what-core": "^0.13.11",
+    "what-framework": "^0.13.11"
   },
   "license": "MIT",
   "packageManager": "pnpm@10.11.0",

@@ -135,9 +135,7 @@ describe('cookieSession — integration tests', () => {
     expect(res.headers.get('set-cookie')).toContain('vura_session=');
   });
 
-  it('mutation + raw Response return → set-cookie ABSENT (documented limitation)', async () => {
-    // Handlers returning `new Response(...)` bypass celsian's reply.headers entirely.
-    // Set-Cookie is NOT emitted. This is a known limitation documented in auth.ts.
+  it('persists a session mutation through a raw Node Response return', async () => {
     const app = createApp({ logger: false });
     app.addHook('onRequest', cookieSession({ secret: SECRET }));
     app.get('/raw', (req: any) => {
@@ -147,10 +145,19 @@ describe('cookieSession — integration tests', () => {
         headers: { 'content-type': 'application/json' },
       });
     });
+    app.get('/read', (req: any, reply: any) => reply.json({ x: req.session.x }));
 
     const res = await app.handle(new Request('http://x/raw'));
-    // Documented: raw Response return does not emit Set-Cookie
-    expect(res.headers.get('set-cookie')).toBeNull();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    const cookie = res.headers.get('set-cookie');
+    expect(cookie).toContain('vura_session=');
+    expect(cookie).toContain('HttpOnly');
+    const read = await app.handle(new Request('http://x/read', {
+      headers: { cookie: cookieHeaderFrom(cookie!) },
+    }));
+    expect(await read.json()).toEqual({ x: 1 });
+    expect(read.headers.get('set-cookie')).toBeNull();
   });
 
   it('delete key → session rewritten', async () => {

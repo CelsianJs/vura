@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +25,30 @@ afterEach(async () => {
 });
 
 describe('build matrix contract', () => {
+  it('builds static and hybrid cells through the default CLI and cleans its temporary fixtures', async () => {
+    const temporaryParent = await temporaryRoot();
+    const result = await runProcess(process.execPath, [
+      join(repoRoot, 'benchmarks/build-matrix/run.mjs'),
+      '--cells', 'small-static,small-hybrid', '--json',
+      '--cell-timeout-ms', '60000', '--bootstrap-timeout-ms', '60000',
+    ], repoRoot, { timeoutMs: 120_000, env: { ...process.env, TMPDIR: temporaryParent } });
+
+    expect((await readdir(temporaryParent)).filter((name) => name.startsWith('vura-build-matrix-'))).toEqual([]);
+    expect(result.stderr).not.toContain('Cannot find package');
+    expect(result.exitCode).toBe(0);
+    const report = JSON.parse(result.stdout);
+    expect(report).toMatchObject({ ok: true, cellCount: 2 });
+    expect(report.toolRevision).toMatchObject({
+      whatFrameworkVersion: JSON.parse(await readFile(join(repoRoot, 'packages/cli/node_modules/what-framework/package.json'), 'utf8')).version,
+      celsianCoreVersion: JSON.parse(await readFile(join(repoRoot, 'packages/core/node_modules/@celsian/core/package.json'), 'utf8')).version,
+    });
+    expect(report.bootstrapDurationMs).toBeGreaterThan(0);
+    expect(report.results.map((cell: { id: string }) => cell.id)).toEqual(['small-static', 'small-hybrid']);
+    expect(report.results.every((cell: { manifestValidated: boolean }) => cell.manifestValidated)).toBe(true);
+    expect(report.results.every((cell: { setupDurationMs: number }) => cell.setupDurationMs > 0)).toBe(true);
+    expect(result.stdout).not.toContain(temporaryParent);
+  }, 120_000);
+
   it('defines exactly 15 unique cells without an Edge placement', () => {
     expect(MATRIX_SPECS).toHaveLength(15);
     expect(new Set(MATRIX_SPECS.map((spec) => spec.id))).toHaveLength(15);
@@ -105,6 +129,63 @@ describe('build matrix contract', () => {
     await expect(access(join(second.fixtureRoot, 'stale.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(readFile(join(second.fixtureRoot, FIXTURE_OWNERSHIP_MARKER), 'utf8'))
       .resolves.toContain('"owner": "vura-build-matrix"');
+  });
+
+  it('links only each owned fixture, leaving a custom root dependency directory untouched', async () => {
+    const outputRoot = await temporaryRoot();
+    const unownedDependencies = join(outputRoot, 'node_modules');
+    await mkdir(unownedDependencies);
+    await writeFile(join(unownedDependencies, 'keep-me.txt'), 'user-owned\n');
+    const { fixtureRoot } = await generateFixture({ repoRoot, outputRoot, spec: getMatrixSpec('small-static') });
+
+    expect((await lstat(join(fixtureRoot, 'node_modules'))).isSymbolicLink()).toBe(true);
+    expect(await realpath(join(fixtureRoot, 'node_modules')))
+      .toBe(await realpath(join(repoRoot, 'packages/cli/node_modules')));
+    expect(await readFile(join(unownedDependencies, 'keep-me.txt'), 'utf8')).toBe('user-owned\n');
+    await expect(validateFixtureSource(fixtureRoot)).resolves.toMatchObject({ id: 'small-static' });
+  });
+
+  it('excludes dependency contents from the fixture source checksum', async () => {
+    const outputRoot = await temporaryRoot();
+    const { fixtureRoot, contract } = await generateFixture({ repoRoot, outputRoot, spec: getMatrixSpec('small-static') });
+    // Replace the owned link, not its installed workspace target.
+    await rm(join(fixtureRoot, 'node_modules'));
+    await mkdir(join(fixtureRoot, 'node_modules'));
+    await writeFile(join(fixtureRoot, 'node_modules', 'dependency.txt'), 'not fixture source\n');
+
+    await expect(validateFixtureSource(fixtureRoot)).resolves.toEqual(contract);
+  });
+
+  it('rejects symlink fixture cells and custom roots without modifying their targets', async () => {
+    const outputRoot = await temporaryRoot();
+    const target = await temporaryRoot();
+    await writeFile(join(target, 'keep-me.txt'), 'user-owned\n');
+    await symlink(target, join(outputRoot, 'small-static'), process.platform === 'win32' ? 'junction' : 'dir');
+    await expect(generateFixture({ repoRoot, outputRoot, spec: getMatrixSpec('small-static') }))
+      .rejects.toThrow('refusing to replace unowned fixture path');
+    const rootLink = join(outputRoot, 'root-link');
+    await symlink(target, rootLink, process.platform === 'win32' ? 'junction' : 'dir');
+    await expect(withFixturesRoot(rootLink, async () => { throw new Error('operation should not run'); }))
+      .rejects.toThrow('refusing to use a symlink or non-directory fixtures root');
+    expect(await readFile(join(target, 'keep-me.txt'), 'utf8')).toBe('user-owned\n');
+  });
+
+  it('cleans owned dependency links on failure without removing installed dependencies', async () => {
+    let ownedRoot = '';
+    const installedDependencies = await realpath(join(repoRoot, 'packages/cli/node_modules'));
+    await expect(withFixturesRoot(undefined, async (outputRoot: string) => {
+      ownedRoot = outputRoot;
+      const { fixtureRoot } = await generateFixture({ repoRoot, outputRoot, spec: getMatrixSpec('small-static') });
+      expect(await realpath(join(fixtureRoot, 'node_modules'))).toBe(installedDependencies);
+      throw new Error('fixture build failure');
+    })).rejects.toThrow('fixture build failure');
+
+    await expect(access(ownedRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(installedDependencies)).resolves.toBeUndefined();
+  });
+
+  it.each([0, -1, 1.5, NaN, 3_600_001])('rejects malformed timeout %s before starting a child', (timeoutMs) => {
+    expect(() => runProcess(process.execPath, ['-e', ''], repoRoot, { timeoutMs })).toThrow();
   });
 
   it('terminates timed-out child processes and removes harness-owned temporary fixture roots', async () => {

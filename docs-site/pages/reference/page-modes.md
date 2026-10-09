@@ -72,6 +72,40 @@ export default function Post({ data }) {
 
 **Without `revalidate`:** the page renders fresh on every request. `Cache-Control: private, no-store` is set by What Framework's request handler — Vura does not override it.
 
+### Request-specific data and cache variants
+
+Prefer `mode: 'server'` without `revalidate` for authenticated or personalized
+pages. Adding `revalidate` opts into shared rendered-output caching; a loader
+reading a session cookie does not automatically make that cache private.
+
+When an origin-cached page intentionally varies by a request header or cookie,
+declare every source that affects its output:
+
+```ts
+export const page = {
+  mode: 'server',
+  revalidate: 60,
+  vary: ['cookie:session', 'accept-language'],
+};
+```
+
+`vary` accepts a string or an array of strings. Cookie sources use
+`cookie:<name>`; header sources use the header name or `header:<name>`. These
+variants have separate origin cache entries and send `Cache-Control: private,
+no-store` with `Vary`, so a shared CDN must not store them. Ordinary query
+parameters participate in the cache key, including the order of repeated values.
+Tracking parameters (`utm_*`, `fbclid`, `gclid`, `_`, `mc_cid`, `mc_eid`) are
+excluded: do not make cached output or identity depend on them. `query:<name>`
+is not a supported `vary` source. An omitted, null or empty-array declaration
+means no variants. Other unsupported declaration shapes or source kinds bypass
+caching rather than silently sharing a render. This policy
+does not authenticate a caller: loaders must still verify access to protected
+data before returning it.
+
+On upgrade, clear or isolate any persistent ISR entries created before this
+policy was preserved. Previously shared entries cannot be reconstructed into
+their original user-specific variants.
+
 **Hydration:** none. Server-rendered HTML arrives complete. If you need client-side interactivity on a server-rendered page, use `hybrid` instead.
 
 **When to use:** pages that need data from a database or API, pages with per-user content, any page where content changes between deploys.

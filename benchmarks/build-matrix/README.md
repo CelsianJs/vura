@@ -22,6 +22,11 @@ output checksum are stored for every cell.
 
 ## Run
 
+From a clone, first install the workspace prerequisites with the pinned package
+manager (`pnpm install --frozen-lockfile`) on a supported Node version. This
+benchmarks the current workspace source; it is not a fresh registry installation
+benchmark and performs no network installs.
+
 ```sh
 node benchmarks/build-matrix/run.mjs --json
 ```
@@ -52,12 +57,28 @@ the CLI and its project references. This bootstrap time is intentionally
 excluded from fixture build durations, so stale ignored `dist/` output cannot
 silently benchmark an older CLI revision.
 
+Each newly owned fixture receives a `node_modules` directory link (a junction
+on Windows) to the current CLI's installed workspace dependency closure. This
+lets build-time page imports resolve the same What and workspace core packages
+even when the default fixture directory is outside the checkout. The harness
+never installs dependencies or changes a custom fixture root's dependency
+directory. Dependency contents are explicitly excluded from fixture source
+checksums; generated source, route counts and assets remain checked.
+
+`bootstrapDurationMs` records the framework CLI source bootstrap separately.
+Each cell's `setupDurationMs` includes source/asset generation, dependency linking
+and source validation. Both are excluded from `durationMs`, which measures the
+real app build subprocess. Resolved What Framework and Celsian Core versions
+are included in `toolRevision` and fixture contracts. Filesystem caches are not
+flushed, and dependency installation is not included in these app build timings.
+
 Temporary generated fixtures are removed on both success and failure. Pass
 `--fixtures-root <path>` only when you intentionally want to keep them for
 inspection. Existing cell directories are replaced only when they contain the
 matching `.vura-build-matrix-owned.json` ownership marker. The harness refuses
-to recursively delete an unmarked directory. Every CLI bootstrap and cell
-build has a bounded timeout; timed-out process groups receive `SIGTERM`, then
+to recursively delete an unmarked directory. The harness also rejects symlink
+fixture cells and custom fixture roots. Every CLI bootstrap and cell build has
+a bounded timeout; timed-out process groups receive `SIGTERM`, then
 `SIGKILL` after a short grace period, before temporary-root cleanup runs. The
 timeouts can also be set with `VURA_BUILD_MATRIX_CELL_TIMEOUT_MS` and
 `VURA_BUILD_MATRIX_BOOTSTRAP_TIMEOUT_MS`; process deadlines cannot exceed one

@@ -310,6 +310,22 @@ function toLogicalId(route: ApiRoute, method: HttpMethod): string {
   return id.replace(/[^a-zA-Z0-9]/g, '');
 }
 
+// Reserve ordinary IDs first, including names that look like generated suffixes.
+// Only colliding descriptors change; their public paths and CodeUri stay intact.
+function uniqueSamFunctions(functions: SamFunction[]): SamFunction[] {
+  const counts = new Map<string, number>();
+  for (const fn of functions) counts.set(fn.name, (counts.get(fn.name) ?? 0) + 1);
+  const used = new Set(counts.keys());
+  return functions.map((fn, index) => {
+    if (counts.get(fn.name)! === 1) return fn;
+    let suffix = index;
+    let name: string;
+    do { name = `${fn.name}${suffix++}`; } while (used.has(name));
+    used.add(name);
+    return { ...fn, name };
+  });
+}
+
 /**
  * A CloudFormation-safe event id for a page's HttpApi route.
  *
@@ -365,7 +381,7 @@ ${corsHeaders}` : '';
       StageName: prod${corsBlock}`);
 
   // Lambda functions
-  for (const fn of functions) {
+  for (const fn of uniqueSamFunctions(functions)) {
     // Check if this is a task route with a schedule
     const isTask = fn.route.kind === 'task';
     const schedule = fn.route.config.schedule as string | undefined;
@@ -1042,6 +1058,10 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
 
     async buildEnd(ctx: AdapterBuildContext): Promise<void> {
       const { manifest, outDir } = ctx;
+      const unsupported = [manifest.middleware && 'middleware', manifest.actions?.length && 'actions'].filter(Boolean);
+      if (unsupported.length > 0) {
+        throw new Error(`[vura] lambda does not support ${unsupported.join(' and ')}; deploy this app to Node or Vura instead.`);
+      }
       const lambdaDir = join(outDir, 'lambda');
       await mkdir(lambdaDir, { recursive: true });
 

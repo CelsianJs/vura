@@ -16,6 +16,7 @@ import {
   maskNonCode,
   readPageConfig,
   readRouteConfig,
+  hasLegacyServerImport,
 } from '@celsian/vura-compiler';
 import { ACTIONS_DIR, actionModuleId, extractActionExports } from './actions-build.js';
 
@@ -93,7 +94,7 @@ export function extractPageConfig(source: string): {
   if (!modeWasDeclared) {
     if (hasLoader ||
         hasGetServerData ||
-        /import\s+.*from\s+['"]then\/server['"]/.test(source) ||
+        hasLegacyServerImport(source) ||
         /useSWR|useQuery|useServerData/.test(code)) {
       mode = 'server';
     }
@@ -119,15 +120,30 @@ export function fileToUrlPattern(filePath: string, prefix: string): string {
   }
 
   // Convert [param] to :param
-  url = url.replace(/\[([^\]]+)\]/g, ':$1');
+  url = replaceSegments(url, '[', ']', value => ':' + value);
 
   // Convert [...param] to *param (catch-all)
   url = url.replace(/:\.\.\.(\w+)/g, '*$1');
 
   // Remove route groups: (auth)/ → nothing
-  url = url.replace(/\/\([^)]+\)/g, '');
+  url = replaceSegments(url, '/(', ')', () => '');
 
   return url || '/';
+}
+
+function replaceSegments(source: string, open: string, close: string, replace: (value: string) => string): string {
+  const parts: string[] = [];
+  let cursor = 0;
+  for (;;) {
+    const start = source.indexOf(open, cursor);
+    if (start < 0) break;
+    const end = source.indexOf(close, start + open.length);
+    if (end < 0) break;
+    const value = source.slice(start + open.length, end);
+    parts.push(source.slice(cursor, start), value ? replace(value) : source.slice(start, end + close.length));
+    cursor = end + close.length;
+  }
+  return parts.join('') + source.slice(cursor);
 }
 
 /**
@@ -271,7 +287,7 @@ export async function buildManifest(projectRoot: string): Promise<RouteManifest>
     api.push({
       filePath: relative(projectRoot, file),
       urlPattern: fileToUrlPattern(
-        relPath.replace(/\.(ts|js|mjs)$/, ''),
+        relPath,
         '/api',
       ),
       methods,
@@ -304,7 +320,7 @@ export async function buildManifest(projectRoot: string): Promise<RouteManifest>
     pages.push({
       filePath: relative(projectRoot, file),
       urlPattern: fileToUrlPattern(
-        relPath.replace(/\.(tsx|jsx|ts|js)$/, ''),
+        relPath,
         '',
       ),
       mode,

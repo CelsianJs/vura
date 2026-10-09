@@ -19,6 +19,35 @@ afterEach(async () => {
 const base = () => `http://127.0.0.1:${srv!.port}`;
 
 describe('startVuraServer', () => {
+  it('page middleware does not authenticate server actions', async () => {
+    srv = await startVuraServer({
+      port: 0, host: '127.0.0.1', apiRoutes: [], pages: [],
+      installSignalHandlers: false,
+      middleware: { default: (ctx) => {
+        if (!ctx.cookies.has('session')) return ctx.deny(401, 'Sign in');
+      } },
+      actions: { todos: { add: (text: string) => ({ text }) } },
+    });
+    expect((await fetch(`${base()}/dashboard`)).status).toBe(401);
+    const tokenResponse = await fetch(`${base()}/__vura/action`, {
+      headers: { origin: base(), 'sec-fetch-site': 'same-origin' },
+    });
+    expect(tokenResponse.status).toBe(200);
+    const { token } = await tokenResponse.json();
+    const cookie = tokenResponse.headers.get('set-cookie')!.split(';')[0]!;
+    const response = await fetch(`${base()}/__vura/action`, {
+      method: 'POST',
+      headers: {
+        origin: base(), 'sec-fetch-site': 'same-origin',
+        'content-type': 'application/json', 'x-vura-action': 'todos#add',
+        'x-vura-csrf': token, cookie,
+      },
+      body: JSON.stringify({ args: ['anonymous caller'] }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ result: { text: 'anonymous caller' } });
+  });
+
   it('binds to 0.0.0.0 by default in production so container proxies can reach it', async () => {
     const previousNodeEnv = process.env.NODE_ENV;
     const previousHost = process.env.HOST;
