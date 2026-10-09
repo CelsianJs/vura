@@ -25,8 +25,36 @@ beforeAll(async () => {
 
 /** Every `<script …>` open tag in a document, with its attributes. */
 function scriptTags(html: string): string[] {
-  return html.match(/<script\b[^>]*>/g) ?? [];
+  return html.match(/<script\b(?:[^"'<>]|"[^"]*"|'[^']*')*>/gi) ?? [];
 }
+
+function isJsonDataScript(tag: string): boolean {
+  const attributes = new Map<string, string>();
+  for (const match of tag.slice(7, -1).matchAll(/([^\s=<>/'"]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g)) {
+    const name = match[1].toLowerCase();
+    if (!attributes.has(name)) attributes.set(name, match[2] ?? match[3] ?? match[4] ?? '');
+  }
+  return !attributes.has('src') && attributes.get('type')?.trim().toLowerCase() === 'application/json';
+}
+
+describe('static-output assertion controls', () => {
+  it('detects uppercase and mixed-case executable script tags', () => {
+    expect(scriptTags('<SCRIPT SRC="evil.js"></SCRIPT><ScRiPt>run()</ScRiPt>')).toEqual([
+      '<SCRIPT SRC="evil.js">', '<ScRiPt>',
+    ]);
+  });
+
+  it('allows only exact JSON data scripts, not lookalike attributes or executable controls', () => {
+    expect(isJsonDataScript('<SCRIPT TYPE="application/json" id="__VURA_LOADER__">')).toBe(true);
+    for (const tag of [
+      '<SCRIPT SRC="evil.js">', '<script data-type="application/json">',
+      '<script type="application/json-evil">', '<script type="application/json" src="evil.js">',
+      '<script type="text/javascript" type="application/json">',
+      '<script title=\'type="application/json"\'>',
+    ]) expect(isJsonDataScript(tag), tag).toBe(false);
+    expect(scriptTags('<script title="a > b" type="application/json">')).toHaveLength(1);
+  });
+});
 
 function staticPage(...segments: string[]): string {
   const path = join(app.dir, 'dist', 'static', ...segments);
@@ -45,7 +73,7 @@ describe('S1: static pages ship zero framework JavaScript', () => {
   it('a static page carries no executable script tag', () => {
     for (const html of [staticPage('index.html'), staticPage('loaders', 'prebuilt', 'index.html')]) {
       for (const tag of scriptTags(html)) {
-        expect(tag, `unexpected script tag: ${tag}`).toContain('type="application/json"');
+        expect(isJsonDataScript(tag), `unexpected executable script tag: ${tag}`).toBe(true);
       }
     }
   });

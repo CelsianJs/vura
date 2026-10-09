@@ -2,6 +2,7 @@ import { buildManifest } from '../../packages/core/dist/index.js';
 import { lambdaAdapter } from '../../packages/adapter-lambda/dist/index.js';
 import { join } from 'path';
 import { readFile, rm } from 'fs/promises';
+import { hasConfiguredCorsOrigins } from './cors-template.mjs';
 
 const root = process.cwd();
 const manifest = await buildManifest(root);
@@ -10,13 +11,14 @@ console.log('=== Lambda Adapter Test ===');
 
 await rm(join(root, 'dist'), { recursive: true, force: true });
 
+const configuredOrigins = ['https://example.com'];
 const adapter = lambdaAdapter({
   region: 'us-east-1',
   memory: 256,
   timeout: 30,
   stackName: 'test-app',
   cors: {
-    allowOrigins: ['https://example.com'],
+    allowOrigins: configuredOrigins,
     allowMethods: ['GET', 'POST'],
     allowHeaders: ['Content-Type', 'Authorization'],
   },
@@ -39,8 +41,9 @@ const hasWildcardCors = template.includes('"*"');
 console.log('No wildcard CORS:', !hasWildcardCors ? 'PASS' : 'FAIL');
 
 // Should have our configured origins
-const hasConfiguredOrigins = template.includes('https://example.com');
+const hasConfiguredOrigins = hasConfiguredCorsOrigins(template, configuredOrigins);
 console.log('Configured CORS origins:', hasConfiguredOrigins ? 'PASS' : 'FAIL');
+if (!hasConfiguredOrigins) process.exitCode = 1;
 
 // Task routes should have Schedule events
 const hasScheduleEvent = template.includes('Type: Schedule');
