@@ -831,11 +831,14 @@ function routeToVarName(route: ApiRoute): string {
 }
 
 function routeModuleFileName(route: ApiRoute): string {
-  return route.filePath
+  const name = route.filePath
     .replace(/\.[cm]?tsx?$/, '')
     .replace(/[^a-zA-Z0-9_/-]/g, '_')
-    .replace(/[/-]+/g, '_')
-    .replace(/^_+|_+$/g, '') + '.js';
+    .replace(/[/-]+/g, '_');
+  let start = 0, end = name.length;
+  while (start < end && name[start] === '_') start++;
+  while (end > start && name[end - 1] === '_') end--;
+  return name.slice(start, end) + '.js';
 }
 
 // Reserve every legacy basename before allocating collision suffixes, so a
