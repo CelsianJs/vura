@@ -58,7 +58,7 @@ import type {
 type CelsianApp = ReturnType<typeof createApiApp>;
 import type { Plugin, ViteDevServer } from 'vite';
 import { existsSync, realpathSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export interface ThenPluginOptions {
   /** Project root (default: process.cwd()) */
@@ -182,7 +182,7 @@ function realPath(path: string): string {
 
 function isInside(directory: string, path: string): boolean {
   const rel = relative(directory, path);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
@@ -208,11 +208,25 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
       console.log(`  [then] Scanned ${manifest.api.length} API routes, ${manifest.pages.length} pages`);
 
       const logger = getLogger();
+      let closed = false;
+      let ownedActionIds: string[] = [];
+      function commitActions(modules: Record<string, Record<string, unknown>>) {
+        registerActionModules(modules);
+        const previousIds = ownedActionIds;
+        ownedActionIds = Object.entries(modules).flatMap(([moduleId, mod]) =>
+          Object.entries(mod).filter(([, value]) => typeof value === 'function').map(([name]) => `${moduleId}#${name}`));
+        // The native registry is a Symbol.for Map (the cross-bundle contract).
+        // It has no public remove API. Delete only ids this server registered,
+        // never clear shared state or retain obsolete source generations.
+        const registry = (globalThis as any)[Symbol.for('vura.actions.registry')] as Map<string, unknown> | undefined;
+        for (const id of previousIds) registry?.delete(id);
+      }
+      server.httpServer?.once('close', () => { closed = true; commitActions({}); });
 
       // Build the initial CelsianApp and compile route regexes for 404 pre-check
       const actionServerId = `vite:${crypto.randomUUID()}`;
       const initialApp = await buildApiApp(manifest, projectRoot, server, `${actionServerId}:0`);
-      registerActionModules(initialApp.actionModules);
+      commitActions(initialApp.actionModules);
       apiApp = initialApp.app;
       compiledApiRoutes = compileRoutes(manifest.api.filter(r => r.kind !== 'task'));
 
@@ -293,8 +307,9 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             const nextManifest = await buildManifest(projectRoot);
             const nextApp = await buildApiApp(nextManifest, projectRoot, server, `${actionServerId}:${revision}`);
             const nextApiRoutes = compileRoutes(nextManifest.api.filter(r => r.kind !== 'task'));
+            if (closed) return;
             if (revision !== sourceRevision) continue;
-            registerActionModules(nextApp.actionModules);
+            commitActions(nextApp.actionModules);
             apiApp = nextApp.app;
             manifest = nextManifest;
             compiledApiRoutes = nextApiRoutes;
@@ -350,14 +365,19 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
         const source = pathname.startsWith('/@fs/')
           ? pathname.slice('/@fs'.length)
           : resolve(projectRoot, '.' + pathname);
-        const candidate = realPath(source);
+        const candidates = [realPath(source)];
+        // Vite serves publicDir files at / rather than /public/. A public
+        // symlink must not offer a second route to private server source.
+        if (!pathname.startsWith('/@fs/') && server.config.publicDir) {
+          candidates.push(realPath(resolve(server.config.publicDir, '.' + pathname)));
+        }
         const privateDirectories = ['actions', 'api'].map(dir => realPath(join(srcDir, dir)));
-        const privateFiles = [manifest.middleware, ...(manifest.actions ?? []).map(action => action.filePath), ...manifest.api.map(route => route.filePath)]
-          .filter((file): file is string => file !== undefined)
+        const privateFiles = [manifest.middleware, findGlobalHooksFile(projectRoot), ...(manifest.actions ?? []).map(action => action.filePath), ...manifest.api.map(route => route.filePath)]
+          .filter((file): file is string => typeof file === 'string')
           .map(file => realPath(resolve(projectRoot, file)));
-        if (privateDirectories.some(dir => isInside(dir, candidate)) ||
-          ['actions', 'api'].some(dir => isInside(resolve(srcDir, dir), resolve(source))) || privateFiles.includes(candidate) ||
-          /^middleware\.(?:tsx?|jsx?|mts|mjs)$/.test(relative(realPath(srcDir), candidate))) {
+        if (candidates.some(candidate => privateDirectories.some(dir => isInside(dir, candidate)) || privateFiles.includes(candidate) ||
+          /^middleware\.(?:tsx?|jsx?|mts|mjs)$/.test(relative(realPath(srcDir), candidate))) ||
+          ['actions', 'api'].some(dir => isInside(resolve(srcDir, dir), resolve(source)))) {
           res.statusCode = 403;
           res.setHeader('Cache-Control', 'private, no-store');
           res.setHeader('Content-Type', 'text/plain; charset=utf-8');
@@ -676,9 +696,12 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             return next();
           }
 
-          const layoutModules = [];
+          const layoutModules: NonNullable<RuntimePage['layoutModules']> = [];
           for (const layout of matched.page.layouts ?? []) {
-            layoutModules.push(await server.ssrLoadModule(`/${layout}`));
+            const layoutMod = await server.ssrLoadModule(`/${layout}`);
+            // Preserve loader-only segments; the runtime ignores a missing
+            // component while retaining its loader scope and payload position.
+            layoutModules.push({ ...layoutMod, default: layoutMod.default });
           }
           // Dev SSRs every non-client mode fresh, without ISR. Use the same
           // runtime as a built server for hooks, loaders, layouts and payloads.
@@ -686,7 +709,7 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             ...matched.page,
             mode: 'server',
             config: { ...matched.page.config, revalidate: undefined },
-            module: mod,
+            module: { ...mod, default: Component },
             layoutModules,
           };
           const query: Record<string, string | string[]> = Object.create(null);

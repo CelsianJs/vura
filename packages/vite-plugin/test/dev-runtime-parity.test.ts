@@ -1,19 +1,26 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cp, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { createServer, type ViteDevServer } from 'vite';
 import { thenPlugin } from '../src/index.js';
+import { actionRegistry } from '@celsian/vura-core';
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 let root: string;
 let server: ViteDevServer;
 let base: string;
+let initialRegistryIds: string[];
+const foreignAction = () => 'foreign-app';
 
 beforeAll(async () => {
+  actionRegistry.register('foreign-parity-test#ping', foreignAction);
+  initialRegistryIds = actionRegistry.ids();
   root = await mkdtemp(join(fixtures, '.runtime-live-'));
   await cp(join(fixtures, 'runtime-app'), root, { recursive: true });
+  await mkdir(join(root, 'public'));
+  await symlink(join(root, 'src/actions/parity.ts'), join(root, 'public/action-alias.ts'));
   server = await createServer({
     root, configFile: false, logLevel: 'silent',
     server: { host: '127.0.0.1', port: 0 },
@@ -25,6 +32,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await server?.close();
+  expect(actionRegistry.get('foreign-parity-test#ping')).toBe(foreignAction);
+  expect(actionRegistry.ids().filter(id => !initialRegistryIds.includes(id))).toEqual([]);
   if (root) await rm(root, { recursive: true, force: true });
 });
 
@@ -43,6 +52,11 @@ async function actionCaller() {
 
 describe('real Vite dev runtime parity', () => {
   it('blocks private action, API and middleware source over normal, raw, @fs and encoded HTTP URLs', async () => {
+    for (const path of ['/action-alias.ts', '/action-alias.ts?raw', '/src/actions/../actions/parity.ts?raw']) {
+      const response = await fetch(`${base}${path}`);
+      expect(response.status, path).toBe(403);
+      expect(await response.text()).toBe('Server-only source');
+    }
     for (const file of ['src/actions/parity.ts', 'src/api/echo.ts', 'src/middleware.ts']) {
       const fsPath = '/@fs' + realpathSync(join(root, file));
       for (const path of [
@@ -193,6 +207,7 @@ describe('real Vite dev runtime parity', () => {
     await expect.poll(async () => (await (await fetch(`${base}/api/echo`)).json()).value, { timeout: 5000 }).toBe('shared-two');
     expect(await (await call('parity#shared')).json()).toEqual({ result: 'shared-two' });
     expect(await (await fetch(`${base}/_then/pages/client.js`)).text()).toContain('shared-two');
+    expect(actionRegistry.ids().filter(id => !initialRegistryIds.includes(id))).toHaveLength(3);
   });
 
   it('revokes deleted and renamed actions without losing another live action', async () => {
@@ -200,14 +215,24 @@ describe('real Vite dev runtime parity', () => {
     const parity = join(root, 'src/actions/parity.ts');
     await writeFile(parity, "import { sharedValue } from '../shared.js';\nexport function shared() { return sharedValue; }\n");
     await expect.poll(async () => (await call('parity#echo')).status, { timeout: 5000 }).toBe(404);
+    expect(await (await call('parity#echo')).json()).toEqual({ error: 'Action not found' });
+    const missingCsrf = await fetch(`${base}/__vura/action`, {
+      method: 'POST', headers: { origin: base, 'content-type': 'application/json', 'x-vura-action': 'parity#echo' },
+      body: JSON.stringify({ args: [] }),
+    });
+    expect(missingCsrf.status).toBe(403);
+    expect(await missingCsrf.json()).toEqual({ error: 'Invalid or missing CSRF token' });
     expect(await (await call('keep#ping')).json()).toEqual({ result: 'still-alive' });
+    expect(actionRegistry.ids().filter(id => !initialRegistryIds.includes(id))).toHaveLength(2);
     const moved = join(root, 'src/actions/moved.ts');
     await rename(parity, moved);
     await expect.poll(async () => (await call('parity#shared')).status, { timeout: 5000 }).toBe(404);
     expect(await (await call('moved#shared')).json()).toEqual({ result: 'shared-two' });
     expect(await (await call('keep#ping')).json()).toEqual({ result: 'still-alive' });
+    expect(actionRegistry.ids().filter(id => !initialRegistryIds.includes(id))).toHaveLength(2);
     await rm(moved);
     await expect.poll(async () => (await call('moved#shared')).status, { timeout: 5000 }).toBe(404);
     expect(await (await call('keep#ping')).json()).toEqual({ result: 'still-alive' });
+    expect(actionRegistry.ids().filter(id => !initialRegistryIds.includes(id))).toHaveLength(1);
   });
 });
