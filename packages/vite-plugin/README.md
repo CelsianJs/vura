@@ -6,12 +6,16 @@ Vite plugin for [Vura](https://vura.io) — API middleware, route watching, and 
 
 ## What it does
 
-`@celsian/vura-vite-plugin` wires the Vite dev server to your Vura project: it mounts CelsianJS API middleware for `src/api` routes, handles server-rendered pages, exposes the task admin endpoint (`/__tasks`), and hot-reloads route modules when files change. It is installed automatically into the Vite config by `create-vura` — you only configure it directly when customising the Vite setup.
+`@celsian/vura-vite-plugin` optionally wires the Vite dev server to your Vura project: it mounts CelsianJS API middleware for `src/api` routes, handles all four page modes, exposes the task admin endpoint (`/__tasks`), and hot-reloads route modules when files change. The default `create-vura` starter uses the standalone `vura dev` server; it does not install Vite or this plugin. Add them and configure the plugin explicitly when you want a Vite development server.
+
+Static, server, and hybrid pages use the shared Vura renderer, including hooks, page/layout loaders, loader redirects and not-found responses, and opt-in streaming. Hybrid browser bundles rebuild the layout chain and use the serialized loader payload. Client pages receive a browser shell rather than server-rendering their component.
+
+`src/middleware.ts` runs before pages, APIs, and static serving. Server actions under `src/actions` are registered at `/__vura/action`, and their browser imports become fetch stubs instead of shipping server code. The native action endpoint enforces same-origin and CSRF checks, **not user authorization**: middleware skips framework-internal endpoints, so enforce session and permission checks inside your action handlers.
 
 ## Install
 
 ```sh
-npm install @celsian/vura-vite-plugin
+npm install -D vite @celsian/vura-vite-plugin
 ```
 
 ## Minimal example

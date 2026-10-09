@@ -12,11 +12,11 @@
  * 3. Serves on-demand client/hybrid browser bundles at /_then/pages/*.js
  *    (esbuild, mirroring the `vura build` output layout)
  * 4. Adds dev middleware for task management (/__tasks/*)
- * 5. Watches src/api/ and src/pages/ for file changes and hot-reloads
- * 6. Scans file-based routes on startup
+ * 5. Runs app middleware and server actions with browser fetch stubs
+ * 6. Watches src/ for file changes and hot-reloads routes and browser bundles
+ * 7. Scans file-based routes on startup
  */
 
-import { renderToString as builtinRenderToString } from 'what-framework/server';
 import {
   buildManifest,
   matchPageRoute as coreMatchPageRoute,
@@ -36,19 +36,29 @@ import {
   nodeToWebRequest,
   writeWebResponse,
   generateClientPageEntry,
+  vuraBrowserResolvePlugin,
+  vuraActionsStubPlugin,
+  registerActionModules,
+  ACTION_ENDPOINT,
+  createMiddlewareRunner,
+  createVuraRenderRoute,
+  createVuraStreamRoute,
+  isStreamingPage,
 } from '@celsian/vura-core';
 import type {
   RouteManifest,
   PageRoute,
   RuntimeApiRoute,
   GlobalHooks,
+  MiddlewareModule,
+  RuntimePage,
 } from '@celsian/vura-core';
 
 // CelsianApp type derived from createApiApp return — avoids needing @celsian/core as a direct dep
 type CelsianApp = ReturnType<typeof createApiApp>;
 import type { Plugin, ViteDevServer } from 'vite';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 
 export interface ThenPluginOptions {
   /** Project root (default: process.cwd()) */
@@ -142,7 +152,13 @@ async function buildApiApp(
     onResponse: globalHooks?.onResponse ?? [],
   };
 
-  return createApiApp({ routes, globalHooks: mergedHooks });
+  const actionModules: Record<string, Record<string, unknown>> = {};
+  for (const action of manifest.actions ?? []) {
+    actionModules[action.moduleId] = await server.ssrLoadModule(`/${action.filePath}`);
+  }
+  const enableActions = Object.keys(actionModules).length > 0;
+  if (enableActions) registerActionModules(actionModules);
+  return createApiApp({ routes, globalHooks: mergedHooks, enableActions });
 }
 
 export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
@@ -201,7 +217,13 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
 
         const result = await esbuild({
           stdin: {
-            contents: generateClientPageEntry(`./${basename(absPath)}`, page.mode as 'client' | 'hybrid', { dev: true }),
+            contents: generateClientPageEntry(`./${basename(absPath)}`, page.mode as 'client' | 'hybrid', {
+              dev: true,
+              layoutImportSpecifiers: (page.layouts ?? []).map((layout) => {
+                const specifier = relative(dirname(absPath), resolve(projectRoot, layout)).replace(/\\/g, '/');
+                return specifier.startsWith('.') ? specifier : `./${specifier}`;
+              }),
+            }),
             resolveDir: dirname(absPath),
             sourcefile: '__vura-client-entry__.js',
             loader: 'js',
@@ -214,6 +236,7 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
           outfile: 'page.js',
           jsx: 'automatic',
           jsxImportSource,
+          plugins: [vuraBrowserResolvePlugin(), vuraActionsStubPlugin({ projectRoot })],
           nodePaths: [join(projectRoot, 'node_modules')],
         });
 
@@ -222,16 +245,20 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
         return text;
       }
 
-      // Watch src/api/ and src/pages/ for changes
+      // Watch route, action, middleware and shared browser dependencies.
       const apiDir = `${projectRoot}/src/api`;
       const pagesDir = `${projectRoot}/src/pages`;
-      server.watcher.add(apiDir);
-      server.watcher.add(pagesDir);
+      const actionsDir = `${projectRoot}/src/actions`;
+      const srcDir = `${projectRoot}/src`;
+      server.watcher.add(srcDir);
 
       // Open ws connection count — used by the rescan notice below.
       let openWsConnections = 0;
       const rescanOnChange = async (file: string) => {
-        if (file.startsWith(apiDir) || file.startsWith(pagesDir)) {
+        // Bundles can import shared components outside pages and actions too.
+        if (file.startsWith(srcDir + '/')) browserBundleCache.clear();
+        if ([apiDir, pagesDir, actionsDir].some(dir => file.startsWith(dir + '/')) ||
+          /^middleware\.(ts|tsx|js|jsx|mts|mjs)$/.test(relative(srcDir, file))) {
           const rel = file.replace(projectRoot + '/', '');
           console.log(`  [then] Route changed: ${rel}`);
           try {
@@ -312,6 +339,42 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
           upgradeHandler(req, socket, head);
         });
       }
+
+      // Middleware runs before Vura routes and Vite's static serving. Build a
+      // headers-only Request: converting/reading a POST body here would consume
+      // the stream before Celsian's API/action handler gets it.
+      server.middlewares.use(async (req, res, next) => {
+        try {
+          if (!manifest.middleware) return next();
+          const mod = await server.ssrLoadModule(`/${manifest.middleware}`);
+          const runner = createMiddlewareRunner(mod as MiddlewareModule);
+          const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+          const headers = new Headers();
+          for (const [name, value] of Object.entries(req.headers)) {
+            if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(', ') : value);
+          }
+          const outcome = await runner.run(new Request(url, { method: req.method ?? 'GET', headers }), url);
+          if (outcome.response) {
+            await writeWebResponse(res, outcome.response);
+            return;
+          }
+          // Apply to the Node response, not a Celsian fast-response snapshot.
+          for (const [name, value] of outcome.headers ?? []) {
+            if (!res.hasHeader(name)) res.setHeader(name, value);
+          }
+          next();
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          reportError(error, { method: req.method ?? 'GET', path: req.url ?? '/' }, logger);
+          // A broken guard must not silently turn into an unguarded page.
+          if (!res.writableEnded) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+            res.setHeader('Cache-Control', 'private, no-store');
+            res.end('Middleware failed');
+          }
+        }
+      });
 
       // ─── Task management middleware ───
       server.middlewares.use(async (req, res, next) => {
@@ -427,7 +490,8 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
         // handle it. This avoids an unnecessary handle() call AND correctly
         // distinguishes "no route" (next()) from a route handler intentionally
         // returning 404 (pass the response through regardless of status).
-        if (!matchApiPath(compiledApiRoutes, url.pathname)) {
+        const isActionEndpoint = url.pathname === ACTION_ENDPOINT && (manifest.actions?.length ?? 0) > 0;
+        if (!isActionEndpoint && !matchApiPath(compiledApiRoutes, url.pathname)) {
           return next();
         }
 
@@ -489,7 +553,7 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
         const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
         const method = (req.method ?? 'GET').toUpperCase();
 
-        if (method !== 'GET') return next();
+        if (method !== 'GET' && method !== 'HEAD') return next();
         // Skip API routes, static assets, Vite internals
         if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/@') || url.pathname.startsWith('/__')) {
           return next();
@@ -520,7 +584,8 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             });
             res.statusCode = 200;
             res.setHeader('Content-Type', 'text/html; charset=utf-8');
-            res.end(html);
+            res.setHeader('Cache-Control', 'private, no-store');
+            res.end(method === 'HEAD' ? undefined : html);
             return;
           }
 
@@ -529,56 +594,53 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
             return next();
           }
 
-          // Call getServerData if present
-          let serverData: Record<string, unknown> = {};
-          if (typeof mod.getServerData === 'function') {
-            serverData = await mod.getServerData({
-              params: matched.params,
-              url: url.pathname,
-              query: Object.fromEntries(url.searchParams.entries()),
-            });
+          const layoutModules = [];
+          for (const layout of matched.page.layouts ?? []) {
+            layoutModules.push(await server.ssrLoadModule(`/${layout}`));
           }
-
-          // Render with shared renderer from @celsian/vura-core
-          let vnode = Component({ ...serverData, params: matched.params });
-
-          // Wrap in layout chain if layouts are defined (outermost first)
-          if (matched.page.layouts && matched.page.layouts.length > 0) {
-            for (let li = matched.page.layouts.length - 1; li >= 0; li--) {
-              const layoutPath = `/${matched.page.layouts[li]}`;
-              const layoutMod = await server.ssrLoadModule(layoutPath);
-              const LayoutComponent = layoutMod.default;
-              if (typeof LayoutComponent === 'function') {
-                vnode = LayoutComponent({ children: vnode, params: matched.params });
-              }
-            }
+          // Dev SSRs every non-client mode fresh, without ISR. Use the same
+          // runtime as a built server for hooks, loaders, layouts and payloads.
+          const runtimePage: RuntimePage = {
+            ...matched.page,
+            mode: 'server',
+            config: { ...matched.page.config, revalidate: undefined },
+            module: mod,
+            layoutModules,
+          };
+          const query: Record<string, string | string[]> = Object.create(null);
+          for (const key of new Set(url.searchParams.keys())) {
+            const values = url.searchParams.getAll(key);
+            query[key] = values.length > 1 ? values : values[0]!;
           }
-
-          const bodyHtml = builtinRenderToString(vnode);
-
-          const html = wrapDocument(bodyHtml, {
-            title: pageConfig.title ?? 'Vura App',
-            meta: pageConfig.meta ?? [],
-            styles: pageConfig.styles ?? [],
-            // Hybrid pages also load their browser bundle so hydrate() runs
-            // against the SSR'd DOM — same contract as the production build.
-            scripts: [
-              ...(pageConfig.scripts ?? []),
-              ...(pageMode === 'hybrid' ? [browserScriptPath(matched.page)] : []),
-            ],
-            head: pageConfig.head ?? '',
-          });
-
-          res.statusCode = 200;
+          const routeMatch = {
+            path: url.pathname,
+            query,
+            config: { mode: 'server' as const },
+            route: { path: url.pathname, page: { mode: 'server' as const }, vura: runtimePage },
+            params: matched.params,
+            request: nodeToWebRequest(req, url),
+          };
+          const renderOptions = {
+            extraScripts: () => pageMode === 'hybrid' ? [browserScriptPath(matched.page)] : [],
+          };
+          if (isStreamingPage(runtimePage)) {
+            await writeWebResponse(res, await createVuraStreamRoute(renderOptions)(routeMatch));
+            return;
+          }
+          const result = await createVuraRenderRoute(renderOptions)(routeMatch);
+          res.statusCode = result.status;
           res.setHeader('Content-Type', 'text/html; charset=utf-8');
-          res.end(html);
+          res.setHeader('Cache-Control', 'private, no-store');
+          for (const [name, value] of Object.entries(result.headers ?? {})) res.setHeader(name, value);
+          res.end(method === 'HEAD' ? undefined : result.html);
         } catch (err: any) {
           const error = err instanceof Error ? err : new Error(String(err));
           reportError(error, { method: 'GET', path: url.pathname }, logger);
           if (!res.writableEnded) {
             res.statusCode = 500;
             res.setHeader('Content-Type', 'text/html');
-            res.end(`<h1>500 — Server Error</h1><pre>${escapeHtml(String(err.message))}</pre>`);
+            res.setHeader('Cache-Control', 'private, no-store');
+            res.end(method === 'HEAD' ? undefined : `<h1>500 — Server Error</h1><pre>${escapeHtml(String(err.message))}</pre>`);
           }
         }
       });
@@ -588,7 +650,7 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
 
 // All rendering, matching, parsing, and escaping utilities are now imported
 // from @celsian/vura-core — no local copies needed. See:
-//   wrapDocument, escapeHtml — from static-render.ts; renderToString — from what-framework/server
+//   wrapDocument, escapeHtml — from static-render.ts; render callbacks — from runtime/pages.ts
 //   coreMatchPageRoute (matchPageRoute) — from match.ts
 //   createApiApp, nodeToWebRequest, writeWebResponse — A1.3 celsian API path
 
