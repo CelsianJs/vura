@@ -19,9 +19,11 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
+import { build as bundle } from 'esbuild';
 
 let projectRoot: string;
 let entry: { fetch(request: Request): Promise<Response> };
+let schemaFreeEntry: typeof entry;
 
 function dispatchRequest(body: unknown, headers: Record<string, string> = {}): Request {
   return new Request('https://tasks.test/api/tasks/flow', {
@@ -60,6 +62,16 @@ export async function POST(job: any) {
 `,
   );
 
+  writeFileSync(join(tasksDir, 'schema-free.ts'), `
+let prepCalls = 0;
+export const route = { kind: 'task', retries: 1, timeout: 5000 };
+export async function POST(job: any) {
+  const prep = await job.step.run('prep', () => ++prepCalls);
+  if (job.attempt === 1) throw new Error('retry me');
+  return { prep, input: job.input, runId: job.runId, attempt: job.attempt };
+}
+`);
+
   const manifest: RouteManifest = {
     api: [
       {
@@ -68,6 +80,13 @@ export async function POST(job: any) {
         methods: ['POST'],
         kind: 'task',
         config: { retries: 0, timeout: 5000 },
+      },
+      {
+        filePath: 'src/api/tasks/schema-free.ts',
+        urlPattern: '/api/tasks/schema-free',
+        methods: ['POST'],
+        kind: 'task',
+        config: { retries: 1, timeout: 5000 },
       },
     ],
     pages: [],
@@ -80,6 +99,7 @@ export async function POST(job: any) {
   const entryPath = join(projectRoot, 'dist', 'functions', 'task_api_tasks_flow', 'index.js');
   expect(existsSync(entryPath)).toBe(true);
   entry = (await import(pathToFileURL(entryPath).href)).default;
+  schemaFreeEntry = (await import(pathToFileURL(join(projectRoot, 'dist', 'functions', 'task_api_tasks_schema-free', 'index.js')).href)).default;
 });
 
 afterAll(() => {
@@ -87,6 +107,34 @@ afterAll(() => {
 });
 
 describe('generated task entry — run engine v2', () => {
+  it.each(['flow', 'schema-free'])('bundles optional input exports without warnings: %s', async (name) => {
+    // Inspect real esbuild diagnostics for the generated entry, not source text.
+    const result = await bundle({
+      entryPoints: [join(projectRoot, 'dist', 'functions', `task_api_tasks_${name}`, 'index.source.mjs')],
+      bundle: true,
+      format: 'esm',
+      platform: 'neutral',
+      external: ['@celsian/vura-core'],
+      write: false,
+    });
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('executes schema-free inputs with retries and memoized steps in the bundled artifact', async () => {
+    const res = await schemaFreeEntry.fetch(dispatchRequest(
+      { taskId: 'schema-free', runId: 'schema-free-run', input: { arbitrary: true }, steps: {} },
+      { 'x-vura-task-id': 'schema-free' },
+    ));
+    expect(res.status).toBe(200);
+    const envelope = await res.json();
+    expect(envelope.ok).toBe(true);
+    expect(envelope.result).toEqual({ prep: 1, input: { arbitrary: true }, runId: 'schema-free-run', attempt: 2 });
+    expect(envelope.steps.prep).toEqual({ status: 'completed', output: 1 });
+    expect(envelope.attempts).toHaveLength(2);
+    expect(envelope.attempts[0].error).toBe('retry me');
+    expect(envelope.attempts[1].error).toBeUndefined();
+  });
+
   it('suspends on an unmemoized wait step and reports completed steps (dispatch v2)', async () => {
     const res = await entry.fetch(
       dispatchRequest(
