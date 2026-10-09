@@ -5,7 +5,7 @@ import { cp, mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/prom
 import { realpathSync } from 'node:fs';
 import { createServer, type ViteDevServer } from 'vite';
 import { thenPlugin } from '../src/index.js';
-import { actionRegistry } from '@celsian/vura-core';
+import { actionRegistry, buildManifest } from '@celsian/vura-core';
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 let root: string;
@@ -51,6 +51,31 @@ async function actionCaller() {
 }
 
 describe('real Vite dev runtime parity', () => {
+  it('scans literal dotted basenames and the named catch-all from real fixture files', async () => {
+    const manifest = await buildManifest(root);
+    expect(manifest.pages.map(page => page.urlPattern)).toEqual(expect.arrayContaining([
+      '/guide', '/guide.v1', '/guide.v2', '/docs/*rest',
+    ]));
+  });
+
+  it.each([
+    ['/guide', 'plain-guide'], ['/guide.v1', 'guide-version-one'], ['/guide.v2', 'guide-version-two'],
+    ['/docs/readme.md', 'docs-rest:readme.md'], ['/docs/nested/readme.md', 'docs-rest:nested/readme.md'],
+  ])('matches authored page %s before classifying extension-like paths as assets', async (path, marker) => {
+    const response = await fetch(`${base}${path}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    expect(await response.text()).toContain(marker);
+  });
+
+  it('keeps unmatched file requests in Vite public serving', async () => {
+    await writeFile(join(root, 'public/probe.txt'), 'public-file-marker');
+    const response = await fetch(`${base}/probe.txt`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('public-file-marker');
+    expect((await fetch(`${base}/guideXv1`)).status).toBe(404);
+  });
+
   it('blocks private action, API and middleware source over normal, raw, @fs and encoded HTTP URLs', async () => {
     for (const path of ['/action-alias.ts', '/action-alias.ts?raw', '/src/actions/../actions/parity.ts?raw']) {
       const response = await fetch(`${base}${path}`);

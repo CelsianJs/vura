@@ -660,10 +660,8 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
         if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/@') || url.pathname.startsWith('/__')) {
           return next();
         }
-        // Skip file requests (has extension)
-        if (/\.\w+$/.test(url.pathname)) return next();
-
-        // Match against ALL page modes (uses shared matchPageRoute from @celsian/vura-core)
+        // Authored pages may contain dots, including catch-all parameters.
+        // Unmatched files fall through to Vite's public/static serving.
         const matched = coreMatchPageRoute(manifest.pages, url.pathname);
         if (!matched) return next();
 

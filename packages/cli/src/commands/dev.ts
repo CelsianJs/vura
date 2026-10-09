@@ -799,7 +799,7 @@ export async function startStandaloneServer(
     }
 
     // Try server-mode page matching (uses shared compilePageRoutes/matchPageRoute)
-    if ((method === 'GET' || method === 'HEAD') && !/\.\w+$/.test(url.pathname)) {
+    if (method === 'GET' || method === 'HEAD') {
       const pageMatch = matchPageRoute(requestPages, url.pathname);
       if (pageMatch) {
         try {

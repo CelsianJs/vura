@@ -93,6 +93,40 @@ afterEach(async () => {
 });
 
 describe('standalone dev automatic full-page reload', () => {
+  it('serves real dotted page filenames alongside their plain siblings over GET and HEAD', async () => {
+    const base = await boot({
+      'src/pages/guide.tsx': `export const page = { mode: 'server' }; export default function Page() { return 'plain-guide'; }`,
+      'src/pages/guide.v1.tsx': `export const page = { mode: 'server' }; export default function Page() { return 'versioned-guide'; }`,
+    });
+    for (const [path, text] of [['/guide', 'plain-guide'], ['/guide.v1', 'versioned-guide']]) {
+      const response = await fetch(base + path);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain(text);
+      const head = await fetch(base + path, { method: 'HEAD' });
+      expect(head.status).toBe(200);
+      expect(await head.text()).toBe('');
+    }
+    expect((await fetch(base + '/missing.css')).status).toBe(404);
+    expect((await fetch(base + '/guideXv1')).status).toBe(404);
+    const asset = await fetch(base + '/_then/pages/index.js');
+    expect(asset.status).toBe(200);
+    expect(asset.headers.get('content-type')).toContain('javascript');
+  });
+
+  it('renders dotted named catch-all values rather than treating matched pages as missing files', async () => {
+    const base = await boot({
+      'src/pages/docs/[...rest].tsx': `export const page = { mode: 'server' }; export default function Page({ params }) { return 'captured:' + params.rest; }`,
+    });
+    for (const value of ['readme.md', 'nested/release.v1.md']) {
+      const response = await fetch(`${base}/docs/${value}`);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain(`captured:${value}`);
+      const head = await fetch(`${base}/docs/${value}`, { method: 'HEAD' });
+      expect(head.status).toBe(200);
+      expect(await head.text()).toBe('');
+    }
+  });
+
   it('returns 500 rather than an unhandled HTTP rejection when middleware execution throws', async () => {
     const base = await boot({ 'src/middleware.ts': `export default function middleware() { throw new Error('guard failed'); }` });
     const response = await fetch(`${base}/api/value`, { signal: AbortSignal.timeout(1500) });
