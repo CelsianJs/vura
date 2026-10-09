@@ -57,7 +57,7 @@ import type {
 // CelsianApp type derived from createApiApp return — avoids needing @celsian/core as a direct dep
 type CelsianApp = ReturnType<typeof createApiApp>;
 import type { Plugin, ViteDevServer } from 'vite';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export interface ThenPluginOptions {
@@ -659,6 +659,12 @@ export function thenPlugin(options: ThenPluginOptions = {}): Plugin {
         // Skip API routes, static assets, Vite internals
         if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/@') || url.pathname.startsWith('/__')) {
           return next();
+        }
+        if (server.config.publicDir) {
+          try {
+            const file = resolve(server.config.publicDir, '.' + decodeURIComponent(url.pathname));
+            if (isInside(server.config.publicDir, file) && statSync(file).isFile()) return next();
+          } catch { /* Missing files remain routable. */ }
         }
         // Authored pages may contain dots, including catch-all parameters.
         // Unmatched files fall through to Vite's public/static serving.

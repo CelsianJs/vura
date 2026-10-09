@@ -20,7 +20,13 @@ beforeAll(async () => {
   root = await mkdtemp(join(fixtures, '.runtime-live-'));
   await cp(join(fixtures, 'runtime-app'), root, { recursive: true });
   await mkdir(join(root, 'public'));
+  await mkdir(join(root, 'public/docs'));
+  await mkdir(join(root, 'public/reports'));
+  await writeFile(join(root, 'public/docs/asset.json'), '{"public":"json"}');
+  await writeFile(join(root, 'public/reports/asset.csv'), 'public,csv\nasset,1\n');
+  await writeFile(join(root, 'public/docs/space file.json'), '{"public":"encoded"}');
   await symlink(join(root, 'src/actions/parity.ts'), join(root, 'public/action-alias.ts'));
+  await symlink(join(root, 'src/actions/parity.ts'), join(root, 'public/docs/private.json'));
   server = await createServer({
     root, configFile: false, logLevel: 'silent',
     server: { host: '127.0.0.1', port: 0 },
@@ -74,6 +80,61 @@ describe('real Vite dev runtime parity', () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('public-file-marker');
     expect((await fetch(`${base}/guideXv1`)).status).toBe(404);
+  });
+
+  it.each(['GET', 'HEAD'])('serves existing public files before dynamic/catch-all pages for %s with HTML accept', async (method) => {
+    for (const [path, mime, body] of [
+      ['/reports/asset.csv', 'text/csv', 'public,csv\nasset,1\n'],
+      ['/docs/asset.json', 'application/json', '{"public":"json"}'],
+      ['/docs/space%20file.json', 'application/json', '{"public":"encoded"}'],
+    ]) {
+      const response = await fetch(`${base}${path}`, { method, headers: { accept: 'text/html' } });
+      expect(response.status, path).toBe(200);
+      expect(response.headers.get('content-type'), path).toContain(mime);
+      expect(await response.text(), path).toBe(method === 'HEAD' ? '' : body);
+    }
+  });
+
+  it.each(['GET', 'HEAD'])('keeps missing public files routable and private public symlinks blocked for %s', async (method) => {
+    for (const [path, marker] of [['/docs/missing.json', 'docs-rest:missing.json'], ['/reports/missing.csv', 'report-slug:missing.csv']]) {
+      const response = await fetch(`${base}${path}`, { method, headers: { accept: 'text/html' } });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/html');
+      const body = await response.text();
+      if (method === 'HEAD') expect(body).toBe('');
+      else expect(body).toContain(marker);
+    }
+    const blocked = await fetch(`${base}/docs/private.json`, { method });
+    expect(blocked.status).toBe(403);
+    expect(await blocked.text()).toBe(method === 'HEAD' ? '' : 'Server-only source');
+  });
+
+  it.each([false, 'static-files'] as const)('respects Vite publicDir=%s when deciding file precedence', async (publicDir) => {
+    if (publicDir) {
+      await mkdir(join(root, publicDir, 'docs'), { recursive: true });
+      await writeFile(join(root, publicDir, 'docs/asset.json'), '{"public":"custom"}');
+      await symlink(join(root, 'src/actions/parity.ts'), join(root, publicDir, 'docs/private.json'));
+    }
+    const alternate = await createServer({
+      root, publicDir, configFile: false, logLevel: 'silent',
+      server: { host: '127.0.0.1', port: 0 }, plugins: [thenPlugin({ root })],
+    });
+    try {
+      await alternate.listen();
+      const alternateBase = `http://127.0.0.1:${(alternate.httpServer!.address() as { port: number }).port}`;
+      for (const method of ['GET', 'HEAD']) {
+        const response = await fetch(`${alternateBase}/docs/asset.json`, { method, headers: { accept: 'text/html' } });
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-type')).toContain(publicDir ? 'application/json' : 'text/html');
+        const body = await response.text();
+        if (method === 'HEAD') expect(body).toBe('');
+        else if (publicDir) expect(body).toBe('{"public":"custom"}');
+        else expect(body).toContain('docs-rest:asset.json');
+      }
+      if (publicDir) expect((await fetch(`${alternateBase}/docs/private.json`)).status).toBe(403);
+    } finally {
+      await alternate.close();
+    }
   });
 
   it('blocks private action, API and middleware source over normal, raw, @fs and encoded HTTP URLs', async () => {

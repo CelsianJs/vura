@@ -98,7 +98,7 @@ The existing `pnpm package:size` gate rejected the added development-runtime
 features; it was not skipped. With Node 22.23.3 and pnpm 10.11.0, the unchanged
 framework source at `59c61d3` packs the CLI at 56,794 bytes and the Vite plugin
 at 14,309 bytes. The final local-development candidate packs them at 60,129
-and 19,191 bytes respectively: additions of 3,335 and 4,882 bytes, not application-browser
+and 19,346 bytes respectively: additions of 3,335 and 5,037 bytes, not application-browser
 runtime measurements.
 
 The CLI addition pays for automatic full-page reload, bounded dev-only SSE,
@@ -109,7 +109,7 @@ private-source HTTP boundaries and dependency-aware refresh. Test fixtures
 are not included in either package's `dist` payload.
 
 Measured ceilings move only for these packages: CLI 58,000 → 60,200 bytes
-(71 bytes above the measurement), plugin 16,000 → 19,500 (309 bytes above).
+(71 bytes above the measurement), plugin 16,000 → 19,500 (154 bytes above).
 Every other ceiling and the core source-LOC budget remain unchanged. Re-run
 `pnpm build && pnpm package:size` for the exact final candidate; later edits
 must still fit the ledger. This is source-candidate accounting, not a claim
