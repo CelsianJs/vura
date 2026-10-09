@@ -271,7 +271,7 @@ export async function buildManifest(projectRoot: string): Promise<RouteManifest>
     api.push({
       filePath: relative(projectRoot, file),
       urlPattern: fileToUrlPattern(
-        relPath.replace(/\.(ts|js|mjs)$/, ''),
+        relPath,
         '/api',
       ),
       methods,
@@ -304,7 +304,7 @@ export async function buildManifest(projectRoot: string): Promise<RouteManifest>
     pages.push({
       filePath: relative(projectRoot, file),
       urlPattern: fileToUrlPattern(
-        relPath.replace(/\.(tsx|jsx|ts|js)$/, ''),
+        relPath,
         '',
       ),
       mode,

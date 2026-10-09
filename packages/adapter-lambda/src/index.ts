@@ -1042,6 +1042,10 @@ export function lambdaAdapter(options: LambdaAdapterOptions = {}): ThenAdapter {
 
     async buildEnd(ctx: AdapterBuildContext): Promise<void> {
       const { manifest, outDir } = ctx;
+      const unsupported = [manifest.middleware && 'middleware', manifest.actions?.length && 'actions'].filter(Boolean);
+      if (unsupported.length > 0) {
+        throw new Error(`[vura] lambda does not support ${unsupported.join(' and ')}; deploy this app to Node or Vura instead.`);
+      }
       const lambdaDir = join(outDir, 'lambda');
       await mkdir(lambdaDir, { recursive: true });
 
