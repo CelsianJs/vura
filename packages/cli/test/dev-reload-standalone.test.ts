@@ -98,6 +98,30 @@ describe('standalone dev automatic full-page reload', () => {
     const response = await fetch(`${base}/api/value`, { signal: AbortSignal.timeout(1500) });
     expect(response.status).toBe(500);
     expect(await response.text()).not.toContain('heading-one');
+    const html = await fetch(base, { headers: { Accept: 'text/html' } });
+    expect(html.status).toBe(500);
+    expect(html.headers.get('cache-control')).toBe('private, no-store');
+    clientPath(await html.text());
+  });
+
+  it('keeps application HTML private, including streamed loader 404s, and answers HEAD without a body', async () => {
+    const base = await boot({
+      'src/pages/streamed.ts': `export const page = { mode: 'server', streaming: true }; export default function Page() { return 'streamed'; }`,
+      'src/pages/streamed-404.ts': `export const page = { mode: 'server', streaming: true }; export function loader(ctx) { throw ctx.notFound(); } export default function Page() { return 'unreachable'; }`,
+      'src/pages/buffered-404.ts': `export const page = { mode: 'server' }; export function loader(ctx) { throw ctx.notFound(); } export default function Page() { return 'unreachable'; }`,
+      'src/pages/client.ts': `export const page = { mode: 'client' }; export default function Page() { return 'client'; }`,
+    });
+    for (const [path, status] of [['/', 200], ['/client', 200], ['/streamed', 200], ['/streamed-404', 404], ['/buffered-404', 404]] as const) {
+      const response = await fetch(base + path);
+      expect(response.status).toBe(status);
+      expect(response.headers.get('cache-control')).toBe('private, no-store');
+      clientPath(await response.text());
+      const head = await fetch(base + path, { method: 'HEAD' });
+      expect(head.status).toBe(status);
+      expect(head.headers.get('cache-control')).toBe('private, no-store');
+      expect(head.headers.get('content-type')).toContain('text/html');
+      expect(await head.text()).toBe('');
+    }
   });
 
   it('refreshes shared src imports and cached browser bundles before notifying connected pages', async () => {
@@ -195,6 +219,7 @@ describe('standalone dev automatic full-page reload', () => {
     await events.next();
     const missing = await fetch(base, { headers: { Accept: 'text/html' } });
     expect(missing.status).toBe(404);
+    expect(missing.headers.get('cache-control')).toBe('private, no-store');
     const missingPath = clientPath(await missing.text());
     const deleted = await openEvents(base, new URL(missingPath, base).searchParams.get('generation')!);
     await deleted.next();
@@ -356,6 +381,7 @@ describe('standalone dev automatic full-page reload', () => {
       expect((await fetch(`${base}/api/value`)).status).toBe(500);
       const failed = await fetch(base, { headers: { Accept: 'text/html' } });
       expect(failed.status).toBe(500);
+      expect(failed.headers.get('cache-control')).toBe('private, no-store');
       const generation = new URL(clientPath(await failed.text()), base).searchParams.get('generation')!;
       const events = await openEvents(base, generation);
       await events.next();

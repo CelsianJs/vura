@@ -296,6 +296,14 @@ export async function startStandaloneServer(
   const devErrorDocument = (html: string, reloadScript: string): string =>
     wrapDocument(html, { title: 'Vura — Development Error', meta: [], styles: [], scripts: [reloadScript], head: '' });
 
+  // Loader control-flow responses bypass the renderer's extraScripts option.
+  // Keep their original document/status while enabling recovery after a save.
+  function withReloadClient(html: string, reloadScript: string): string {
+    if (html.includes(reloadScript)) return html;
+    const script = `<script type="module" src="${reloadScript}"></script>`;
+    return html.includes('</body>') ? html.replace('</body>', `${script}</body>`) : html + script;
+  }
+
   const { existsSync } = await import('node:fs');
 
   // ── Middleware ──
@@ -562,7 +570,7 @@ export async function startStandaloneServer(
       } catch (err) {
         logger.error(`[vura] middleware request failed: ${err instanceof Error ? err.message : String(err)}`);
         const html = req.headers.accept?.includes('text/html');
-        res.writeHead(500, { 'Content-Type': html ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.writeHead(500, { 'Content-Type': html ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8', 'Cache-Control': 'private, no-store' });
         const message = 'Middleware failed. See the dev server log.';
         res.end(html ? devErrorDocument(`<h1>500 — Server Error</h1><p>${message}</p>`, reloadScript) : message);
         return;
@@ -791,7 +799,7 @@ export async function startStandaloneServer(
     }
 
     // Try server-mode page matching (uses shared compilePageRoutes/matchPageRoute)
-    if (method === 'GET' && !/\.\w+$/.test(url.pathname)) {
+    if ((method === 'GET' || method === 'HEAD') && !/\.\w+$/.test(url.pathname)) {
       const pageMatch = matchPageRoute(requestPages, url.pathname);
       if (pageMatch) {
         try {
@@ -810,8 +818,8 @@ export async function startStandaloneServer(
               scripts: [...(pageConfig.scripts ?? []), browserScriptPath(pageMatch.page), reloadScript],
               head: pageConfig.head ?? '',
             });
-            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-            res.end(html);
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store' });
+            res.end(method === 'HEAD' ? '' : html);
             return;
           }
 
@@ -847,15 +855,20 @@ export async function startStandaloneServer(
             // through the same helper and the same response writer. A dev
             // server that renders a streamed page as a string would hide
             // exactly the bugs streaming introduces.
-            if (method === 'GET' && isStreamingPage(runtimePage as any)) {
-              const streamed = await devStreamRouteFor(pageMatch.page, reloadScript)({
+            if (isStreamingPage(runtimePage as any)) {
+              let streamed = await devStreamRouteFor(pageMatch.page, reloadScript)({
                 path: url.pathname,
                 query: Object.fromEntries(url.searchParams.entries()),
                 route: { path: url.pathname, page: { mode: 'server' as const }, vura: runtimePage as any },
                 params: pageMatch.params,
                 request: webReq,
               });
-              streamed.headers.set('Cache-Control', 'no-store');
+              streamed.headers.set('Cache-Control', 'private, no-store');
+              if (method !== 'HEAD' && streamed.status >= 400 && streamed.body && streamed.headers.get('content-type')?.includes('text/html')) {
+                const html = withReloadClient(await streamed.text(), reloadScript);
+                streamed.headers.delete('content-length');
+                streamed = new Response(html, { status: streamed.status, statusText: streamed.statusText, headers: streamed.headers });
+              }
               await writeWebResponse(res, streamed);
               return;
             }
@@ -872,9 +885,9 @@ export async function startStandaloneServer(
             res.writeHead(result.status, {
               'Content-Type': 'text/html; charset=utf-8',
               ...(result.headers ?? {}),
-              'Cache-Control': 'no-store',
+              'Cache-Control': 'private, no-store',
             });
-            res.end(result.html);
+            res.end(method === 'HEAD' ? '' : result.status >= 400 ? withReloadClient(result.html, reloadScript) : result.html);
             return;
           }
         } catch (err: any) {
@@ -882,8 +895,8 @@ export async function startStandaloneServer(
           reportError(error, { method: 'GET', path: url.pathname, requestId: reqCtx.requestId }, logger);
           log.error(`page render error ${url.pathname}`, { error: err.message });
           if (!res.writableEnded) {
-            res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-            res.end(devErrorDocument(`<h1>500 — Server Error</h1><pre>${escapeHtml(err.message)}</pre>`, reloadScript));
+            res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store' });
+            res.end(method === 'HEAD' ? '' : devErrorDocument(`<h1>500 — Server Error</h1><pre>${escapeHtml(err.message)}</pre>`, reloadScript));
           }
           return;
         }
@@ -891,9 +904,9 @@ export async function startStandaloneServer(
     }
 
     // 404
-    if (method === 'GET' && req.headers.accept?.includes('text/html')) {
-      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      res.end(devErrorDocument('<h1>404 — Not Found</h1>', reloadScript));
+    if ((method === 'GET' || method === 'HEAD') && req.headers.accept?.includes('text/html')) {
+      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store' });
+      res.end(method === 'HEAD' ? '' : devErrorDocument('<h1>404 — Not Found</h1>', reloadScript));
       return;
     }
     res.writeHead(404, { 'Content-Type': 'application/json' });
