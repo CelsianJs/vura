@@ -3,6 +3,10 @@
 #
 # Changes made:
 # - Changed GitHub runs-on labels to their Depot equivalents
+# - CodeQL runs only in .github/workflows/security.yml (GitHub-hosted, weekly +
+#   workflow_dispatch). The Depot Code Access app cannot mint a token with the
+#   code-scanning write scope, so a Depot CodeQL job failed at dispatch on every
+#   commit without ever scanning.
 
 name: Security scanning
 on:
@@ -17,22 +21,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  codeql:
-    name: CodeQL
-    permissions:
-      contents: read
-      actions: read
-      security-events: write
-    runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
-    steps:
-      - uses: actions/checkout@v7
-      - uses: github/codeql-action/init@v4
-        with:
-          languages: javascript-typescript
-      # CodeQL upload requires GitHub Advanced Security on this repository. Keep
-      # this non-blocking until GHAS/code scanning is enabled.
-      - uses: github/codeql-action/analyze@v4
-        continue-on-error: true
   secrets:
     name: Secret scan
     permissions:
