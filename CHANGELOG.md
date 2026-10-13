@@ -1,17 +1,86 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 - 2026-10-13
 
-### create-vura: free tier by default
+All nine JavaScript packages move to 0.9.0 together. This release fixes a
+cache-privacy defect, makes local development and generated deployment
+artifacts match the production runtime, and changes the default `create-vura`
+scaffold. It contains five behaviour changes; read **Upgrading** first.
 
-- `npm create vura` now scaffolds an app that deploys entirely on the free
-  tier: static and client pages plus two serverless Function routes
-  (`/api/health`, `/api/hello`). It no longer includes a hot WebSocket route or
-  a task, so a fresh project never needs paid compute.
-- `--hot` adds the hot WebSocket chat route (`src/api/chat.ts`, plus `ws`) and
-  `--tasks` adds the cleanup task (`src/api/cleanup.ts`). Both are opt-in.
-- The scaffold writes a `README.md` that explains the free tier and how to opt
-  into hot compute and tasks.
+### Upgrading: behaviour changes
+
+- **Clear private ISR caches.** Before 0.9.0, a page's `vary` declaration was
+  dropped when routes were mapped for the ISR engine, so a `revalidate` page
+  that varied by cookie or header could store one visitor's render under a
+  shared key and serve it to another. On upgrade, clear or isolate any
+  persistent ISR store (Redis, filesystem, KV) that held entries for such
+  pages. Old shared entries cannot be split back into per-visitor variants.
+  In-memory stores reset on restart.
+- **Cloudflare and Lambda refuse middleware and server actions.** A build for
+  `@celsian/vura-adapter-cloudflare` or `@celsian/vura-adapter-lambda` now fails
+  before writing adapter output when the app has `src/middleware.ts` or server
+  actions. These adapters never executed either; the build used to succeed and
+  ship an app whose middleware silently did not run. Deploy such apps to Node
+  or Vura, or remove the middleware/actions for these targets.
+- **Named catch-all params use their name everywhere.** For
+  `src/pages/docs/[...rest].tsx`, the matched value is `params.rest` in `vura
+  dev`, the optional Vite runtime, streaming pages and the Cloudflare worker,
+  as it already was for buffered Node pages. Code that read `params['*']` for a
+  named catch-all must read `params.rest`. Anonymous wildcards keep `*`.
+- **Standalone `vura dev` reloads the browser.** Without Vite, `vura dev` now
+  watches `src/` and reloads open pages after each successful rebuild. This is
+  a full-page reload, so browser state resets; a broken edit keeps the last
+  working generation running until it is fixed.
+- **`create-vura` scaffolds a free-tier app by default.** `npm create vura`
+  emits static and client pages plus two serverless Functions (`/api/health`,
+  `/api/hello`), with no hot route and no task, so a fresh project deploys
+  without paid compute. `--hot` adds the WebSocket chat route and `ws`;
+  `--tasks` adds the cleanup task. The scaffold writes a `README.md` that
+  explains both opt-ins.
+
+### Fixed
+
+- ISR `vary` declarations (`cookie:<name>`, `authorization`, header names) reach
+  the cache engine. Varied entries stay separate at the origin and are sent
+  with `Cache-Control: private, no-store` plus `Vary`. Unsupported declarations
+  bypass the cache rather than sharing a render.
+- Authored dotted page names (`guide.v1.tsx`) and dotted catch-all values
+  (`/docs/readme.md`) render in `vura dev` and the Vite runtime instead of being
+  treated as missing files. In the Vite runtime, an existing `public/` file
+  still wins over a dynamic page for GET and HEAD.
+- Cloudflare route modules and Lambda SAM logical IDs no longer collide when two
+  scanner paths sanitize to the same name; each route keeps its own handler.
+- The optional Vite runtime matches native Vura for rendering, layouts, loaders,
+  hooks, streaming, middleware and actions. It refuses HTTP requests for
+  private source files, revokes deleted actions and refreshes shared imports.
+- Tasks without an input schema build without a misleading missing-export
+  warning.
+- Route-scanner parsing no longer backtracks polynomially on adversarial file
+  names or source text.
+- The build-matrix benchmark's documented first run resolves its own
+  dependencies.
+
+### Documentation
+
+- Page middleware does not authenticate server actions. Middleware skips
+  `/__vura/`, so every protected action must authenticate its caller itself,
+  or the logic belongs in an authenticated API route.
+- New cache-variant guidance in the page-modes reference.
+
+### Dependencies
+
+- Raises the dependency floors to What Framework `^0.13.11` and CelsianJS
+  `^0.6.6` across the framework packages and the scaffold. Celsian 0.6.6 merges
+  reply headers into a raw `Response`, so session cookies set through the
+  auth proxy now survive a raw-Response return on Node.
+- Root overrides lift `sharp`, `undici`, `source-map-js` and `js-yaml` to
+  patched versions; `pnpm audit:all` reports no known vulnerabilities.
+
+### Packaging
+
+- The `create-vura` tarball ceiling moves from 10,000 to 11,500 bytes, the CLI
+  from 58,000 to 60,200 and the Vite plugin from 16,000 to 19,500, each with a
+  measured ledger entry in `CLAIMS.md`.
 
 ## 0.8.3 - 2026-09-07
 
