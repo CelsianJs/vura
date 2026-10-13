@@ -136,17 +136,21 @@ sibling subdomain cannot write it.
 Arguments must be a JSON array, are size-capped, and an unknown id returns 404
 without echoing what was asked for.
 
-None of this authenticates the *caller*. An action is reachable by anyone who
-can load your site, exactly like an API route. Check the session inside the
-action, or guard the page with [middleware](/reference/middleware):
+None of this authenticates the *caller*. Same-origin and CSRF checks prevent
+cross-site calls; they do not establish an identity or permission to mutate data.
+Every protected action must authenticate its caller and check ownership of the
+requested resource using application-owned, server-verified credentials.
 
-```ts
-export async function deleteTodo(id: string) {
-  const user = await currentUser();
-  if (!user) throw unauthorized('Sign in first');
-  ...
-}
-```
+Guarding a page with [middleware](/reference/middleware) does **not** protect an
+action. Middleware skips `/__vura/`, including the action token and call
+endpoints, so an anonymous visitor can call an action directly even when the
+page is inaccessible.
+
+Actions receive only the arguments sent by the browser, not an injected Request
+or session. Vura does not supply a `currentUser()` API. Never trust a user or
+tenant id supplied as an argument. If authorization needs the request's session
+cookie or Celsian authentication hooks, use an authenticated API route, where
+the request is available, rather than assuming a page guard covers the action.
 
 ---
 
