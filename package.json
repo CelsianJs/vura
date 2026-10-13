@@ -6,11 +6,12 @@
     "examples/*"
   ],
   "scripts": {
-    "build": "tsc -b packages/compiler packages/core packages/cli packages/vite-plugin packages/adapter-lambda packages/adapter-cloudflare packages/adapter-vura packages/create-vura",
+    "build": "tsc -b packages/contract packages/compiler packages/core packages/cli packages/vite-plugin packages/adapter-lambda packages/adapter-cloudflare packages/adapter-vura packages/create-vura",
     "test": "vitest run",
     "test:compiler-native": "vitest run --config packages/compiler-native/vitest.config.mts",
     "dev": "node packages/cli/dist/bin.js dev",
     "verify:publish": "node scripts/verify-publish.mjs",
+    "verify:contract": "node scripts/verify-contract-package.mjs",
     "lint": "node scripts/check-hygiene.mjs",
     "format": "node scripts/check-hygiene.mjs",
     "check": "pnpm run assert:release-private && pnpm run lint && pnpm run build",
@@ -41,12 +42,15 @@
     ],
     "overrides": {
       "@types/node": "26.4.0",
-      "js-yaml": "^4.3.1"
+      "js-yaml": "^4.3.2",
+      "sharp": "^0.35.5",
+      "undici": "^7.29.1",
+      "source-map-js": "^1.2.2"
     }
   },
   "dependencies": {
-    "what-core": "^0.13.4",
-    "what-framework": "^0.13.4"
+    "what-core": "^0.13.8",
+    "what-framework": "^0.13.8"
   },
   "license": "MIT",
   "packageManager": "pnpm@10.11.0",

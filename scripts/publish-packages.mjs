@@ -35,13 +35,6 @@ function validateDistTag(tag) {
     throw new Error(`Refusing semver-looking npm dist-tag: ${tag}`);
   }
 }
-
-
-function scopedPackageName(name) {
-  const match = /^(@[^/]+)\//.exec(name);
-  return match?.[1] ?? null;
-}
-
 function assertNpmIdentity() {
   const res = spawnSync('npm', ['whoami'], {
     cwd: root,
@@ -56,29 +49,40 @@ function assertNpmIdentity() {
   return res.stdout.trim();
 }
 
-function assertScopePublishAuthority(plannedPackages) {
-  const scopes = [...new Set(plannedPackages.map((item) => scopedPackageName(item.name)).filter(Boolean))];
-  if (scopes.length === 0) return;
+function safeNpmErrorCode(res) {
+  const output = `${res.stdout ?? ''}\n${res.stderr ?? ''}`;
+  const match = output.match(/\bnpm ERR! code ([A-Z0-9_-]+)\b/i) ?? output.match(/\b(E\d{3}|E[A-Z0-9_-]+)\b/);
+  return match?.[1] ?? 'UNKNOWN';
+}
 
+function assertPackageWriteAccess(plannedPackages) {
   const identity = assertNpmIdentity();
-  for (const scope of scopes) {
-    const res = spawnSync('npm', ['access', 'list', 'packages', scope, '--json'], {
+  const denied = [];
+  for (const { name } of plannedPackages) {
+    const res = spawnSync('npm', ['access', 'list', 'collaborators', name, identity, '--json'], {
       cwd: root,
       encoding: 'utf8',
       stdio: 'pipe',
       env: process.env,
     });
     if (res.status !== 0) {
-      const output = `${res.stdout}\n${res.stderr}`.trim();
-      throw new Error(`npm user ${identity} does not have confirmed access to ${scope}; refusing publish before namespace authority is resolved\n${output}`);
+      throw new Error(`Unable to confirm npm collaborator access for ${name} as ${identity} (exit ${res.status}, code=${safeNpmErrorCode(res)}); refusing publish before any upload.`);
     }
+    let collaborators;
     try {
-      JSON.parse(res.stdout || '{}');
+      collaborators = JSON.parse(res.stdout);
     } catch {
-      throw new Error(`npm access preflight for ${scope} returned non-JSON output; refusing publish before namespace authority is resolved\n${res.stdout}`);
+      throw new Error(`npm collaborator preflight for ${name} returned invalid JSON; refusing publish before any upload.`);
     }
+    if (collaborators === null || typeof collaborators !== 'object' || Array.isArray(collaborators)) {
+      throw new Error(`npm collaborator preflight for ${name} must return a collaborator-to-permission object; refusing publish before any upload.`);
+    }
+    if (collaborators[identity] !== 'read-write') denied.push(name);
   }
-  console.log(`npm namespace authority preflight passed for ${scopes.join(', ')} as ${identity}`);
+  if (denied.length > 0) {
+    throw new Error(`npm account ${identity} has no confirmed package-specific read-write collaborator access to: ${denied.join(', ')}. Refusing publish before any upload. Resolve package access first; a first publication requires a separately reviewed bootstrap, not an assumed namespace grant. See RELEASING.md.`);
+  }
+  console.log(`npm package-specific collaborator preflight passed for all ${plannedPackages.length} packages as ${identity}; token restrictions and package 2FA policy still apply at publish time.`);
 }
 
 function assertVersionNotPublished(name, version) {
@@ -115,7 +119,7 @@ if (planned.length === 0) {
 }
 
 console.log(`Publish plan: ${planned.length} package(s), dist-tag=${distTag}, dry-run=${dryRun ? 'yes' : 'no'}`);
-if (!dryRun) assertScopePublishAuthority(planned);
+if (!dryRun) assertPackageWriteAccess(planned);
 for (const item of planned) {
   assertVersionNotPublished(item.name, item.version);
 }
@@ -140,7 +144,9 @@ try {
     // emulates the full GHA env INCLUDING ACTIONS_ID_TOKEN_REQUEST_URL, but
     // Sigstore rejects its identity token (400 CA_CREATE_SIGNING_CERTIFICATE_
     // ERROR — failed the v0.5.6 publish). Depot releases ship without
-    // provenance; a GH workflow_dispatch re-publish re-attaches it.
+    // provenance. Do not republish an immutable version to "attach" provenance
+    // later; only future GitHub-hosted fallback publishes of not-yet-published
+    // versions can include npm provenance.
     if (!dryRun && process.env.NPM_PROVENANCE === '1' && process.env.ACTIONS_ID_TOKEN_REQUEST_URL) {
       args.push('--provenance');
     }

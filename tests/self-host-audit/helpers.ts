@@ -98,6 +98,20 @@ export default function Posts({ posts, renderedAt }: { posts: { id: number; titl
 }
 `;
 
+/** Request-specific loader data must retain its declared cache variant after bundling. */
+const ACCOUNT_PAGE = `import { useLoaderData } from '@celsian/vura-core';
+
+export const page = { mode: 'server', revalidate: 60, vary: ['cookie:session', 'accept-language'] };
+
+export function loader({ request, query }) {
+  return { session: request.headers.get('cookie'), language: request.headers.get('accept-language'), query };
+}
+
+export default function Account() {
+  return <p id="account">{JSON.stringify(useLoaderData())}</p>;
+}
+`;
+
 /**
  * src/api/posts.ts — rung-2 mutation route.
  * Appends to the same JSON file and calls revalidateTag('posts').
@@ -416,12 +430,12 @@ export default function StreamedPage() {
 `;
 
 /** src/pages/streamed-loader.tsx — streaming composed with an RFC 0001 loader. */
-const STREAMED_LOADER_PAGE = `import { useLoaderData } from '@celsian/vura-core';
+const STREAMED_LOADER_PAGE = `import { useLoaderData, type LoaderContext } from '@celsian/vura-core';
 
 export const page = { mode: 'server', streaming: true, title: 'Streamed loader' };
 
-export async function loader() {
-  return { via: 'STREAM-LOADER-DATA' };
+export async function loader(ctx: LoaderContext) {
+  return { via: 'STREAM-LOADER-DATA', query: ctx.query };
 }
 
 export default function StreamedLoaderPage() {
@@ -749,6 +763,7 @@ async function _scaffoldAndBuild(): Promise<{
   await mkdir(join(dir, 'src', 'api', 'tasks'), { recursive: true });
 
   await writeFile(join(dir, 'src', 'pages', 'posts.tsx'), POSTS_PAGE);
+  await writeFile(join(dir, 'src', 'pages', 'account.tsx'), ACCOUNT_PAGE);
   await writeFile(join(dir, 'src', 'pages', 'index.tsx'), INDEX_PAGE);
   await writeFile(join(dir, 'src', 'pages', 'widget.tsx'), WIDGET_PAGE);
   await writeFile(join(dir, 'src', 'pages', 'mixed.tsx'), MIXED_PAGE);
@@ -905,6 +920,8 @@ export async function startSinkhole(): Promise<{
 
 export async function bootServer(env: Record<string, string>): Promise<{
   port: number;
+  url: string;
+  wsUrl: string;
   kill: () => Promise<void>;
   stdout: () => string;
 }> {
@@ -954,6 +971,8 @@ export async function bootServer(env: Record<string, string>): Promise<{
 
   return {
     port,
+    url: `http://127.0.0.1:${port}`,
+    wsUrl: `ws://127.0.0.1:${port}`,
     kill: () => new Promise<void>((resolve) => {
       proc.once('exit', () => resolve());
       proc.kill('SIGTERM');
@@ -974,6 +993,8 @@ export async function bootServer(env: Record<string, string>): Promise<{
  */
 export async function bootDevServer(env: Record<string, string> = {}): Promise<{
   port: number;
+  url: string;
+  wsUrl: string;
   kill: () => Promise<void>;
   stdout: () => string;
 }> {
@@ -1023,6 +1044,8 @@ export async function bootDevServer(env: Record<string, string> = {}): Promise<{
 
   return {
     port,
+    url: `http://127.0.0.1:${port}`,
+    wsUrl: `ws://127.0.0.1:${port}`,
     kill: () => new Promise<void>((resolve) => {
       proc.once('exit', () => resolve());
       proc.kill('SIGTERM');

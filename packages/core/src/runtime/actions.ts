@@ -167,7 +167,13 @@ function readCookie(header: string | undefined, name: string): string | null {
     const eq = part.indexOf('=');
     if (eq === -1) continue;
     if (part.slice(0, eq).trim() !== name) continue;
-    return decodeURIComponent(part.slice(eq + 1).trim());
+    try {
+      return decodeURIComponent(part.slice(eq + 1).trim());
+    } catch {
+      // Cookie bytes are untrusted. Invalid encoding is an invalid credential,
+      // not an exception that should escape the action dispatch boundary.
+      return null;
+    }
   }
   return null;
 }

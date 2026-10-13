@@ -1,59 +1,150 @@
 # Releasing Vura
 
-Releases are tag-driven (`v*`) through `.github/workflows/release.yml`
-(verify matrix → publish with provenance). Use a classic npm Automation token
-in the `NPM_TOKEN` secret (expiring tokens have killed publishes before).
+Releases are tag-driven (`v*`) through `.depot/workflows/release.yml`
+(verify matrix → publish → registry smoke). The manual GitHub fallback is
+`.github/workflows/release.yml`, dispatched against the release tag; only that
+GitHub-hosted publisher explicitly enables npm provenance. Do not claim
+provenance for a Depot publish, or run both publishers concurrently. Use the
+configured `NPM_TOKEN` secret and verify its publish authority through the
+release tooling rather than assuming a token type or expiry policy.
 
 > **Token hygiene:** rotate the npm token if it has ever appeared in a
 > chat transcript, browser session, or screenshot — even in a private
-> context. A rotated token takes ~30 seconds on npmjs.com; a leaked token
-> can be used to overwrite or unpublish releases.
+> context. A leaked publish token can authorize malicious new releases or
+> other package changes within its permissions. Never print token values in
+> release evidence, commands, or screenshots.
 
-## The v0.5 "hosting-ready" gate
+Before any upload, the publisher resolves the npm identity once and then runs
+`npm access list collaborators <package> <username> --json` for every planned
+package. The package-specific collaborator map must show that identity as
+`read-write` for each package, including unscoped `create-vura`. Empty,
+malformed, missing, or read-only access fails the whole preflight before packing
+or publishing; an organization's package list and the account-wide
+`npm access list packages <username>` inventory are not sufficient evidence.
+This checks package-level account access, not all granular-token restrictions or
+package 2FA requirements. The registry still enforces those at publish time.
 
-A release tag may not be pushed until every box is checked, by a human,
-in the release PR description:
+`pnpm release:check` and publisher `--dry-run` deliberately stay credential-free:
+they check artifacts and the version plan, not live account access. The real
+publisher performs the authenticated preflight before **any** upload, so an ACL
+rejection cannot itself leave a partially uploaded batch. Mocked CLI regressions
+verify that ordering and failure handling; they do not verify a live credential.
+Keep npm credentials out of pull-request verification jobs.
 
-### CI — all green on the release commit
+A new package with no access entry requires a separately reviewed first
+publication that establishes its exact name, scope and ownership. The batch
+publisher deliberately does not infer permission to create a package from its
+absence. Do not bypass the check or grant broader access just to make CI green.
 
-- [x] `CI / verify (20)` and `CI / verify (22)` — lint, build, test,
+## Release evidence and acceptance
+
+Agents own reproducible verification and may check its boxes in the release PR
+after inspecting the evidence. Humans are not asked to open CI pages, rerun
+commands, check links, or certify factual claims an agent can verify.
+
+Copy the unchecked template below into each release PR. Record the verified
+commit, evidence links, limitations, and verifier; an old checked list is not
+evidence for a new release. Missing evidence stays an **agent-owned open item**,
+not a human approval request. Neither agents nor humans may check an item that
+has not actually passed.
+
+A tag may be pushed only after the pre-release evidence and any applicable
+human-only acceptance items are complete. Publication is a separate final step;
+do not check its box before publication succeeds. This policy does not grant
+credentials, waive security findings, or authorize unrelated production changes.
+
+### Agent-owned pre-release evidence
+
+- [ ] `CI / verify (20)` and `CI / verify (22)` — lint, build, test,
       verify-publish, audit (matrix: Node 20 + 22)
-- [x] `CI / selfhost-audit` — assertions A0–A12 (no-platform-gating)
-- [x] `Self-host guides / scaffold` + all five target jobs:
+- [ ] `CI / selfhost-audit` — assertions A0–A12 (no-platform-gating)
+- [ ] `Self-host guides / scaffold` + all six target jobs:
       `Self-host guides / node-vps`,
       `Self-host guides / docker`,
       `Self-host guides / fly`,
+      `Self-host guides / railway`,
       `Self-host guides / cloudflare`,
       `Self-host guides / lambda`
-- [x] `Docs site / build` — docs build + 0 broken links + version badge matches
-
-### Audits
-
-- [x] `/smoke-audit` pass on the release candidate (scaffold from the packed
+- [ ] `Docs site / build` — docs build + link check + version badge matches;
+      record exclusions rather than claiming untested external links passed
+- [ ] `/smoke-audit` pass on the release candidate (scaffold from the packed
       tarballs, follow the docs as a new user, browser-check the docs site);
       report attached to the release PR, zero CRITICAL/HIGH findings open
-- [x] CLAIMS.md signed off against the built docs site (dated sign-off line
-      updated for this version)
-
-### Docs
-
-- [x] vura.io deploy is live and serving the release version in the nav badge
-      (build-time version stamp — verify with:
-      `curl -s https://vura.io/ | grep -o 'v[0-9.]*' | head -1`)
-- [x] Every package README's docs links resolve (linkinator against vura.io)
-
-### Versioning & publish
-
-- [x] `pnpm release:check` passes (note: will error if the version is already
+- [ ] `CLAIMS.md` factually reviewed against the built docs and executable
+      evidence; dated agent sign-off updated for this version with limitations
+- [ ] vura.io deploy is live and serving the release version in the nav badge;
+      verify the live response, not a cached search result
+- [ ] Every package README's docs links resolve; check response status and
+      destination content, and record missing anchors or misleading destinations
+- [ ] `pnpm release:check` passes on a clean tree (will error if already
       published — that is the correct behavior; bump before tagging)
-- [x] `pnpm package:size` — no package over its limit in
+- [ ] `pnpm package:size` — no package over its limit in
       `scripts/package-size-limits.json`
-- [x] CHANGELOG.md entry for the version
-- [x] Tag `vX.Y.Z`, push, watch `release.yml`, then run
-      `pnpm verify:registry` against the published packages
+- [ ] `CHANGELOG.md` entry matches the changes, dependencies, limitations, and
+      upgrade requirements; agents verify this against source and tests
 
-If any box cannot be checked, the release waits. No exceptions for "docs-only"
-or "it's just the badge" — those are exactly the drift this gate exists to stop.
+### Human-only acceptance — only where human judgment is needed
+
+List concrete URLs, scenarios, and the decision needed, not a generic
+"verify features work" gate. Agents still perform browser interaction, functional,
+accessibility, and regression tests that they can execute. Human review covers
+subjective visual/product fit, business acceptance of disclosed limitations, or
+real-world scenarios requiring a person's unavailable access, hardware, or context.
+If no such item applies, record that rationale instead of inventing a human gate.
+
+- [ ] Applicable visual/product acceptance: describe the exact judgment here,
+      or record why no human-only acceptance is needed for this release
+
+Never check a human-only acceptance item on someone's behalf. A failed or missing
+automated test is not a reason to transfer verification to the user.
+
+### Agent-owned publication — after pre-release acceptance
+
+- [ ] Tag `vX.Y.Z`, push, watch `release.yml`, and confirm
+      `pnpm verify:registry` succeeds against all published packages;
+      attach the workflow and registry evidence before checking this box
+
+If the publish job uploaded all packages but the post-publish registry smoke
+fails during npm propagation, do **not** rerun the publisher, move the tag, or
+try to overwrite immutable npm packages. Wait for registry propagation, then
+run the verification-only recovery workflow against the already-published
+version:
+
+```bash
+depot ci dispatch --repo CelsianJs/vura --workflow verify-registry.yml --ref main --input version=X.Y.Z
+# GitHub-hosted verification-only fallback:
+gh workflow run verify-registry.yml --repo CelsianJs/vura --ref main -f version=X.Y.Z
+```
+
+The recovery workflow performs only registry consumer verification; it has
+`contents: read`, no npm credentials, and no publish step.
+Use a reviewed checker ref containing the workflow; older immutable release tags
+may predate it. The version input pins the packages being tested independently
+of the checker ref. Record both refs in the release evidence.
+
+When the release commit changes, rerun affected checks and CI on the final commit.
+Any reused evidence must identify its original commit and explain why the tested
+inputs are unchanged. No silent carry-forward of checks from an older candidate.
+
+### Repairing tooling after a tagged publisher fails before uploads
+
+Do not move the immutable tag. When **none** of its package versions were
+uploaded, reviewed publishing-tool fixes may use Depot's `publish-recovery.yml`.
+It requires the existing stable tag and its exact commit, permits only a small
+allowlist of tooling/documentation differences, verifies all package versions
+match the tag, and runs the complete clean release gate before authenticated
+publication. Package sources, manifests, lockfiles and the publish list cannot
+change. Run only one publisher at a time.
+
+```sh
+depot ci dispatch --repo CelsianJs/vura --workflow publish-recovery.yml --ref main \
+  --input release_tag=vX.Y.Z --input release_commit=FULL_IMMUTABLE_COMMIT
+```
+
+The dry-run gate rejects already-published versions, so this is not a partial-
+upload or registry-propagation recovery path. Use verification-only recovery
+after all uploads succeed. Record both the immutable payload commit and the
+reviewed tooling/workflow commit in release evidence.
 
 ---
 

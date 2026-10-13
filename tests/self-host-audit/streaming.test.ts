@@ -29,7 +29,7 @@ afterAll(async () => {
   await server?.kill();
 });
 
-const base = () => `http://localhost:${server.port}`;
+const base = () => server.url;
 
 /** Read a response body chunk by chunk, stamping when each marker first appears. */
 async function readTimeline(
@@ -68,6 +68,7 @@ describe('S1: a streaming page delivers its shell before its slow data', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/html');
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
     expect(html).toContain('STREAM-SHELL');
     expect(html).toContain('SLOW-STREAM-DATA');
 
@@ -106,6 +107,14 @@ describe('S1: a streaming page delivers its shell before its slow data', () => {
 });
 
 describe('S2: streaming composes with the rest of the page contract', () => {
+  it('preserves duplicate query values through the packed loader and serialized payload', async () => {
+    const res = await fetch(`${base()}/streamed-loader?tag=a&tag=b&empty=&empty=z`);
+    const html = await res.text();
+    const match = html.match(/<script id="__VURA_LOADER__" type="application\/json">([\s\S]*?)<\/script>/);
+    expect(match).not.toBeNull();
+    expect(JSON.parse(match![1]!).page.query).toEqual({ tag: ['a', 'b'], empty: ['', 'z'] });
+  });
+
   it('runs the loader chain and serializes its payload', async () => {
     const res = await fetch(`${base()}/streamed-loader`);
     const html = await res.text();
@@ -125,12 +134,14 @@ describe('S2: streaming composes with the rest of the page contract', () => {
     // reason the loader chain runs ahead of the stream rather than inside it.
     const res = await fetch(`${base()}/streamed-404`);
     expect(res.status).toBe(404);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
     await res.text();
   }, 30_000);
 
   it('answers HEAD without a body and without breaking', async () => {
     const res = await fetch(`${base()}/streamed`, { method: 'HEAD' });
     expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
     expect(res.headers.get('content-type')).toContain('text/html');
     expect(await res.text()).toBe('');
   }, 30_000);
@@ -150,7 +161,7 @@ describe('S3: `vura dev` streams the same page the same way', () => {
     await dev?.kill();
   });
 
-  const devBase = () => `http://localhost:${dev.port}`;
+  const devBase = () => dev.url;
 
   it('delivers the shell before the slow data in dev too', async () => {
     const { res, html, seenAt, chunks } = await readTimeline(`${devBase()}/streamed`, [
@@ -173,6 +184,7 @@ describe('S3: `vura dev` streams the same page the same way', () => {
   it('still returns a 404 from a streamed loader in dev', async () => {
     const res = await fetch(`${devBase()}/streamed-404`);
     expect(res.status).toBe(404);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
     await res.text();
   }, 60_000);
 

@@ -31,12 +31,15 @@ Build and preview locally with Wrangler:
 
 ```sh
 vura build
+cd dist/cloudflare
 wrangler dev
 ```
 
 ## Documentation
 
-_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
+API routes and all four page modes are supported. `src/middleware.ts` and server
+actions are not executed by this adapter; protect data in route handlers and
+page loaders. ISR is not provided, and hot routes require a persistent Node host.
 
 - [Self-host on Cloudflare — /self-host/cloudflare/](https://vura.io/self-host/cloudflare/)
 - [Adapters overview — /self-host/](https://vura.io/self-host/)

@@ -33,7 +33,7 @@ afterAll(async () => {
   await server?.kill();
 });
 
-const base = () => `http://localhost:${server.port}`;
+const base = () => server.url;
 
 describe('H1: a static page can use useSignal', () => {
   it('prerenders it to HTML at build time', () => {
