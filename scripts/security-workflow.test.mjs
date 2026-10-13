@@ -22,11 +22,18 @@ describe.each(['.depot/workflows/security.yml', '.github/workflows/security.yml'
     expect(permissions(await source(), 0)).toEqual({ contents: 'read' });
   });
 
-  it('retains CodeQL permissions and analysis steps', async () => {
+  it.runIf(file.startsWith('.github/'))('retains CodeQL permissions and analysis steps', async () => {
     const block = job(await source(), 'codeql');
     expect(permissions(block, 4)).toEqual({ contents: 'read', actions: 'read', 'security-events': 'write' });
     expect(block).toContain('uses: github/codeql-action/init@v4');
     expect(block).toContain('uses: github/codeql-action/analyze@v4');
+  });
+
+  it.runIf(file.startsWith('.depot/'))('leaves CodeQL to the GitHub-hosted workflow', async () => {
+    const workflow = await source();
+    expect(workflow).not.toMatch(/^  codeql:/m);
+    expect(workflow).not.toContain('codeql-action');
+    expect(workflow).not.toContain('security-events');
   });
 
   it('runs the redacted secret scan with only repository read access', async () => {
