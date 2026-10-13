@@ -607,7 +607,7 @@ export default {
         name: TASK_NAME,
         config: { retries: ${retries}, timeout: ${timeoutMs} },
         handler: ${varName}.POST,
-        inputSchema: isPlatformCron ? undefined : ${varName}.input,
+        inputSchema: isPlatformCron ? undefined : Reflect.get(${varName}, 'input'),
       },
       {
         input: rawPayload,

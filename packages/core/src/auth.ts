@@ -32,9 +32,9 @@
 //     Refs: reply.ts:70-116 (send/html/json), reply.ts:64-67 (reply.header writes inner dict)
 //
 //   Covered paths: plain-object return, string return, reply.json, reply.html, reply.send.
-//   Documented limitation: handler returning a raw Response object bypasses reply.headers and
-//   the wrapping entirely; Set-Cookie is NOT emitted in that case (celsian app.ts:852-853 takes
-//   the instanceof Response branch before header merging).
+//   Node's Celsian >=0.6.6 also merges reply headers into a raw Response return,
+//   so the Proxy commits its session cookie there. Adapter reply shims are a
+//   separate contract: use the tested reply helpers for portable cookie writes.
 
 import {
   decodePayload,

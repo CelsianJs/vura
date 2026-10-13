@@ -272,10 +272,11 @@ export function generateWorkerEntry(
 ): string {
   const imports: string[] = [];
   const routeTable: string[] = [];
+  const moduleNames = routeModuleFileNames([...routes, ...taskRoutes]);
 
-  for (const route of routes) {
-    const varName = routeToVarName(route);
-    const importPath = `./routes/${routeModuleFileName(route)}`;
+  for (const [index, route] of routes.entries()) {
+    const varName = `${routeToVarName(route)}_http_${index}`;
+    const importPath = `./routes/${moduleNames.get(route)}`;
     imports.push(`import * as ${varName} from '${importPath}';`);
 
     routeTable.push(`  { pattern: '${route.urlPattern}', methods: [${route.methods.map(m => `'${m}'`).join(', ')}], handlers: ${varName} },`);
@@ -284,9 +285,9 @@ export function generateWorkerEntry(
   // Import task route handlers
   const taskImports: string[] = [];
   const taskTable: string[] = [];
-  for (const route of taskRoutes) {
-    const varName = routeToVarName(route);
-    const importPath = `./routes/${routeModuleFileName(route)}`;
+  for (const [index, route] of taskRoutes.entries()) {
+    const varName = `${routeToVarName(route)}_task_${index}`;
+    const importPath = `./routes/${moduleNames.get(route)}`;
     taskImports.push(`import * as ${varName} from '${importPath}';`);
     const taskName = route.urlPattern.replace(/^\/api\//, '').replace(/\//g, '.');
     const schedule = route.config.schedule ? `'${route.config.schedule}'` : 'null';
@@ -333,7 +334,9 @@ function matchRoute(pathname, method) {
         while (i < route.pattern.length && /[a-zA-Z0-9_]/.test(route.pattern[i])) { name += route.pattern[i]; i++; }
         paramNames.push(name); regexStr += '([^/]+)';
       } else if (route.pattern[i] === '*') {
-        paramNames.push('*'); regexStr += '(.*)'; i++;
+        let name = ''; i++;
+        while (i < route.pattern.length && /[a-zA-Z0-9_]/.test(route.pattern[i])) { name += route.pattern[i]; i++; }
+        paramNames.push(name || '*'); regexStr += '(.*)';
       } else {
         const ch = route.pattern[i];
         if ('.+?^\${}()|[]\\\\'.includes(ch)) regexStr += '\\\\' + ch;
@@ -644,6 +647,10 @@ export function cloudflareAdapter(options: CloudflareAdapterOptions): ThenAdapte
 
     async buildEnd(ctx: AdapterBuildContext): Promise<void> {
       const { manifest, projectRoot, outDir } = ctx;
+      const unsupported = [manifest.middleware && 'middleware', manifest.actions?.length && 'actions'].filter(Boolean);
+      if (unsupported.length > 0) {
+        throw new Error(`[vura] cloudflare does not support ${unsupported.join(' and ')}; deploy this app to Node or Vura instead.`);
+      }
 
       // Filter for serverless routes only
       const serverlessRoutes = manifest.api.filter(r => r.kind === 'serverless');
@@ -738,8 +745,9 @@ export function cloudflareAdapter(options: CloudflareAdapterOptions): ThenAdapte
         await writeFile(join(workerDir, 'entry.js'), entry);
         const routesDir = join(workerDir, 'routes');
         const emitted = new Set<string>();
+        const moduleNames = routeModuleFileNames([...routes, ...taskRoutes]);
         for (const route of [...routes, ...taskRoutes]) {
-          const outfile = join(routesDir, routeModuleFileName(route));
+          const outfile = join(routesDir, moduleNames.get(route)!);
           await bundleRouteModule(route, projectRoot, outfile);
           emitted.add(outfile);
         }
@@ -818,16 +826,42 @@ export interface CloudflareWorkerHandler {
 function routeToVarName(route: ApiRoute): string {
   return 'route_' + route.urlPattern
     .replace(/^\//, '')
-    .replace(/[/:*\-]/g, '_')
+    .replace(/[^a-zA-Z0-9_]/g, '_')
     .replace(/_+/g, '_');
 }
 
 function routeModuleFileName(route: ApiRoute): string {
-  return route.filePath
+  const name = route.filePath
     .replace(/\.[cm]?tsx?$/, '')
     .replace(/[^a-zA-Z0-9_/-]/g, '_')
-    .replace(/[/-]+/g, '_')
-    .replace(/^_+|_+$/g, '') + '.js';
+    .replace(/[/-]+/g, '_');
+  let start = 0, end = name.length;
+  while (start < end && name[start] === '_') start++;
+  while (end > start && name[end - 1] === '_') end--;
+  return name.slice(start, end) + '.js';
+}
+
+// Reserve every legacy basename before allocating collision suffixes, so a
+// user file already named like a suffix cannot overwrite a disambiguated route.
+function routeModuleFileNames(routes: ApiRoute[]): Map<ApiRoute, string> {
+  const counts = new Map<string, number>();
+  for (const route of routes) {
+    const name = routeModuleFileName(route);
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  const used = new Set(counts.keys());
+  const names = new Map<ApiRoute, string>();
+  for (const [index, route] of routes.entries()) {
+    const base = routeModuleFileName(route);
+    let name = base;
+    if (counts.get(base)! > 1) {
+      let suffix = index;
+      do { name = base.slice(0, -3) + `_${suffix++}.js`; } while (used.has(name));
+      used.add(name);
+    }
+    names.set(route, name);
+  }
+  return names;
 }
 
 async function bundleRouteModule(route: Pick<ApiRoute, 'filePath'>, projectRoot: string, outfile: string): Promise<void> {

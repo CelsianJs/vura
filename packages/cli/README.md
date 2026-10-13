@@ -44,6 +44,14 @@ vura routes inspect --json
 vura runtime advise --json
 ```
 
+Without Vite, `vura dev` watches application files under `src/` and automatically
+reloads browser pages after a successful rebuild, including changes to imported
+modules and added or deleted routes. This is a full-page reload: browser-local
+state resets. It is not state-preserving hot module replacement. Broken edits
+are reported in the terminal; the previous working generation stays active
+until the edit is fixed. Open hot-route WebSocket clients retain their previous
+room registry until they reconnect.
+
 Managed routes choose between scale-to-zero Function compute and persistent
 Dedicated compute. Function memory defaults to 1 GiB and supports 1, 4, 6, 8,
 and 12 GiB profiles.

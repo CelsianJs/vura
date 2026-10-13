@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { generateFixture, validateBuildOutput, validateFixtureSource } from './fixture.mjs';
+import { generateFixture, resolveToolVersions, validateBuildOutput, validateFixtureSource } from './fixture.mjs';
 
 const execFileAsync = promisify(execFile);
 export const DEFAULT_BUILD_TIMEOUT_MS = 15 * 60 * 1000;
@@ -21,15 +21,19 @@ export async function runBuildMatrix({
   buildTimeoutMs = DEFAULT_BUILD_TIMEOUT_MS,
   bootstrapTimeoutMs = DEFAULT_BOOTSTRAP_TIMEOUT_MS,
 }) {
+  const bootstrapStartedAt = performance.now();
   await ensureCliBuilt(repoRoot, { timeoutMs: bootstrapTimeoutMs });
+  const bootstrapDurationMs = performance.now() - bootstrapStartedAt;
   const toolRevision = await resolveToolRevision(repoRoot);
   return withFixturesRoot(outputRoot, async (fixturesRoot) => {
     const results = [];
     for (let index = 0; index < specs.length; index += 1) {
       const spec = specs[index];
       onProgress({ id: spec.id, phase: 'generate', completed: index, total: specs.length });
+      const setupStartedAt = performance.now();
       const { fixtureRoot, contract } = await generateFixture({ repoRoot, outputRoot: fixturesRoot, spec });
       await validateFixtureSource(fixtureRoot);
+      const setupDurationMs = performance.now() - setupStartedAt;
       onProgress({ id: spec.id, phase: 'build', completed: index, total: specs.length });
       const startedAt = performance.now();
       const build = await runVuraBuild({
@@ -50,6 +54,7 @@ export async function runBuildMatrix({
         id: spec.id,
         size: spec.size,
         workload: spec.workload,
+        setupDurationMs,
         durationMs,
         counts: contract.counts,
         asset: contract.asset,
@@ -65,6 +70,7 @@ export async function runBuildMatrix({
       generatedAt: new Date().toISOString(),
       seed: specs.length === 0 ? null : specs[0].seed.split(':').slice(0, -2).join(':'),
       toolRevision,
+      bootstrapDurationMs,
       cellCount: results.length,
       ok: results.length === specs.length && results.every((result) => result.manifestValidated),
       results,
@@ -98,24 +104,20 @@ export async function ensureCliBuilt(repoRoot, { timeoutMs = DEFAULT_BOOTSTRAP_T
 }
 
 async function resolveToolRevision(repoRoot) {
-  const [commitResult, statusResult, cliPackage, corePackage] = await Promise.all([
+  const [commitResult, statusResult, versions] = await Promise.all([
     execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot }),
     execFileAsync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: repoRoot }),
-    importJson(join(repoRoot, 'packages', 'cli', 'package.json')),
-    importJson(join(repoRoot, 'packages', 'core', 'package.json')),
+    resolveToolVersions(repoRoot),
   ]);
   return {
     gitCommit: commitResult.stdout.trim(),
     dirty: statusResult.stdout.trim().length > 0,
-    cliVersion: cliPackage.version,
-    coreVersion: corePackage.version,
+    cliVersion: versions.cli,
+    coreVersion: versions.core,
+    whatFrameworkVersion: versions.whatFramework,
+    celsianCoreVersion: versions.celsianCore,
     nodeVersion: process.version,
   };
-}
-
-async function importJson(path) {
-  const { readFile } = await import('node:fs/promises');
-  return JSON.parse(await readFile(path, 'utf8'));
 }
 
 function sanitizeError(message, repoRoot, fixtureRoot) {
@@ -125,7 +127,13 @@ function sanitizeError(message, repoRoot, fixtureRoot) {
 export async function withFixturesRoot(outputRoot, operation) {
   const ownsFixturesRoot = !outputRoot;
   const fixturesRoot = outputRoot || await mkdtemp(join(tmpdir(), 'vura-build-matrix-'));
-  if (!ownsFixturesRoot) await mkdir(fixturesRoot, { recursive: true });
+  if (!ownsFixturesRoot) {
+    await mkdir(fixturesRoot, { recursive: true });
+    const info = await lstat(fixturesRoot);
+    if (!info.isDirectory() || info.isSymbolicLink()) {
+      throw new Error('refusing to use a symlink or non-directory fixtures root');
+    }
+  }
   try {
     return await operation(fixturesRoot);
   } finally {

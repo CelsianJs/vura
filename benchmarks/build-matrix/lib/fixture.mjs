@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { lstat, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, relative } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
@@ -14,6 +14,11 @@ export async function generateFixture({ repoRoot, outputRoot, spec }) {
   const fixtureRoot = join(outputRoot, spec.id);
   await prepareOwnedFixtureDirectory(fixtureRoot, spec.id);
   const versions = await resolveToolVersions(repoRoot);
+  // Use the CLI's installed closure, which includes the workspace core package
+  // as well as What. An OS-temp fixture otherwise has no dependency ancestor
+  // for the bare imports kept external by the build-time page loader.
+  const dependencies = await realpath(join(repoRoot, 'packages', 'cli', 'node_modules'));
+  await symlink(dependencies, join(fixtureRoot, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
   await writeJson(join(fixtureRoot, 'package.json'), {
     name: `vura-benchmark-${spec.id}`,
     private: true,
@@ -35,7 +40,7 @@ export async function generateFixture({ repoRoot, outputRoot, spec }) {
   await generateApi(fixtureRoot, spec);
   const asset = await generateAsset(fixtureRoot, spec);
   const sourceChecksum = await checksumDirectory(fixtureRoot, {
-    exclude: (path) => path === 'benchmark-contract.json' || path.startsWith('dist/'),
+    exclude: excludeFixtureGeneratedFiles,
   });
   const contract = {
     schemaVersion: MATRIX_SCHEMA_VERSION,
@@ -89,7 +94,7 @@ export async function prepareOwnedFixtureDirectory(fixtureRoot, cellId) {
 export async function validateFixtureSource(fixtureRoot) {
   const contract = JSON.parse(await readFile(join(fixtureRoot, 'benchmark-contract.json'), 'utf8'));
   const sourceChecksum = await checksumDirectory(fixtureRoot, {
-    exclude: (path) => path === 'benchmark-contract.json' || path.startsWith('dist/'),
+    exclude: excludeFixtureGeneratedFiles,
   });
   if (sourceChecksum !== contract.sourceChecksum) {
     throw new Error(`source checksum mismatch for ${contract.id}`);
@@ -145,16 +150,17 @@ export async function validateBuildOutput(fixtureRoot, contract) {
 }
 
 export async function resolveToolVersions(repoRoot) {
-  const [cli, core, whatFramework] = await Promise.all([
+  const [cli, core, whatFramework, celsianCore] = await Promise.all([
     readPackageVersion(join(repoRoot, 'packages', 'cli', 'package.json')),
     readPackageVersion(join(repoRoot, 'packages', 'core', 'package.json')),
-    readPackageVersion(join(repoRoot, 'node_modules', 'what-framework', 'package.json')),
+    readPackageVersion(join(repoRoot, 'packages', 'cli', 'node_modules', 'what-framework', 'package.json')),
+    readPackageVersion(join(repoRoot, 'packages', 'core', 'node_modules', '@celsian', 'core', 'package.json')),
   ]);
-  return { cli, core, whatFramework };
+  return { cli, core, whatFramework, celsianCore };
 }
 
 export async function checksumDirectory(root, options = {}) {
-  const files = await listFiles(root);
+  const files = await listFiles(root, options.exclude);
   const hash = createHash('sha256');
   for (const absolutePath of files) {
     const path = relative(root, absolutePath).replaceAll('\\', '/');
@@ -237,11 +243,18 @@ async function checksumFile(path) {
   return createHash('sha256').update(contents).digest('hex');
 }
 
-async function listFiles(root) {
+function excludeFixtureGeneratedFiles(path) {
+  return path === 'benchmark-contract.json'
+    || path === 'dist' || path.startsWith('dist/')
+    || path === 'node_modules' || path.startsWith('node_modules/');
+}
+
+async function listFiles(root, exclude) {
   const output = [];
   async function visit(directory) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name);
+      if (exclude?.(relative(root, path).replaceAll('\\', '/'))) continue;
       if (entry.isDirectory()) await visit(path);
       else if (entry.isFile()) output.push(path);
     }

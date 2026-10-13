@@ -11,6 +11,7 @@ import {
   cloudflareAdapter,
 } from '../src/index.js';
 import type { ApiRoute, RouteManifest } from '@celsian/vura-core';
+import { fileToUrlPattern } from '../../core/src/manifest.js';
 
 function runModuleJson(entryPath: string, body: string): any {
   const source = `const mod = await import(${JSON.stringify(pathToFileURL(entryPath).href)});
@@ -163,6 +164,37 @@ describe('generateWranglerToml', () => {
 // ─── Worker Entry Generation ───
 
 describe('generateWorkerEntry', () => {
+  it('executes scanner-generated named catch-all API patterns', () => {
+    const root = mkdtempSync(join(tmpdir(), 'vura-cf-catchall-'));
+    try {
+      mkdirSync(join(root, 'routes'));
+      writeFileSync(join(root, 'package.json'), '{"type":"module"}');
+      const filePath = 'src/api/v1.0/[id]/[...rest].ts';
+      const route = makeRoute({ filePath, urlPattern: fileToUrlPattern('v1.0/[id]/[...rest].ts', '/api') });
+      const entry = generateWorkerEntry([route], root, root);
+      const modulePath = entry.match(/from '\.\/routes\/([^']+)'/)![1];
+      writeFileSync(join(root, 'routes', modulePath), 'export function GET(req) { return req.params; }');
+      const entryPath = join(root, 'entry.js');
+      writeFileSync(entryPath, entry);
+      const results = runModuleJson(entryPath, `
+const results = [];
+for (const path of ['/api/v1.0/42/a/b', '/api/v1.0/42/a/brest', '/api/v1.0/hello%20world/a%2Fb', '/api/v1.0/42/%ZZ', '/api/v1X0/42/a/b']) {
+  const response = await mod.default.fetch(new Request('https://example.com' + path), {}, {});
+  results.push({ status: response.status, body: await response.json() });
+}
+console.log(JSON.stringify(results));`);
+      expect(results).toEqual([
+        { status: 200, body: { id: '42', rest: 'a/b' } },
+        { status: 200, body: { id: '42', rest: 'a/brest' } },
+        { status: 200, body: { id: 'hello world', rest: 'a/b' } },
+        { status: 200, body: { id: '42', rest: '%ZZ' } },
+        { status: 404, body: { error: 'Not Found', path: '/api/v1X0/42/a/b' } },
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('generates a self-contained worker with route table', () => {
     const routes = [
       makeRoute({ filePath: 'src/api/hello.ts', urlPattern: '/api/hello', methods: ['GET'] }),

@@ -676,7 +676,7 @@ export function scanRoute(source: string, _fileType: string): ScanResult {
   const hasDefaultExport = /export\s+default\s+/.test(code);
   const hasGetServerData = /export\s+(?:async\s+)?function\s+getServerData|export\s+(?:const|let)\s+getServerData/.test(code);
   if (!pageMode && hasGetServerData) pageMode = 'server';
-  if (!pageMode && (/import\s+.*from\s+['"]then\/server['"]/.test(source) || /useSWR|useQuery|useServerData/.test(code))) {
+  if (!pageMode && (hasLegacyServerImport(source) || /useSWR|useQuery|useServerData/.test(code))) {
     pageMode = 'server';
   }
 
@@ -688,6 +688,21 @@ export function scanRoute(source: string, _fileType: string): ScanResult {
     pageMode,
     config,
   };
+}
+
+/** Preserve legacy raw-source import inference without overlapping repetitions. */
+export function hasLegacyServerImport(source: string): boolean {
+  const tokens = /import\s|from\s+['"]then\/server['"]|[\r\n\u2028\u2029]|\S/g;
+  let candidate = false;
+  let hasClause = false;
+  for (let token; (token = tokens.exec(source));) {
+    const value = token[0];
+    if (value.startsWith('import')) { candidate = true; hasClause = false; }
+    else if (value.startsWith('from')) { if (candidate) return true; }
+    else if (/^[\r\n\u2028\u2029]$/.test(value)) { if (hasClause) candidate = false; }
+    else hasClause = true;
+  }
+  return false;
 }
 
 export function transformJsx(

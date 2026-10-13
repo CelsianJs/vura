@@ -38,8 +38,9 @@ wrangler dev
 ## Documentation
 
 API routes and all four page modes are supported. `src/middleware.ts` and server
-actions are not executed by this adapter; protect data in route handlers and
-page loaders. ISR is not provided, and hot routes require a persistent Node host.
+actions are unsupported: builds declaring either fail before adapter output is
+written. Deploy those apps to Node or Vura instead. ISR is not provided, and hot
+routes require a persistent Node host.
 
 - [Self-host on Cloudflare — /self-host/cloudflare/](https://vura.io/self-host/cloudflare/)
 - [Adapters overview — /self-host/](https://vura.io/self-host/)
