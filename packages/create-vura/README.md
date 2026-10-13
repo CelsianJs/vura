@@ -46,10 +46,7 @@ npm run build  # builds for production
 
 ## Documentation
 
-_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
-
 - [Quick start — /ladder/0-create/](https://vura.io/ladder/0-create/)
-- [Scaffold reference — /reference/scaffold/](https://vura.io/ladder/0-create/)
 
 ## License
 

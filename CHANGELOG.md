@@ -1,5 +1,105 @@
 # Changelog
 
+## 0.8.3 - 2026-09-07
+
+All nine JavaScript packages are published and verified from the npm registry.
+The [verified publication](https://depot.dev/orgs/wbjkqlz33v/workflows/5fd1l901qr?repo=CelsianJs%2Fvura)
+used repaired publishing tooling while preserving the immutable tag's package
+inputs at `b31081ad06d06eb2b2e06621f9150efe6684fa66`. This Depot publication does
+not include npm provenance attestations.
+
+### Dependencies and tested baseline
+
+- Tracks the independently published What Framework 0.13.8 and CelsianJS 0.6.3
+  baselines across the framework packages,
+  scaffolder metadata, examples, docs-site build, and lockfiles.
+
+### Node manifest readers
+
+- Node builds and direct server-entry generation validate manifests before
+  creating output or bundling. Core manifest types use the canonical contract.
+- Compatible unversioned manifests remain supported; schedules on non-task
+  routes are rejected instead of silently ignored.
+
+These reader changes landed after the immutable v0.8.2 tag and are included in
+version 0.8.3. Versioned manifest emission remains unchanged.
+
+## 0.8.2 - 2026-09-07
+
+### Versioned manifest contract foundation
+
+- Added `@celsian/vura-contract`, a dependency-free package with the existing
+  manifest DTOs, a v1 schema, explicit legacy parsing, required-feature
+  derivation, and target-capability refusal diagnostics.
+- Rejects unknown schema versions/features, underdeclared requirements, and
+  contradictory resolved workload/compute metadata. Compatible legacy metadata
+  is preserved, including middleware, actions, nested layouts and loader flags.
+- Release verification installs the contract alone, checks its zero-transitive-
+  dependency tree and strict declarations without Node/DOM types, then verifies
+  it alongside the other eight packed packages.
+
+This release is the reader-contract foundation, not a producer or deployment
+cutover. Existing builds still emit unversioned manifests; no current deployment
+reader or adapter is changed to enforce the new evaluator. Roll out compatible
+readers before emitting v1 manifests or imposing a new-admission cutoff.
+Capability declarations describe requirements, not proof of provider support.
+
+All nine packages are published and the tag-driven registry consumer smoke
+passed. See the [release workflow](https://depot.dev/orgs/wbjkqlz33v/workflows/6cghtwdq5m?repo=CelsianJs%2Fvura).
+The immutable tag targets `20974a652eaa1ee18e774670eb2b2026abd9c4d1`.
+This Depot publication does not include npm provenance attestations.
+
+## 0.8.1 - 2026-09-06
+
+Publication is complete only when the evidence requirements in `RELEASING.md`
+and the tag-driven release succeed. A source merge alone is not publication.
+
+### Fixed
+
+- Streaming pages send `Cache-Control: private, no-store`, including loader
+  errors and redirects. HEAD follows the same cache policy without rendering
+  a body or populating ISR. Repeated query parameters retain their order and
+  all values in both streaming and buffered loader contexts.
+- Malformed percent-encoded action CSRF cookies produce a 403 response rather
+  than an uncaught decoding error. Server-action imports fail closed before
+  browser bundling can expose their implementations.
+- Runtime-split fixes, strict loader-data serialization, stale build-output
+  cleanup, and consistent response-hook/logger behavior are included from the
+  post-0.8.0 hardening work.
+- Scaffold next-step POSIX commands correctly handle paths with spaces,
+  apostrophes, and leading dashes. Self-host audit requests use explicit IPv4
+  loopback addresses rather than ambiguous `localhost` resolution.
+
+### Adapter and deployment improvements
+
+- Cloudflare and Lambda adapters support server-rendered pages, global API
+  hooks, cookie sessions, and pure streaming helpers. Middleware and server
+  actions remain unsupported on these adapters; authorization must be enforced
+  in the handler or loader that accesses protected data.
+- Railway's self-host guide now has an executable CI check. Documentation URL
+  redirects and the docs-site dependency lockfile are corrected, and package
+  size budgets run on pull requests as well as release builds.
+- Mobile documentation navigation works without JavaScript; wide capability
+  tables scroll within the page and remain keyboard accessible. Deployment and
+  task documentation, including exported API comments, now qualify private-beta
+  access, runtime installation, adapter limitations, checkpoint replay, and
+  idempotency requirements for external side effects.
+
+### Dependencies and upgrade notes
+
+- Require independently published What Framework 0.13.6 and CelsianJS 0.6.2.
+  These releases fix reactive subscription/disposal behavior, query-cache key
+  identity, Node stream cancellation/backpressure, and SSE framing. Vura's
+  scaffold and examples use the same released upstream baseline.
+- What 0.13.6 also hardens its standalone full-stack scaffolder. Updating runtime
+  dependencies does not rewrite an existing What-generated `server.js`; follow
+  the upstream migration notes for those applications.
+- Clear, rebuild, or isolate existing persistent ISR and response-cache entries
+  during upgrade. Entries created using older repeated-query normalization or
+  truncated key identity cannot have their original identity reconstructed.
+  Hashed Celsian cache invalidation reads stored key metadata and may add KV
+  reads; ordinary short-key cache hits do not add a metadata lookup.
+
 ## 0.8.0 - 2026-08-28
 
 ### Added

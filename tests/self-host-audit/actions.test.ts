@@ -31,7 +31,7 @@ afterAll(async () => {
   await server?.kill();
 });
 
-const base = () => `http://localhost:${server.port}`;
+const base = () => server.url;
 const SECRET = 'ACTION-SOURCE-MUST-NOT-SHIP';
 
 /** A browser's same-origin fetch, as the generated stub performs it. */

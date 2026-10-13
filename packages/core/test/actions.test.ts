@@ -215,6 +215,19 @@ describe('A7: every gate runs before the action does', () => {
     registerActionModules({ todos: { add: async (text: string) => ({ text }) } });
   });
 
+  it.each(['%', '%ZZ', '%E0%A4%A'])('rejects a malformed cookie %s without invoking the action', async (cookie) => {
+    let calls = 0;
+    registerActionModules({ todos: { add: () => { calls++; return null; } } });
+    const outcome = await dispatchAction(req({ headers: { cookie: `vura-csrf=${cookie}` } }));
+    expect(outcome.status).toBe(403);
+    expect(calls).toBe(0);
+  });
+
+  it('still accepts a valid percent-encoded token cookie', async () => {
+    const outcome = await dispatchAction(req({ headers: { cookie: `vura-csrf=${'%61'.repeat(64)}` } }));
+    expect(outcome.status).toBe(200);
+  });
+
   it('runs the action when every gate passes', async () => {
     const outcome = await dispatchAction(req({ body: { args: ['milk'] } }));
     expect(outcome.status).toBe(200);

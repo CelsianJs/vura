@@ -31,12 +31,14 @@ Build and test locally with the AWS SAM CLI:
 
 ```sh
 vura build
-sam local start-api
+sam local start-api --template dist/template.yaml
 ```
 
 ## Documentation
 
-_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
+API routes and all four page modes are supported. `src/middleware.ts` and server
+actions are not executed by this adapter; protect data in route handlers and
+page loaders. ISR is not provided, and streaming pages are buffered.
 
 - [Self-host on Lambda — /self-host/lambda/](https://vura.io/self-host/lambda/)
 - [Adapters overview — /self-host/](https://vura.io/self-host/)

@@ -2,7 +2,7 @@
 
 Vura is a meta-framework: file routing, a build, and a server runtime, fusing
 [What Framework](https://whatfw.com) on the client with
-[CelsianJS](https://celsian.dev) on the server.
+[CelsianJS](https://github.com/CelsianJs/celsian) on the server.
 
 This file is for whoever is editing the framework itself. If you are *using*
 Vura, the docs are at [vura.io](https://vura.io).
@@ -11,7 +11,8 @@ Vura, the docs are at [vura.io](https://vura.io).
 
 | Package | What it is |
 |---|---|
-| `packages/core` | Route manifest, build, server runtime, page rendering. Everything else depends on it. |
+| `packages/contract` | Pure legacy/v1 manifest data contract and capability evaluation, with no runtime dependencies. Reader-first rollout; producers are not switched yet. |
+| `packages/core` | Route manifest, build, server runtime, page rendering. Runtime/build consumers depend on it; the contract and compiler packages stay independent. |
 | `packages/cli` | `vura dev` / `build` / `deploy` / `admin`. Owns the esbuild wiring. |
 | `packages/compiler` | Restricted static-literal parsers for route/page config. Never evaluates project code. |
 | `packages/create-vura` | The scaffold. |
@@ -96,5 +97,9 @@ scanning runs before anything is built.
   written entry* saying what was added and why.
 - **Prove absence by execution, not by grep.** A missing symbol is not a
   missing feature. Run it.
-- **Release gate.** `RELEASING.md` is checked by a human before a tag is
-  pushed. `pnpm release:check` needs a clean tree, so commit first.
+- **Release evidence.** Follow `RELEASING.md`: agents verify and check CI,
+  builds, tests, links, factual claims, and publication evidence. Reserve human
+  acceptance for explicit visual/product judgments or inaccessible real-world
+  scenarios; missing automated evidence remains agent-owned. Never attest to
+  human acceptance on someone's behalf. `pnpm release:check` needs a clean tree,
+  so commit first, and identify the verified commit in the release PR.

@@ -46,13 +46,24 @@ export default defineConfig({
 
 ## Documentation
 
-_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
+### Build manifest compatibility (0.8.3)
+
+`build()` and direct `generateServerEntry()` validate metadata using
+`@celsian/vura-contract` before producing output. Current unversioned manifests
+remain accepted explicitly; unknown versions, required features, and invalid
+metadata fail before build-directory writes. The scanner still emits legacy
+manifests during the reader-first rollout.
+
+The Node capability declaration describes the existing build-and-serve pipeline,
+not provider provisioning or isolation. Schedules require task routes; a
+schedule on an ordinary API route is refused rather than silently ignored.
+Adapters must establish their own capability support.
 
 - [Quick start — /ladder/0-create/](https://vura.io/ladder/0-create/)
 - [Config reference — /reference/config/](https://vura.io/reference/config/)
-- [API routes — /reference/api-routes/](https://vura.io/ladder/3-api/)
-- [Cache revalidation — /reference/cache/](https://vura.io/ladder/2-cache/)
-- [Auth helpers — /reference/auth/](https://vura.io/reference/route-kinds/)
+- [API routes — /ladder/3-api/](https://vura.io/ladder/3-api/)
+- [Server pages and caching — /ladder/2-cache/](https://vura.io/ladder/2-cache/)
+- [Route kinds — /reference/route-kinds/](https://vura.io/reference/route-kinds/)
 
 ## License
 

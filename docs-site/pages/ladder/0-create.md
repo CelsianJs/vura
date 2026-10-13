@@ -41,7 +41,7 @@ my-app/
     │   └── dashboard.tsx  ← client-interactive page (signals)
     └── api/
         ├── hello.ts       ← serverless GET /api/hello
-        ├── health.ts      ← hot-route GET /api/health (uptime)
+        ├── health.ts      ← serverless GET /api/health (uptime)
         ├── chat.ts        ← hot-route WebSocket /api/chat
         └── cleanup.ts     ← task route (nightly cron)
 ```
@@ -84,15 +84,16 @@ A static page, a serverless route, a hot WebSocket route, and a cron task — al
 
 ## A note on page modes
 
-Three modes appear in the scaffold:
+Two modes appear in the scaffold:
 
 | mode | what ships |
 |---|---|
 | `static` | pre-rendered HTML at build time, zero JS |
-| `server` | rendered on every request; cache optional (rung 2) |
 | `client` | fully interactive; What Framework signals |
 
 The dashboard page uses `mode: 'client'` with a `useSignal` counter — that is the only page that ships JavaScript.
+
+For per-request rendering, add a `server` page; caching is introduced in rung 2.
 
 ## Next
 
