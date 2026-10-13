@@ -25,7 +25,7 @@ yarn create vura my-app
 
 ## What you got
 
-Running `create-vura` emits twelve files:
+Running `create-vura` emits eleven files:
 
 ```
 my-app/
@@ -33,6 +33,7 @@ my-app/
 ├── vura.config.js
 ├── tsconfig.json
 ├── .gitignore
+├── README.md
 └── src/
     ├── styles.ts          ← shared style strings the pages import
     ├── pages/
@@ -41,9 +42,7 @@ my-app/
     │   └── dashboard.tsx  ← client-interactive page (signals)
     └── api/
         ├── hello.ts       ← serverless GET /api/hello
-        ├── health.ts      ← serverless GET /api/health (uptime)
-        ├── chat.ts        ← hot-route WebSocket /api/chat
-        └── cleanup.ts     ← task route (nightly cron)
+        └── health.ts      ← serverless GET /api/health (uptime)
 ```
 
 The home page, as emitted by `create-vura`:
@@ -80,7 +79,22 @@ export function GET(req: CelsianRequest, reply: CelsianReply) {
 }
 ```
 
-A static page, a serverless route, a hot WebSocket route, and a cron task — all in the same project, with no glue.
+Static pages, a client page, and serverless routes, all in the same project with no glue. Everything in the default scaffold deploys on Vura's free tier: pages are static files and API routes are Functions that scale to zero.
+
+## Opt-in examples
+
+Two route kinds are left out of the default because they run on machines of their own. Add them when you need them:
+
+| Flag | Adds | Deploys as |
+|---|---|---|
+| `--hot` | `src/api/chat.ts`, a WebSocket route, plus the `ws` package | a dedicated, always-on server; production needs a paid plan |
+| `--tasks` | `src/api/cleanup.ts`, a nightly cron task | a task route ([rung 5](/ladder/5-tasks/)) |
+
+```sh
+npm create vura@latest my-app -- --hot --tasks
+```
+
+Any route becomes hot by declaring `export const route = { compute: { class: 'dedicated' } };`. [Rung 4](/ladder/4-hot/) covers when that is worth it.
 
 ## A note on page modes
 

@@ -44,7 +44,9 @@ jobs:
         # default (inside the app) so file: refs are relative and survive
         # artifact download on a different runner.
         run: |
-          cd /tmp && node "$GITHUB_WORKSPACE/packages/create-vura/dist/index.js" app --no-install
+          cd /tmp && node "$GITHUB_WORKSPACE/packages/create-vura/dist/index.js" app --no-install --hot --tasks
+          # --hot and --tasks: self-hosting runs every route kind on one server,
+          # so this job exercises the opt-in hot WebSocket and task examples.
           # The template has no server-mode page, so nothing in this matrix
           # would exercise per-request rendering or a loader without it.
           node "$GITHUB_WORKSPACE/scripts/add-page-fixture.mjs" /tmp/app
@@ -66,7 +68,7 @@ jobs:
           # workflow exists to catch.
           test -f /tmp/app/dist/server/pages/posts.js
           # Dockerfile and fly.toml are emitted by vura build when hot routes
-          # are present (the default scaffold has /api/chat and /api/health).
+          # are present (the --hot scaffold has /api/chat and /api/health).
           # template.yaml is only emitted when the lambda adapter is configured
           # — it is NOT present in the base scaffold build.
           test -f /tmp/app/dist/Dockerfile

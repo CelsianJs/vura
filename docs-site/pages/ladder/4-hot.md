@@ -128,8 +128,8 @@ export default function Chat() {
 
 The what-fw signals API: `useSignal(initial)` returns a signal. Read the
 current value by calling it as a function (`messages()`); write by calling
-`.set(newValue)` (`messages.set([...])`). The scaffold includes `ws` as a
-dependency. For projects created before this version: `npm install ws`.
+`.set(newValue)` (`messages.set([...])`). A project scaffolded with
+`create-vura --hot` already has `ws` as a dependency. Otherwise: `npm install ws`.
 
 ## Try it now
 
