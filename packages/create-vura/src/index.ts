@@ -94,6 +94,8 @@ interface Args {
   dryRun: boolean;
   noInstall: boolean;
   help: boolean;
+  hot: boolean;
+  tasks: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -102,10 +104,16 @@ function parseArgs(argv: string[]): Args {
   let dryRun = false;
   let noInstall = false;
   let help = false;
+  let hot = false;
+  let tasks = false;
 
   for (const arg of args) {
     if (arg === '--dry-run') {
       dryRun = true;
+    } else if (arg === '--hot') {
+      hot = true;
+    } else if (arg === '--tasks') {
+      tasks = true;
     } else if (arg === '--no-install') {
       noInstall = true;
     } else if (arg === '--help' || arg === '-h') {
@@ -115,7 +123,7 @@ function parseArgs(argv: string[]): Args {
     }
   }
 
-  return { projectName, dryRun, noInstall, help };
+  return { projectName, dryRun, noInstall, help, hot, tasks };
 }
 
 // ─── Prompt ──────────────────────────────────────────────────────────
@@ -140,8 +148,110 @@ function detectPackageManager(): 'pnpm' | 'yarn' | 'npm' {
   return 'npm';
 }
 
+
+// Hot-route example: real-time chat room via WebSocket (`--hot`).
+// State is per-process (no Redis). Multi-instance deployments need an
+// external message bus — see vura docs for multi-instance hot routes.
+const HOT_CHAT_ROUTE = `import type { HotPeer, HotRequest } from '@celsian/vura-core';
+
+// Dedicated compute enables the persistent WebSocket upgrade path.
+// The ws package must be installed: npm install ws
+export const route = { compute: { class: 'dedicated' } };
+
+/**
+ * Called once per WebSocket connection on open.
+ *
+ * peer.send(data)            — send string or ArrayBuffer to this peer
+ * peer.broadcast(data)       — send to all peers on this path (excludes sender by default)
+ * peer.on('message', cb)     — called on each incoming frame
+ * peer.on('close', cb)       — called when the connection closes
+ * peer.close(code?, reason?) — close this connection
+ *
+ * req.params  — path params (e.g. { room: 'lobby' } for /api/chat/:room)
+ * req.query   — URLSearchParams from the upgrade URL
+ *
+ * State is per-process. For multi-instance deployments use an external
+ * message bus (e.g. Redis pub/sub) to fan out across instances.
+ */
+export function websocket(peer: HotPeer, req: HotRequest) {
+  const room = req.params['room'] ?? 'lobby';
+
+  peer.send(\`Welcome to room "\${room}" (id: \${peer.id})\`);
+  peer.broadcast(\`User \${peer.id} joined "\${room}"\`);
+
+  peer.on('message', (data) => {
+    // Echo back to sender, then broadcast to the rest of the room.
+    peer.send(\`You: \${data}\`);
+    peer.broadcast(\`[\${room}] \${peer.id}: \${data}\`);
+  });
+
+  peer.on('close', (code, reason) => {
+    // code 1001 = server going away (SIGTERM drain). Normal — no need to alert.
+    peer.broadcast(\`User \${peer.id} left "\${room}" (\${code})\`);
+  });
+}
+`;
+
+// Scheduled-task example: nightly cleanup via celsian cron (`--tasks`).
+// Run manually: vura tasks run cleanup
+const CLEANUP_TASK_ROUTE = `// kind: 'task' marks this file as a background task route.
+// It is NOT exposed as a regular HTTP endpoint — calls go through /__tasks.
+export const route = {
+  kind: 'task',
+  compute: { class: 'function', memory: '1gb' },
+  retries: 2,
+  timeout: 60_000,
+};
+
+// Cron expression: run at 03:00 UTC every day.
+// Vura reads this field and registers the schedule with the celsian cron engine.
+// To trigger manually: vura tasks run cleanup
+// To trigger via HTTP:  POST /__tasks/cleanup  (requires THEN_TASK_SECRET bearer token)
+export const schedule = '0 3 * * *';
+
+/**
+ * The POST export is the task handler.
+ * ctx.attempt — current attempt number (1-based)
+ * ctx.input   — { _cron: true } on scheduled runs; parsed JSON body on manual POST triggers
+ */
+export async function POST(ctx: { attempt: number; input: unknown }) {
+  console.log(\`[cleanup] starting attempt \${ctx.attempt}\`);
+
+  // Replace with your actual cleanup logic:
+  const deletedCount = 0; // e.g. await db.deleteExpiredSessions();
+
+  console.log(\`[cleanup] done — deleted \${deletedCount} records\`);
+  return { deletedCount };
+}
+`;
+
 // ─── File Templates ──────────────────────────────────────────────────
-export function getFiles(projectName: string): Record<string, string> {
+/**
+ * Optional examples. The default scaffold deploys on Vura's free tier: static
+ * pages plus scale-to-zero Function routes. A hot (dedicated, always-on) route
+ * is the paid tier and a task route runs on its own machine, so both are
+ * opt-in rather than something every new app needs a card to deploy.
+ */
+export interface ScaffoldOptions {
+  /** Add the dedicated WebSocket chat route (`src/api/chat.ts`) and `ws`. */
+  hot?: boolean;
+  /** Add the scheduled cleanup task route (`src/api/cleanup.ts`). */
+  tasks?: boolean;
+}
+
+export function getFiles(projectName: string, options: ScaffoldOptions = {}): Record<string, string> {
+  const files = getBaseFiles(projectName);
+  if (options.hot) {
+    const packageJson = JSON.parse(files['package.json']);
+    packageJson.dependencies = { ...packageJson.dependencies, 'ws': '^8.18.0' };
+    files['package.json'] = JSON.stringify(packageJson, null, 2) + '\n';
+    files['src/api/chat.ts'] = HOT_CHAT_ROUTE;
+  }
+  if (options.tasks) files['src/api/cleanup.ts'] = CLEANUP_TASK_ROUTE;
+  return files;
+}
+
+function getBaseFiles(projectName: string): Record<string, string> {
   return {
     'package.json': JSON.stringify(
       {
@@ -153,7 +263,7 @@ export function getFiles(projectName: string): Record<string, string> {
           dev: 'vura dev',
           build: 'vura build',
         },
-        dependencies: { ...getScaffoldDependencyVersions(), 'ws': '^8.18.0' },
+        dependencies: getScaffoldDependencyVersions(),
       },
       null,
       2
@@ -193,6 +303,45 @@ dist/
 .env.*
 `,
 
+    'README.md': `# ${projectName}
+
+A [Vura](https://vura.io) app: What Framework pages plus file-based API routes.
+
+\`\`\`sh
+npm run dev     # http://127.0.0.1:3000
+npm run build   # writes dist/ (pages, Functions, manifest.json)
+\`\`\`
+
+## What deploys where
+
+Everything in this scaffold runs on Vura's free tier:
+
+| File | Runs as |
+|---|---|
+| \`src/pages/index.tsx\`, \`src/pages/about.tsx\` | static HTML |
+| \`src/pages/dashboard.tsx\` | client page |
+| \`src/api/hello.ts\`, \`src/api/health.ts\` | Functions (scale to zero) |
+
+Deploy with \`npx vura-platform deploy\` after \`npm run build\`.
+
+## Hot routes (opt-in, paid)
+
+A hot route runs on a dedicated, always-on server. Use one for WebSockets,
+in-memory state, or work that cannot cold start. Mark the route file:
+
+\`\`\`ts
+export const route = { compute: { class: 'dedicated' } };
+\`\`\`
+
+Deploying a hot route to production needs an active paid plan. To start from a
+working WebSocket example, scaffold with \`npm create vura@latest my-app -- --hot\`.
+
+## Tasks (opt-in)
+
+Background and scheduled tasks are routes with \`kind: 'task'\`. Scaffold with
+\`--tasks\` for a nightly cleanup example, or see https://vura.io/ladder/5-tasks/.
+`,
+
     'src/api/hello.ts': `import type { CelsianRequest, CelsianReply } from '@celsian/vura-core';
 
 // Function is the safe default: scale-to-zero compute with 1 GiB of memory.
@@ -210,82 +359,6 @@ export const route = { compute: { class: 'function', memory: '1gb' } };
 
 export function GET(req: CelsianRequest, reply: CelsianReply) {
   return reply.json({ status: 'ok', uptime: process.uptime() });
-}
-`,
-
-    // Hot-route example: real-time chat room via WebSocket.
-    // State is per-process (no Redis). Multi-instance deployments need an
-    // external message bus — see vura docs for multi-instance hot routes.
-    'src/api/chat.ts': `import type { HotPeer, HotRequest } from '@celsian/vura-core';
-
-// Dedicated compute enables the persistent WebSocket upgrade path.
-// The ws package must be installed: npm install ws
-export const route = { compute: { class: 'dedicated' } };
-
-/**
- * Called once per WebSocket connection on open.
- *
- * peer.send(data)            — send string or ArrayBuffer to this peer
- * peer.broadcast(data)       — send to all peers on this path (excludes sender by default)
- * peer.on('message', cb)     — called on each incoming frame
- * peer.on('close', cb)       — called when the connection closes
- * peer.close(code?, reason?) — close this connection
- *
- * req.params  — path params (e.g. { room: 'lobby' } for /api/chat/:room)
- * req.query   — URLSearchParams from the upgrade URL
- *
- * State is per-process. For multi-instance deployments use an external
- * message bus (e.g. Redis pub/sub) to fan out across instances.
- */
-export function websocket(peer: HotPeer, req: HotRequest) {
-  const room = req.params['room'] ?? 'lobby';
-
-  peer.send(\`Welcome to room "\${room}" (id: \${peer.id})\`);
-  peer.broadcast(\`User \${peer.id} joined "\${room}"\`);
-
-  peer.on('message', (data) => {
-    // Echo back to sender, then broadcast to the rest of the room.
-    peer.send(\`You: \${data}\`);
-    peer.broadcast(\`[\${room}] \${peer.id}: \${data}\`);
-  });
-
-  peer.on('close', (code, reason) => {
-    // code 1001 = server going away (SIGTERM drain). Normal — no need to alert.
-    peer.broadcast(\`User \${peer.id} left "\${room}" (\${code})\`);
-  });
-}
-`,
-
-    // Scheduled-task example: nightly cleanup via celsian cron.
-    // Run manually: vura tasks run cleanup
-    'src/api/cleanup.ts': `// kind: 'task' marks this file as a background task route.
-// It is NOT exposed as a regular HTTP endpoint — calls go through /__tasks.
-export const route = {
-  kind: 'task',
-  compute: { class: 'function', memory: '1gb' },
-  retries: 2,
-  timeout: 60_000,
-};
-
-// Cron expression: run at 03:00 UTC every day.
-// Vura reads this field and registers the schedule with the celsian cron engine.
-// To trigger manually: vura tasks run cleanup
-// To trigger via HTTP:  POST /__tasks/cleanup  (requires THEN_TASK_SECRET bearer token)
-export const schedule = '0 3 * * *';
-
-/**
- * The POST export is the task handler.
- * ctx.attempt — current attempt number (1-based)
- * ctx.input   — { _cron: true } on scheduled runs; parsed JSON body on manual POST triggers
- */
-export async function POST(ctx: { attempt: number; input: unknown }) {
-  console.log(\`[cleanup] starting attempt \${ctx.attempt}\`);
-
-  // Replace with your actual cleanup logic:
-  const deletedCount = 0; // e.g. await db.deleteExpiredSessions();
-
-  console.log(\`[cleanup] done — deleted \${deletedCount} records\`);
-  return { deletedCount };
 }
 `,
 
@@ -517,6 +590,8 @@ ${dim('  (apps/shop), an absolute path, or . for the current directory.')}
 ${dim('  The package is named after the last segment.')}
 
 ${bold('Options:')}
+  --hot          Add a hot WebSocket route (dedicated compute, paid to deploy)
+  --tasks        Add a scheduled background task route
   --dry-run      Print what would be created without writing files
   --no-install   Write files but skip dependency installation
   -h, --help     Show this help message
@@ -579,7 +654,7 @@ ${bold('Options:')}
   }
 
   // 3. Generate files
-  const files = getFiles(projectName);
+  const files = getFiles(projectName, { hot: args.hot, tasks: args.tasks });
 
   if (args.dryRun) {
     console.log(yellow('  --dry-run mode: no files will be created.\n'));

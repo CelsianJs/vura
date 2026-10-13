@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### create-vura: free tier by default
+
+- `npm create vura` now scaffolds an app that deploys entirely on the free
+  tier: static and client pages plus two serverless Function routes
+  (`/api/health`, `/api/hello`). It no longer includes a hot WebSocket route or
+  a task, so a fresh project never needs paid compute.
+- `--hot` adds the hot WebSocket chat route (`src/api/chat.ts`, plus `ws`) and
+  `--tasks` adds the cleanup task (`src/api/cleanup.ts`). Both are opt-in.
+- The scaffold writes a `README.md` that explains the free tier and how to opt
+  into hot compute and tasks.
+
 ## 0.8.3 - 2026-09-07
 
 All nine JavaScript packages are published and verified from the npm registry.

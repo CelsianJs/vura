@@ -31,7 +31,7 @@ vura dev [--port <n>] [--host <addr>]
 
 File changes to `src/api/` and `src/pages/` are picked up without restart. Type changes to route config (e.g. changing `kind`) require a page reload.
 
-Hot routes that export a `websocket()` handler accept WebSocket upgrades in dev (requires the `ws` package; the scaffold includes it). Edits to a hot route file apply on the next connection, and per-route `origins` allowlists are enforced just like in production.
+Hot routes that export a `websocket()` handler accept WebSocket upgrades in dev (requires the `ws` package; `create-vura --hot` adds it). Edits to a hot route file apply on the next connection, and per-route `origins` allowlists are enforced just like in production.
 
 ---
 
@@ -278,13 +278,15 @@ Exits with code `1` when any step fails. This is not a gate on capability — `v
 Scaffold a new Vura project.
 
 ```sh
-npm create vura@latest [project-name] [--no-install]
+npm create vura@latest [project-name] [--hot] [--tasks] [--no-install]
 # or
-npx create-vura [project-name] [--no-install] [--dry-run]
+npx create-vura [project-name] [--hot] [--tasks] [--no-install] [--dry-run]
 ```
 
 | Flag | Effect |
 |---|---|
+| `--hot` | Add `src/api/chat.ts`, a hot WebSocket route on dedicated compute, and the `ws` dependency. Deploying it to production needs a paid plan. |
+| `--tasks` | Add `src/api/cleanup.ts`, a scheduled task route. |
 | `--no-install` | Write files but skip dependency installation. Useful for CI or offline environments. |
 | `--dry-run` | Print what would be written without touching the filesystem. |
 | `--help` / `-h` | Print usage. |
@@ -298,11 +300,13 @@ When `project-name` is omitted, the scaffolder prompts interactively.
 
   Creating project in /home/user/my-app...
 
-  ✓ package.json
-  ✓ vura.config.ts
-  ✓ src/pages/index.tsx
-  ✓ src/api/hello.ts
-  ✓ src/api/live/room.ts
+  + package.json
+  + vura.config.js
+  + README.md
+  + src/api/hello.ts
+  + src/api/health.ts
+  + src/pages/index.tsx
+  ...
 
   Installing dependencies...
   ✓ done
@@ -312,4 +316,4 @@ When `project-name` is omitted, the scaffolder prompts interactively.
     npm run dev
 ```
 
-The scaffold includes a static home page, a serverless `/api/hello` route, and a hot `/api/live/room` WebSocket route — the same surface the self-host CI jobs smoke-test.
+The default scaffold has static pages, a client page, and serverless `/api/hello` and `/api/health` routes, so it deploys on Vura's free tier. The self-host CI jobs scaffold with `--hot --tasks` and smoke-test every route kind.

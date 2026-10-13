@@ -25,7 +25,7 @@ export async function POST(ctx: { attempt: number; input: unknown }) {
 }
 ```
 
-This is the exact shape the scaffold emits. The key points:
+This is the shape `create-vura --tasks` emits. The key points:
 
 - `retries` and `timeout` go inside the `route` object — they are not
   top-level exports.

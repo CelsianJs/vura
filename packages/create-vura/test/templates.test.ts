@@ -1,6 +1,27 @@
-import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { afterAll, describe, expect, it } from 'vitest';
 import { getFiles } from '../src/index.js';
+import { buildManifest } from '../../core/src/manifest.js';
+import { deriveRequiredFeatures } from '../../contract/src/index.js';
+
+const scaffoldRoots: string[] = [];
+afterAll(() => {
+  for (const root of scaffoldRoots) rmSync(root, { recursive: true, force: true });
+});
+
+/** Write a scaffold to disk and scan it the way `vura build` does. */
+async function scaffoldManifest(options?: Parameters<typeof getFiles>[1]) {
+  const root = mkdtempSync(join(tmpdir(), 'create-vura-manifest-'));
+  scaffoldRoots.push(root);
+  for (const [file, content] of Object.entries(getFiles('demo-app', options))) {
+    mkdirSync(dirname(join(root, file)), { recursive: true });
+    writeFileSync(join(root, file), content);
+  }
+  const manifest = await buildManifest(root);
+  return { manifest, features: deriveRequiredFeatures(manifest) };
+}
 
 // The scaffold pins @celsian/vura-* to create-vura's own version (the packages
 // release as a fixed group), so derive the expectation from package.json rather
@@ -28,7 +49,6 @@ describe('create-vura templates', () => {
       '@celsian/vura-core': vuraVersion,
       '@celsian/vura-cli': vuraVersion,
       '@celsian/vura-adapter-vura': vuraVersion,
-      'ws': '^8.18.0',
     });
     expect(JSON.stringify(packageJson.dependencies)).not.toContain('latest');
   });
@@ -49,10 +69,47 @@ describe('create-vura templates', () => {
     expect(packageJson.dependencies['@celsian/vura-adapter-vura']).toBe(vuraVersion);
   });
 
-  it('includes ws dependency for hot-route WebSocket support', () => {
+  it('adds the ws dependency only when the hot WebSocket example is requested', () => {
+    expect(JSON.parse(getFiles('demo-app')['package.json']).dependencies).not.toHaveProperty('ws');
+    const hot = JSON.parse(getFiles('demo-app', { hot: true })['package.json']);
+    expect(hot.dependencies['ws']).toBe('^8.18.0');
+  });
+
+  // ENG-6739: Vura's free tier covers builds, static pages and Functions. A hot
+  // server is the paywall and a task route needs its own machine, so the app a
+  // new user deploys first must need neither.
+  it('scaffolds an app that deploys on the free tier: static, client and Function routes only', async () => {
+    const { manifest, features } = await scaffoldManifest();
+
+    expect(manifest.api.map(route => [route.urlPattern, route.kind])).toEqual([
+      ['/api/health', 'serverless'],
+      ['/api/hello', 'serverless'],
+    ]);
+    expect(features).toContain('function-compute');
+    expect(features).not.toContain('dedicated-compute');
+    expect(features).not.toContain('websocket');
+    expect(features).not.toContain('tasks');
+    expect(features).not.toContain('scheduled-tasks');
+  });
+
+  it('keeps hot compute discoverable behind --hot and tasks behind --tasks', async () => {
+    const hot = await scaffoldManifest({ hot: true });
+    expect(hot.manifest.api.find(route => route.urlPattern === '/api/chat')?.kind).toBe('hot');
+    expect(hot.features).toEqual(expect.arrayContaining(['dedicated-compute', 'websocket']));
+    expect(hot.features).not.toContain('tasks');
+
+    const tasks = await scaffoldManifest({ tasks: true });
+    expect(tasks.manifest.api.find(route => route.urlPattern === '/api/cleanup')?.kind).toBe('task');
+    expect(tasks.features).toEqual(expect.arrayContaining(['tasks', 'scheduled-tasks']));
+    expect(tasks.features).not.toContain('dedicated-compute');
+  });
+
+  it('tells the default app how to opt into hot compute', () => {
     const files = getFiles('demo-app');
-    const packageJson = JSON.parse(files['package.json']);
-    expect(packageJson.dependencies['ws']).toBe('^8.18.0');
+    expect(files).toHaveProperty('README.md');
+    expect(files['README.md']).toContain('--hot');
+    expect(files['README.md']).toContain("compute: { class: 'dedicated' }");
+    expect(files['README.md']).toContain('--tasks');
   });
 
   it('does not claim the starter ships a CelsianJS integration', () => {
@@ -74,8 +131,9 @@ describe('create-vura templates', () => {
     expect(starterText).not.toContain('celsian.dev');
   });
 
-  it('includes the hot-route chat example', () => {
-    const files = getFiles('demo-app');
+  it('includes the hot-route chat example with --hot', () => {
+    expect(getFiles('demo-app')).not.toHaveProperty('src/api/chat.ts');
+    const files = getFiles('demo-app', { hot: true });
 
     expect(files).toHaveProperty('src/api/chat.ts');
     const chatTs = files['src/api/chat.ts'];
@@ -137,8 +195,9 @@ describe('create-vura templates', () => {
     expect(dashboard).toContain('error()');
   });
 
-  it('includes the scheduled cleanup task example', () => {
-    const files = getFiles('demo-app');
+  it('includes the scheduled cleanup task example with --tasks', () => {
+    expect(getFiles('demo-app')).not.toHaveProperty('src/api/cleanup.ts');
+    const files = getFiles('demo-app', { tasks: true });
 
     expect(files).toHaveProperty('src/api/cleanup.ts');
     const cleanupTs = files['src/api/cleanup.ts'];
@@ -152,7 +211,7 @@ describe('create-vura templates', () => {
   it('scaffold template files build without TypeScript errors', () => {
     // Structural check: all template files with .ts/.tsx extension are present
     // and contain parseable content (not empty, not placeholder-only).
-    const files = getFiles('demo-app');
+    const files = getFiles('demo-app', { hot: true, tasks: true });
     const tsFiles = Object.entries(files).filter(([k]) => k.endsWith('.ts') || k.endsWith('.tsx'));
 
     for (const [path, content] of tsFiles) {

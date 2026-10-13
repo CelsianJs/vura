@@ -14,7 +14,14 @@ Scaffold a new [Vura](https://vura.io) project.
 npm create vura@latest my-app
 # skip dependency install
 npm create vura@latest my-app -- --no-install
+# add the opt-in hot WebSocket route and the scheduled task example
+npm create vura@latest my-app -- --hot --tasks
 ```
+
+The default scaffold deploys on Vura's free tier: static pages, a client page,
+and Function routes that scale to zero. `--hot` adds a WebSocket route on
+dedicated, always-on compute, which needs a paid plan in production. `--tasks`
+adds a scheduled task route.
 
 ## Scaffold tree
 
@@ -24,12 +31,13 @@ my-app/
 ├── vura.config.js
 ├── tsconfig.json
 ├── .gitignore
+├── README.md
 └── src/
     ├── api/
     │   ├── hello.ts      # serverless GET route
     │   ├── health.ts     # health-check route
-    │   ├── chat.ts       # hot WebSocket route (kind: 'hot')
-    │   └── cleanup.ts    # task route (kind: 'task', cron)
+    │   ├── chat.ts       # --hot: WebSocket route on dedicated compute
+    │   └── cleanup.ts    # --tasks: task route (kind: 'task', cron)
     └── pages/
         ├── index.tsx
         ├── about.tsx
