@@ -65,12 +65,15 @@ export async function POST(job: any) {
       {
         filePath: 'src/api/tasks/flow.ts',
         urlPattern: '/api/tasks/flow',
+        methods: ['POST'],
         kind: 'task',
         config: { retries: 0, timeout: 5000 },
       },
     ],
     pages: [],
-  } as unknown as RouteManifest;
+    layouts: [],
+    timestamp: new Date().toISOString(),
+  };
 
   await build(manifest, {} as ThenConfig, projectRoot);
 

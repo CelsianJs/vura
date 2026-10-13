@@ -1,0 +1,44 @@
+name: Verify registry packages
+
+# Verification-only fallback for immutable releases whose publish succeeded but
+# the immediate post-publish registry smoke hit npm propagation lag. This
+# workflow has no npm token and no publish step.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact published package version to verify, without the leading v
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  verify-registry:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20, 22]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Verify published registry consumers
+        run: node scripts/verify-registry-install.mjs
+        env:
+          npm_config_registry: https://registry.npmjs.org
+          VURA_REGISTRY_VERSION: ${{ inputs.version }}
+          VURA_REGISTRY_SMOKE_ARTIFACT: artifacts/registry-smoke-node-${{ matrix.node-version }}.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: vura-registry-smoke-node-${{ matrix.node-version }}
+          path: artifacts/registry-smoke-node-${{ matrix.node-version }}.json
+          if-no-files-found: error

@@ -56,6 +56,9 @@ let app: Awaited<ReturnType<typeof scaffoldAndBuild>>;
 let sinkhole: Awaited<ReturnType<typeof startSinkhole>>;
 let server: Awaited<ReturnType<typeof bootServer>>;
 
+const base = () => server.url;
+const wsBase = () => server.wsUrl;
+
 beforeAll(async () => {
   // Build scaffold (cached per run)
   app = await scaffoldAndBuild();
@@ -91,8 +94,15 @@ afterAll(async () => {
 // ─── A0: Boot ─────────────────────────────────────────────────────────────────
 
 describe('boot', () => {
+  it('A0.1: audit callers use the concrete IPv4 loopback URL the helper exposes', () => {
+    expect(base()).toBe(`http://127.0.0.1:${server.port}`);
+    expect(base()).not.toContain('localhost');
+    expect(wsBase()).toBe(`ws://127.0.0.1:${server.port}`);
+    expect(server.stdout()).toMatch(/\[vura\] listening on port \d+/);
+  });
+
   it('A0: production server boots with zero VURA_* env vars set', async () => {
-    const res = await fetch(`http://localhost:${server.port}/`);
+    const res = await fetch(`${base()}/`);
     // Root '/' serves the scaffold's static index if present, or a 404 — both are fine.
     // The point is the server responds without crashing.
     expect([200, 404]).toContain(res.status);
@@ -103,17 +113,17 @@ describe('boot', () => {
 
 describe('rung 2 — revalidateTag (what-isr, self-hosted store)', () => {
   it('A1: server page with a tag is cached between requests', async () => {
-    const a = await (await fetch(`http://localhost:${server.port}/posts`)).text();
-    const b = await (await fetch(`http://localhost:${server.port}/posts`)).text();
+    const a = await (await fetch(`${base()}/posts`)).text();
+    const b = await (await fetch(`${base()}/posts`)).text();
     // Fixture embeds a render timestamp; identical body => cache hit
     expect(b).toBe(a);
   });
 
   it('A2: revalidateTag() purges the cache — next request re-renders', async () => {
-    const before = await (await fetch(`http://localhost:${server.port}/posts`)).text();
+    const before = await (await fetch(`${base()}/posts`)).text();
 
     // Mutate: POST to /api/posts — this calls revalidateTag('posts') and returns 201
-    const mut = await fetch(`http://localhost:${server.port}/api/posts`, {
+    const mut = await fetch(`${base()}/api/posts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ title: 'audit' }),
@@ -121,7 +131,7 @@ describe('rung 2 — revalidateTag (what-isr, self-hosted store)', () => {
     // Our fixture route returns 201 on success
     expect([200, 201]).toContain(mut.status);
 
-    const after = await (await fetch(`http://localhost:${server.port}/posts`)).text();
+    const after = await (await fetch(`${base()}/posts`)).text();
     // Fresh render: body changed (new timestamp) and contains the new post title
     expect(after).not.toBe(before);
     expect(after).toContain('audit');
@@ -136,7 +146,7 @@ describe('rung 4 — hot routes (websockets + in-memory state)', () => {
     const { default: WebSocket } = await import('ws');
 
     const ws = new WebSocket(
-      `ws://localhost:${server.port}/api/live/room?name=audit`,
+      `${wsBase()}/api/live/room?name=audit`,
     );
 
     const msg = await new Promise<string>((resolve, reject) => {
@@ -172,10 +182,10 @@ describe('rung 4 — hot routes (websockets + in-memory state)', () => {
     const { default: WebSocket } = await import('ws');
 
     const a = new WebSocket(
-      `ws://localhost:${server.port}/api/live/room?name=alice`,
+      `${wsBase()}/api/live/room?name=alice`,
     );
     const b = new WebSocket(
-      `ws://localhost:${server.port}/api/live/room?name=bob`,
+      `${wsBase()}/api/live/room?name=bob`,
     );
 
     await Promise.all(
@@ -209,11 +219,11 @@ describe('rung 4 — hot routes (websockets + in-memory state)', () => {
   });
 
   it('A5: in-memory state persists across sequential HTTP requests', async () => {
-    const base = `http://localhost:${server.port}/api/counter`;
-    const n0 = (await (await fetch(base)).json() as { count: number }).count;
-    await fetch(base, { method: 'POST' });
-    await fetch(base, { method: 'POST' });
-    const n1 = (await (await fetch(base)).json() as { count: number }).count;
+    const counterUrl = `${base()}/api/counter`;
+    const n0 = (await (await fetch(counterUrl)).json() as { count: number }).count;
+    await fetch(counterUrl, { method: 'POST' });
+    await fetch(counterUrl, { method: 'POST' });
+    const n1 = (await (await fetch(counterUrl)).json() as { count: number }).count;
     // Same process served all four requests — in-memory counter incremented twice
     expect(n1).toBe(n0 + 2);
   });
@@ -295,7 +305,7 @@ describe('rung 5 — tasks and cron', () => {
 
 describe('hybrid runtime serving — static/client/hybrid pages from one entry', () => {
   it('A10: GET / serves the prerendered static page from dist/static', async () => {
-    const res = await fetch(`http://localhost:${server.port}/`);
+    const res = await fetch(`${base()}/`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/html');
     // The dist/static cache rule (server.ts:176–178): globalIndex > 0 ⇒ must-revalidate
@@ -308,7 +318,7 @@ describe('hybrid runtime serving — static/client/hybrid pages from one entry',
   it('A11: GET /widget serves the client shell + its browser bundle', async () => {
     // Shell: build-time emitted dist/static/widget/index.html with a module
     // script pointing at the generated mount entry.
-    const shell = await fetch(`http://localhost:${server.port}/widget`);
+    const shell = await fetch(`${base()}/widget`);
     expect(shell.status).toBe(200);
     expect(shell.headers.get('content-type')).toContain('text/html');
 
@@ -317,7 +327,7 @@ describe('hybrid runtime serving — static/client/hybrid pages from one entry',
     expect(widgetScript).toBeTruthy();
 
     // Content-fingerprinted bundle, served with a JS MIME type.
-    const js = await fetch(`http://localhost:${server.port}${widgetScript!}`);
+    const js = await fetch(`${base()}${widgetScript!}`);
     expect(js.status).toBe(200);
     expect(js.headers.get('content-type')).toContain('javascript');
     // The bundle is the generated client entry — it must actually boot the page
@@ -326,7 +336,7 @@ describe('hybrid runtime serving — static/client/hybrid pages from one entry',
   });
 
   it('A12: GET /mixed serves SSR markup + hydration script (via the static layer)', async () => {
-    const res = await fetch(`http://localhost:${server.port}/mixed`);
+    const res = await fetch(`${base()}/mixed`);
     expect(res.status).toBe(200);
 
     const html = await res.text();
@@ -351,7 +361,7 @@ describe('hybrid runtime serving — static/client/hybrid pages from one entry',
 
     // Control: /posts (server mode + revalidate) IS served by the pagesHandler
     // and carries the what-isr header — proving the attribution signal works.
-    const ssr = await fetch(`http://localhost:${server.port}/posts`);
+    const ssr = await fetch(`${base()}/posts`);
     expect(ssr.headers.get('x-what-cache')).not.toBeNull();
   });
 });

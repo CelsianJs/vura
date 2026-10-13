@@ -6,9 +6,12 @@
  * control flow that has to be settled before the first byte goes out.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { documentShell, wrapDocument } from '../src/static-render.js';
-import { isStreamingPage, createVuraStreamRoute } from '../src/runtime/pages.js';
+import { isStreamingPage, createVuraStreamRoute, buildWhatRoutes, createPagesHandler } from '../src/runtime/pages.js';
+import { createCacheEngine, createMemoryStore } from 'what-isr';
+
+afterEach(() => vi.restoreAllMocks());
 
 const shellOpts = {
   title: 'T',
@@ -87,6 +90,7 @@ describe('createVuraStreamRoute control flow', () => {
       layoutModules: [],
     });
     expect(res.status).toBe(404);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
     expect(await res.text()).toContain('404');
   });
 
@@ -96,6 +100,7 @@ describe('createVuraStreamRoute control flow', () => {
       layoutModules: [],
     });
     expect(res.status).toBe(307);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
     expect(res.headers.get('Location')).toBe('/login');
     expect(res.body).toBeNull();
   });
@@ -107,6 +112,7 @@ describe('createVuraStreamRoute control flow', () => {
       layoutModules: [],
     });
     expect(res.status).toBe(500);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
     const html = await res.text();
     expect(html).toContain('500');
     // A failed loader must not leak a half-built document.
@@ -120,6 +126,7 @@ describe('createVuraStreamRoute control flow', () => {
       layoutModules: [],
     });
     expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
     expect(res.headers.get('content-length')).toBeNull();
     expect(res.headers.get('content-type')).toContain('text/html');
     // Set by hand it would be wrong under HTTP/2 and in the Lambda adapter.
@@ -168,5 +175,43 @@ describe('createVuraStreamRoute control flow', () => {
     await new Promise(r => setTimeout(r, 50));
     expect(err).not.toHaveBeenCalled();
     err.mockRestore();
+  });
+});
+
+describe('streaming page request parity', () => {
+  it.each([false, true])('preserves repeated query values in loader context (streaming=%s)', async (streaming) => {
+    const loader = vi.fn((_ctx: { query: Record<string, string | string[]> }) => null);
+    const handler = createPagesHandler({
+      routes: buildWhatRoutes([{
+        urlPattern: '/query', mode: 'server', config: { streaming },
+        filePath: 'src/pages/query.ts', hasGetServerData: false,
+        module: { default: () => null, loader, page: { streaming } },
+      }]),
+    });
+    const res = await handler(new Request('http://localhost/query?tag=a&tag=b&tag=c&empty=&empty=z'));
+    await res.text();
+    expect(loader).toHaveBeenCalledOnce();
+    expect(loader.mock.calls[0]![0].query).toEqual({ tag: ['a', 'b', 'c'], empty: ['', 'z'] });
+  });
+
+  it.each(['GET', 'HEAD'])('keeps %s private without populating ISR even when revalidation is configured', async (method) => {
+    const store = createMemoryStore();
+    const render = vi.fn(() => null);
+    const handler = createPagesHandler({
+      cache: createCacheEngine({ store }),
+      routes: buildWhatRoutes([{
+        urlPattern: '/private', mode: 'server', config: { streaming: true, revalidate: 60 },
+        filePath: 'src/pages/private.ts', hasGetServerData: false,
+        module: { default: render, page: { streaming: true } },
+      }]),
+    });
+    const res = await handler(new Request('http://localhost/private', { method }));
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    await res.text();
+    expect(await store.keys()).toEqual([]);
+    if (method === 'HEAD') {
+      expect(res.body).toBeNull();
+      expect(render).not.toHaveBeenCalled();
+    }
   });
 });

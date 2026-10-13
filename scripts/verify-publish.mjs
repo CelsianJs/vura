@@ -125,9 +125,11 @@ async function rewriteScaffoldDeps(scaffoldDir, tarballsByName) {
   // Core now consumes the fallback compiler's static parser. Add its local
   // tarball explicitly so this unpublished canary cannot fall back to the
   // registry package that shares the current version number.
-  const compilerTarball = tarballsByName.get('@celsian/vura-compiler');
-  if (compilerTarball && packageJson.dependencies?.['@celsian/vura-core']) {
-    packageJson.dependencies['@celsian/vura-compiler'] = `file:${compilerTarball}`;
+  if (packageJson.dependencies?.['@celsian/vura-core']) {
+    for (const name of ['@celsian/vura-compiler', '@celsian/vura-contract']) {
+      const tarball = tarballsByName.get(name);
+      if (tarball) packageJson.dependencies[name] = `file:${tarball}`;
+    }
   }
   await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
 }
@@ -193,6 +195,9 @@ function assertManagedDeployAdapterLoads(scaffoldDir) {
 
 const tmp = await mkdtemp(join(tmpdir(), 'vura-publish-verify-'));
 try {
+  // A full-stack install can hide accidental dependencies. Verify the shared
+  // contract alone before installing the other runtime/build packages.
+  run(process.execPath, ['scripts/verify-contract-package.mjs'], { stdio: 'inherit' });
   const tarballs = [];
   const tarballsByName = new Map();
   for (const pkg of publishPackages) {
@@ -217,7 +222,7 @@ try {
   assertHelpCommands(smoke);
 
   const check = `
-    import('@celsian/vura-core').then(() => import('@celsian/vura-compiler')).then(() => import('@celsian/vura-adapter-cloudflare')).then(() => import('@celsian/vura-adapter-lambda')).then(() => import('@celsian/vura-adapter-vura')).then(() => import('@celsian/vura-vite-plugin')).then(() => console.log('VURA_PUBLISH_VERIFY_OK'));
+    import('@celsian/vura-contract').then(() => import('@celsian/vura-core')).then(() => import('@celsian/vura-compiler')).then(() => import('@celsian/vura-adapter-cloudflare')).then(() => import('@celsian/vura-adapter-lambda')).then(() => import('@celsian/vura-adapter-vura')).then(() => import('@celsian/vura-vite-plugin')).then(() => console.log('VURA_PUBLISH_VERIFY_OK'));
   `;
   const node = run(process.execPath, ['--input-type=module', '-e', check], { cwd: smoke });
   if (!node.stdout.includes('VURA_PUBLISH_VERIFY_OK')) throw new Error('publish smoke import did not complete');

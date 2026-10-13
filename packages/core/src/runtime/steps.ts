@@ -120,9 +120,10 @@ export interface StepFactoryContext {
 
 export interface TaskStep {
   /**
-   * Run `fn` exactly once per run, memoized under `key`. On replay the recorded
-   * output is returned without calling `fn` — so side effects belong here, not
-   * in the bare handler body (which re-runs top-to-bottom on every replay).
+   * Run `fn` and memoize its output under `key`. A replay with the recorded
+   * checkpoint returns that output without calling `fn` again. A crash before
+   * the checkpoint is persisted can repeat `fn`; external side effects require
+   * stable idempotency keys or transactions. Local checkpoints are in-process.
    */
   run<T>(key: string, fn: () => T | Promise<T>): Promise<T>;
   /** Enqueue a task (memoized), returning `{ runId }`. Fire-and-forget. */

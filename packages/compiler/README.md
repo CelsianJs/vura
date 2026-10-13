@@ -41,9 +41,7 @@ export const route = {
 
 ## Documentation
 
-_vura.io docs site launches with v0.5 — until then, see the repo README and CHANGELOG._
-
-- [Compiler internals — /reference/compiler/](https://vura.io/reference/cli/)
+- [CLI build reference — /reference/cli/](https://vura.io/reference/cli/)
 
 ## License
 

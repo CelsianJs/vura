@@ -416,12 +416,12 @@ export default function StreamedPage() {
 `;
 
 /** src/pages/streamed-loader.tsx — streaming composed with an RFC 0001 loader. */
-const STREAMED_LOADER_PAGE = `import { useLoaderData } from '@celsian/vura-core';
+const STREAMED_LOADER_PAGE = `import { useLoaderData, type LoaderContext } from '@celsian/vura-core';
 
 export const page = { mode: 'server', streaming: true, title: 'Streamed loader' };
 
-export async function loader() {
-  return { via: 'STREAM-LOADER-DATA' };
+export async function loader(ctx: LoaderContext) {
+  return { via: 'STREAM-LOADER-DATA', query: ctx.query };
 }
 
 export default function StreamedLoaderPage() {
@@ -905,6 +905,8 @@ export async function startSinkhole(): Promise<{
 
 export async function bootServer(env: Record<string, string>): Promise<{
   port: number;
+  url: string;
+  wsUrl: string;
   kill: () => Promise<void>;
   stdout: () => string;
 }> {
@@ -954,6 +956,8 @@ export async function bootServer(env: Record<string, string>): Promise<{
 
   return {
     port,
+    url: `http://127.0.0.1:${port}`,
+    wsUrl: `ws://127.0.0.1:${port}`,
     kill: () => new Promise<void>((resolve) => {
       proc.once('exit', () => resolve());
       proc.kill('SIGTERM');
@@ -974,6 +978,8 @@ export async function bootServer(env: Record<string, string>): Promise<{
  */
 export async function bootDevServer(env: Record<string, string> = {}): Promise<{
   port: number;
+  url: string;
+  wsUrl: string;
   kill: () => Promise<void>;
   stdout: () => string;
 }> {
@@ -1023,6 +1029,8 @@ export async function bootDevServer(env: Record<string, string> = {}): Promise<{
 
   return {
     port,
+    url: `http://127.0.0.1:${port}`,
+    wsUrl: `ws://127.0.0.1:${port}`,
     kill: () => new Promise<void>((resolve) => {
       proc.once('exit', () => resolve());
       proc.kill('SIGTERM');

@@ -27,7 +27,7 @@ afterAll(async () => {
   await server?.kill();
 });
 
-const base = () => `http://localhost:${server.port}`;
+const base = () => server.url;
 const AUTHED = { cookie: 'session=letmein' };
 
 describe('W1: middleware guards a page', () => {

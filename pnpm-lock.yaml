@@ -13,11 +13,11 @@ importers:
   .:
     dependencies:
       what-core:
-        specifier: ^0.13.4
-        version: 0.13.4
+        specifier: ^0.13.8
+        version: 0.13.8
       what-framework:
-        specifier: ^0.13.4
-        version: 0.13.4(@babel/core@7.29.7)
+        specifier: ^0.13.8
+        version: 0.13.8(@babel/core@7.29.7)
     devDependencies:
       '@types/node':
         specifier: 26.4.0
@@ -67,8 +67,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/core
       what-framework:
-        specifier: ^0.13.4
-        version: 0.13.4(@babel/core@7.29.7)
+        specifier: ^0.13.8
+        version: 0.13.8(@babel/core@7.29.7)
 
   examples/hot-server: {}
 
@@ -81,15 +81,15 @@ importers:
         specifier: workspace:*
         version: link:../../packages/core
       what-framework:
-        specifier: ^0.13.4
-        version: 0.13.4(@babel/core@7.29.7)
+        specifier: ^0.13.8
+        version: 0.13.8(@babel/core@7.29.7)
 
   examples/stress-test: {}
 
   packages/adapter-cloudflare:
     dependencies:
       '@celsian/vura-core':
-        specifier: workspace:0.8.0
+        specifier: workspace:0.8.3
         version: link:../core
       esbuild:
         specifier: ^0.28.2
@@ -98,7 +98,7 @@ importers:
   packages/adapter-lambda:
     dependencies:
       '@celsian/vura-core':
-        specifier: workspace:0.8.0
+        specifier: workspace:0.8.3
         version: link:../core
       esbuild:
         specifier: ^0.28.2
@@ -107,23 +107,23 @@ importers:
   packages/adapter-vura:
     dependencies:
       '@celsian/vura-core':
-        specifier: workspace:0.8.0
+        specifier: workspace:0.8.3
         version: link:../core
 
   packages/cli:
     dependencies:
       '@celsian/vura-core':
-        specifier: workspace:0.8.0
+        specifier: workspace:0.8.3
         version: link:../core
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
       what-framework:
-        specifier: ^0.13.4
-        version: 0.13.4(@babel/core@7.29.7)
+        specifier: ^0.13.8
+        version: 0.13.8(@babel/core@7.29.7)
     devDependencies:
       '@celsian/vura-adapter-vura':
-        specifier: workspace:0.8.0
+        specifier: workspace:0.8.3
         version: link:../adapter-vura
       '@types/ws':
         specifier: ^8.18.1
@@ -140,17 +140,22 @@ importers:
         specifier: ^3.8.6
         version: 3.8.6(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@26.4.0)(emnapi@1.11.2)
 
+  packages/contract: {}
+
   packages/core:
     dependencies:
       '@celsian/core':
-        specifier: ^0.6.1
-        version: 0.6.1(ws@8.21.3)
+        specifier: ^0.6.3
+        version: 0.6.3(ws@8.21.3)
       '@celsian/jwt':
-        specifier: ^0.6.1
-        version: 0.6.1(ws@8.21.3)
+        specifier: ^0.6.3
+        version: 0.6.3(ws@8.21.3)
       '@celsian/vura-compiler':
-        specifier: workspace:0.8.0
+        specifier: workspace:0.8.3
         version: link:../compiler
+      '@celsian/vura-contract':
+        specifier: workspace:0.8.3
+        version: link:../contract
       '@noble/hashes':
         specifier: ^2.4.0
         version: 2.4.0
@@ -158,11 +163,11 @@ importers:
         specifier: ^0.28.2
         version: 0.28.2
       what-framework:
-        specifier: ^0.13.4
-        version: 0.13.4(@babel/core@7.29.7)
+        specifier: ^0.13.8
+        version: 0.13.8(@babel/core@7.29.7)
       what-isr:
-        specifier: ^0.13.4
-        version: 0.13.4(what-server@0.13.4(what-core@0.13.4)(what-router@0.13.4(what-core@0.13.4)))
+        specifier: ^0.13.8
+        version: 0.13.8(what-server@0.13.8(what-core@0.13.8)(what-router@0.13.8(what-core@0.13.8)))
     devDependencies:
       '@types/ws':
         specifier: ^8.18.1
@@ -183,7 +188,7 @@ importers:
   packages/vite-plugin:
     dependencies:
       '@celsian/vura-core':
-        specifier: workspace:0.8.0
+        specifier: workspace:0.8.3
         version: link:../core
       esbuild:
         specifier: ^0.28.2
@@ -192,8 +197,8 @@ importers:
         specifier: ^6.0.0 || ^7.0.0 || ^8.0.0
         version: 8.2.2(@types/node@26.4.0)(esbuild@0.28.2)
       what-framework:
-        specifier: ^0.13.4
-        version: 0.13.4(@babel/core@7.29.7)
+        specifier: ^0.13.8
+        version: 0.13.8(@babel/core@7.29.7)
     devDependencies:
       '@types/ws':
         specifier: ^8.18.1
@@ -271,8 +276,8 @@ packages:
     resolution: {integrity: sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg==}
     engines: {node: '>=6.9.0'}
 
-  '@celsian/core@0.6.1':
-    resolution: {integrity: sha512-b2pzs41cAKNQaIi1zzDf3pVfMf/Rm2iKXhYwmmWgrwgx0TWeYbYSHJkLl/kQM5WNmII1q7aKPdP0WtSZFPUBvw==}
+  '@celsian/core@0.6.3':
+    resolution: {integrity: sha512-LLcbp+T0vOJBt181hTBVMzSIwnKlQK3v/ZyHy9WQQrQbUgff6nWTHttSNlBv6DzO2wWDxRU8JK+IqJnmpRi9XA==}
     engines: {node: '>=20'}
     peerDependencies:
       ws: ^8.18.0
@@ -280,12 +285,12 @@ packages:
       ws:
         optional: true
 
-  '@celsian/jwt@0.6.1':
-    resolution: {integrity: sha512-qE+LcpwehBYikfcqO4LuIyu+Up/6F1v2zvsHCpWmTgCU3PHHX/Um7/9wYMnEuN8bL1WcVCyRKLyDHd2TtDSdSA==}
+  '@celsian/jwt@0.6.3':
+    resolution: {integrity: sha512-KWpwHhmO9x71D2b/mdIbqmc/2eBrVwq+rOncUOT5RImczQNa3NEYac+xWw3lupbiS2RDHK4/0qiBcUhx6BNdmw==}
     engines: {node: '>=20'}
 
-  '@celsian/schema@0.6.1':
-    resolution: {integrity: sha512-ZWCr3S+adLxzW329/sHGYqNovZwVIcnAKMWahGx1fj78mmrinnxaJPYJgDGsInzgIrkFyc3m2bINcF7P1ahM3g==}
+  '@celsian/schema@0.6.3':
+    resolution: {integrity: sha512-+bPyoo9OQY7hqvUVndYTd4ykTbMmU5oOzpxt5LDskLxSrdCCJmvmRypmek2Hf6mq9dlfmnsYcgPi92PFYvHXOA==}
     engines: {node: '>=20'}
     peerDependencies:
       '@sinclair/typebox': '>=0.30.0'
@@ -1686,8 +1691,8 @@ packages:
     resolution: {integrity: sha512-IKXpvIzjnC9XTAUbVBcMfGS0EPaIXtW6v+zr+RRp+hqULEpo0owZax6wyRwPOJbWbzjYspQwusTsfVr0ifh4uQ==}
     engines: {node: '>=0.10.0'}
 
-  jose@6.2.3:
-    resolution: {integrity: sha512-YYVDInQKFJfR/xa3ojUTl8c2KoTwiL1R5Wg9YCydwH0x0B9grbzlg5HC7mMjCtUJjbQ/YnGEZIhI5tCgfTb4Hw==}
+  jose@6.2.12:
+    resolution: {integrity: sha512-9NiFmJEex0sy2Dk58j2UGBSHgUs2ypF9eZSu4L6vjOX3Dp96Sw1F3uL+H+D1sx02jZZdzUT0HgvCy59CuvXcWw==}
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
@@ -2001,36 +2006,36 @@ packages:
       jsdom:
         optional: true
 
-  what-compiler@0.13.4:
-    resolution: {integrity: sha512-XuciRLTGbySJSRzOVKOWbZHaTeVC7HKzrvK8mKliu4JltSEtBoWQcHNTeio4KXHyBRq5btBhyajs/nohNVfsXA==}
+  what-compiler@0.13.8:
+    resolution: {integrity: sha512-gE6Cs//kkeaHN5N0A3jXMfvk1aiUzqT+yVB8ZSu63mrkKk0mfjoyvNCuJJ1G/00UWma3zeeBD2elMobUFcR4/w==}
     peerDependencies:
       '@babel/core': ^7.0.0
-      what-core: ^0.13.4
+      what-core: ^0.13.8
 
-  what-core@0.13.4:
-    resolution: {integrity: sha512-MKYuRTlRqTbVA0LWKdvdBQnJ0Oug4mqBwA7NlRd5/3KCLoS8DcFZOwSrmZqA1B+gd1dcbb8+Oz5C2zOJZx7YXA==}
+  what-core@0.13.8:
+    resolution: {integrity: sha512-1iJfZTIzraKK8SJm+ipk4D8gT482Tv/jmrM7aitaMFJfI1Im/BTRfkP6e/UEBQU4MvIH7wQYQHnJK/a8Cd5INw==}
 
-  what-framework@0.13.4:
-    resolution: {integrity: sha512-MYmuZ9u/itmiCwt5U1O2iiq/bfn/VZzF6+7RihG9RgTLEoEZJ7GUFxxTy3h3bMCBbqsF/TER8cvhrlepHza8Zw==}
+  what-framework@0.13.8:
+    resolution: {integrity: sha512-iqf6vsarqw1mgNn5lghj3j1gNRVyf6wxvD7UakYrP5PeLEzMQSSMlJeDyzZWHT00U9OBkzdZnMYqj7mRAfDqOw==}
 
-  what-isr@0.13.4:
-    resolution: {integrity: sha512-9Ikq3ZrsqthVsOpLz8k1EK/EUb7yJV7jcn1ScL66/iv2ny2/AtYFVgGLaCOcCL347kgeU2qvfvRMp/0TwDhFrA==}
+  what-isr@0.13.8:
+    resolution: {integrity: sha512-Mr0RmaQFnYVhjDm/MT3wEfX0y9JK/6/NLOkVUkwoEB/H9n+c0p7N4ffTOi0yCtq8wmYxjXICFY3Se3i6/SJmYQ==}
     peerDependencies:
-      what-server: ^0.13.4
+      what-server: ^0.13.8
     peerDependenciesMeta:
       what-server:
         optional: true
 
-  what-router@0.13.4:
-    resolution: {integrity: sha512-LfCzz3JEkP3/3MmlW7xbcvYfJnaKj9YG0yFpCaA46NCqTntFpWIJelZwd7sRVo9a9Ii0dSeQsHSKR+5aYuBVVQ==}
+  what-router@0.13.8:
+    resolution: {integrity: sha512-KSB7bzjVKSTEAilWLZBjao/4cXQNtkfUAKMK5P3+8OXMKFy5E23Zv87Cvex8qc3o84TqJ9E+YZQUsrWwaH6yOg==}
     peerDependencies:
-      what-core: ^0.13.4
+      what-core: ^0.13.8
 
-  what-server@0.13.4:
-    resolution: {integrity: sha512-yEmTeh7wZvQYNl4SLtnt7q9sQ0/GC7gada3yRnjvcOHtrZ2njQJ/Zgbi815gd7XuDqjrGQsOIV+s3WBIzM6h7A==}
+  what-server@0.13.8:
+    resolution: {integrity: sha512-ABtsIlXOKC5arKk6SOKCxIVBzSzFHMLLM0K1wWHNf4jKkKtg961Ap1fEWnXhrwUBDK8+zr/0uL5zqhqn1k2BfQ==}
     peerDependencies:
-      what-core: ^0.13.4
-      what-router: ^0.13.4
+      what-core: ^0.13.8
+      what-router: ^0.13.8
     peerDependenciesMeta:
       what-router:
         optional: true
@@ -2194,9 +2199,9 @@ snapshots:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
 
-  '@celsian/core@0.6.1(ws@8.21.3)':
+  '@celsian/core@0.6.3(ws@8.21.3)':
     dependencies:
-      '@celsian/schema': 0.6.1
+      '@celsian/schema': 0.6.3
     optionalDependencies:
       ws: 8.21.3
     transitivePeerDependencies:
@@ -2204,17 +2209,17 @@ snapshots:
       - valibot
       - zod
 
-  '@celsian/jwt@0.6.1(ws@8.21.3)':
+  '@celsian/jwt@0.6.3(ws@8.21.3)':
     dependencies:
-      '@celsian/core': 0.6.1(ws@8.21.3)
-      jose: 6.2.3
+      '@celsian/core': 0.6.3(ws@8.21.3)
+      jose: 6.2.12
     transitivePeerDependencies:
       - '@sinclair/typebox'
       - valibot
       - ws
       - zod
 
-  '@celsian/schema@0.6.1': {}
+  '@celsian/schema@0.6.3': {}
 
   '@cloudflare/kv-asset-handler@0.5.0': {}
 
@@ -3291,7 +3296,7 @@ snapshots:
     dependencies:
       safer-buffer: 2.1.2
 
-  jose@6.2.3: {}
+  jose@6.2.12: {}
 
   js-tokens@4.0.0: {}
 
@@ -3545,35 +3550,35 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  what-compiler@0.13.4(@babel/core@7.29.7)(what-core@0.13.4):
+  what-compiler@0.13.8(@babel/core@7.29.7)(what-core@0.13.8):
     dependencies:
       '@babel/core': 7.29.7
-      what-core: 0.13.4
+      what-core: 0.13.8
 
-  what-core@0.13.4: {}
+  what-core@0.13.8: {}
 
-  what-framework@0.13.4(@babel/core@7.29.7):
+  what-framework@0.13.8(@babel/core@7.29.7):
     dependencies:
-      what-compiler: 0.13.4(@babel/core@7.29.7)(what-core@0.13.4)
-      what-core: 0.13.4
-      what-router: 0.13.4(what-core@0.13.4)
-      what-server: 0.13.4(what-core@0.13.4)(what-router@0.13.4(what-core@0.13.4))
+      what-compiler: 0.13.8(@babel/core@7.29.7)(what-core@0.13.8)
+      what-core: 0.13.8
+      what-router: 0.13.8(what-core@0.13.8)
+      what-server: 0.13.8(what-core@0.13.8)(what-router@0.13.8(what-core@0.13.8))
     transitivePeerDependencies:
       - '@babel/core'
 
-  what-isr@0.13.4(what-server@0.13.4(what-core@0.13.4)(what-router@0.13.4(what-core@0.13.4))):
+  what-isr@0.13.8(what-server@0.13.8(what-core@0.13.8)(what-router@0.13.8(what-core@0.13.8))):
     optionalDependencies:
-      what-server: 0.13.4(what-core@0.13.4)(what-router@0.13.4(what-core@0.13.4))
+      what-server: 0.13.8(what-core@0.13.8)(what-router@0.13.8(what-core@0.13.8))
 
-  what-router@0.13.4(what-core@0.13.4):
+  what-router@0.13.8(what-core@0.13.8):
     dependencies:
-      what-core: 0.13.4
+      what-core: 0.13.8
 
-  what-server@0.13.4(what-core@0.13.4)(what-router@0.13.4(what-core@0.13.4)):
+  what-server@0.13.8(what-core@0.13.8)(what-router@0.13.8(what-core@0.13.8)):
     dependencies:
-      what-core: 0.13.4
+      what-core: 0.13.8
     optionalDependencies:
-      what-router: 0.13.4(what-core@0.13.4)
+      what-router: 0.13.8(what-core@0.13.8)
 
   whatwg-mimetype@3.0.0: {}
 

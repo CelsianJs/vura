@@ -5,10 +5,15 @@ Vura is an MIT full-stack meta-framework built on What Framework and CelsianJS �
 ## License: MIT, forever
 
 Vura is MIT-licensed and will stay MIT-licensed — no relicensing, ever, and no
-framework feature will ever be gated behind the managed platform. Everything
-(websockets, cache revalidation, tasks, cron) works fully self-hosted. This
+framework feature will ever be moved behind the managed platform. Websockets,
+cache revalidation, ordinary tasks, and cron run in the self-hosted Node output. This
 commitment is written down in [GOVERNANCE.md](./GOVERNANCE.md) and enforced by
 [`tests/self-host-audit/`](./tests/self-host-audit/) in CI on every commit.
+
+Deployment targets have different capabilities: see the [support matrix](https://vura.io/self-host/).
+Standalone task state and waits are in-process, not restart-durable. The shipped
+durable broker and step suspend/resume currently require the managed platform;
+standalone durable execution remains a portability gap.
 
 ## Install
 
@@ -62,6 +67,9 @@ project and building it, `vura deploy` uploads a preview and `vura deploy
 --prod` targets production. Self-hosting remains available through the Node,
 Cloudflare, and Lambda build outputs.
 
+The managed service is in private beta; [signup](https://app.vura.io/signup)
+requires an access code. Installing the adapter does not grant service access.
+
 API endpoints and tasks default to scale-to-zero Function compute at 1 GiB;
 selectable Function profiles are 1, 4, 6, 8, and 12 GiB. Dedicated is the
 persistent path for WebSockets, process-local state, and latency-sensitive
@@ -90,6 +98,7 @@ Use the Cloudflare adapter when you want Worker artifacts instead of the Node se
 pnpm add @celsian/vura-adapter-cloudflare
 # configure vura.config.js with the adapter
 pnpm build
+cd dist/cloudflare
 wrangler deploy
 ```
 
@@ -103,7 +112,7 @@ Use the Lambda adapter for API Gateway/Lambda packaging:
 pnpm add @celsian/vura-adapter-lambda
 # configure vura.config.js with the adapter
 pnpm build
-sam deploy --guided
+sam deploy --guided --template-file dist/template.yaml
 ```
 
 
@@ -116,10 +125,15 @@ sam deploy --guided
 - `hybrid` pages prerender HTML and emit a matching browser module under `dist/static/_then/pages/*.js` for hydration/island code.
 - `server` pages remain runtime-rendered by `dist/server/entry.js`.
 
-The generated hot server serves API routes first, server/hybrid runtime pages next, and `dist/static` as the final fallback so static/client assets remain deployable without shadowing APIs.
+The generated Node server serves API routes and server-mode runtime pages, then
+falls back to `dist/static` for static, client, and prerendered hybrid pages.
+Cloudflare and Lambda support these page modes, but do not execute
+`src/middleware.ts` or server actions; enforce authorization inside handlers and
+loaders on those targets. See the [target limitations](https://vura.io/self-host/).
 
 ## Packages
 
+- `@celsian/vura-contract` — dependency-free legacy/v1 manifest validation and capability evaluation ([contract and rollout guide](packages/contract/README.md)); introduced in 0.8.2 and used by Node build/server-entry readers from 0.8.3.
 - `@celsian/vura-core` — manifest scanning, build pipeline, generated production server, and runtime helpers.
 - `@celsian/vura-cli` — `vura` command-line interface (historically named `then`/`thenjs`; only `vura` ships as a bin).
 - `@celsian/vura-adapter-lambda` — AWS Lambda/API Gateway deployment artifacts.
@@ -148,4 +162,4 @@ npx -p node@22 -p pnpm@10.11.0 pnpm release:check
 
 `pnpm release:check` runs the full local gate: private-package assertions, hygiene lint, build, tests, production audit, packed publish smoke, tracked tarball-size limits, npm publish dry-run, whitespace checks, and a clean git tree assertion.
 
-Do not publish from an unverified or dirty release tree. Manual release means running `pnpm release:check` locally first, then using the tag/manual GitHub release workflow or `node scripts/publish-packages.mjs` only after npm namespace authority is resolved. If npm returns `E403`, `E404`, or any permission/scope uncertainty for `@celsian/*`, stop: either obtain/admin the `@celsian` scope or intentionally rename the packages, then rerun the full release check before any real publish. Real publishing always runs a namespace-authority preflight for scoped packages before uploading tarballs; it cannot be bypassed with `VURA_SKIP_NPM_SCOPE_PREFLIGHT`.
+Do not publish from an unverified or dirty release tree. Run `pnpm release:check` first, then follow [RELEASING.md](./RELEASING.md). Before any upload, real publishing requires explicit account-level `read-write` access to every planned package, including unscoped `create-vura`. Missing or read-only access stops the batch; resolve the specific package access rather than granting broad namespace control. This preflight does not prove granular-token or package 2FA permissions. First publication of a new package requires a separately reviewed bootstrap; there is no skip-preflight flag.
