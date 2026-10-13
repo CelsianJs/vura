@@ -115,6 +115,13 @@ Every other ceiling and the core source-LOC budget remain unchanged. Re-run
 must still fit the ledger. This is source-candidate accounting, not a claim
 that new npm versions or a provider deployment have shipped.
 
+The free-tier `create-vura` default (#162) moves one more ceiling. The packed
+tarball measured 8,932 bytes on main at `69328bb` and 9,922 bytes with #162
+(+990 bytes for the `--hot`/`--tasks` opt-ins and the generated README), which
+left 78 bytes under the old 10,000-byte ceiling. The ceiling moves to 11,500
+bytes, about 16% above the measurement, so the next scaffold text change does
+not need its own ledger entry. Every other ceiling is unchanged.
+
 ### 0.8.3 publication verification — 2026-09-07
 
 All nine packages are available as 0.8.3 and carry the `latest` dist-tag.

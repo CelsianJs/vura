@@ -4,7 +4,7 @@
   "@celsian/vura-core": 219000,
   "@celsian/vura-compiler": 15000,
   "@celsian/vura-cli": 60200,
-  "create-vura": 10000,
+  "create-vura": 11500,
   "@celsian/vura-adapter-cloudflare": 20000,
   "@celsian/vura-adapter-lambda": 24500,
   "@celsian/vura-adapter-vura": 15000,
