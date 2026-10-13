@@ -98,6 +98,20 @@ export default function Posts({ posts, renderedAt }: { posts: { id: number; titl
 }
 `;
 
+/** Request-specific loader data must retain its declared cache variant after bundling. */
+const ACCOUNT_PAGE = `import { useLoaderData } from '@celsian/vura-core';
+
+export const page = { mode: 'server', revalidate: 60, vary: ['cookie:session', 'accept-language'] };
+
+export function loader({ request, query }) {
+  return { session: request.headers.get('cookie'), language: request.headers.get('accept-language'), query };
+}
+
+export default function Account() {
+  return <p id="account">{JSON.stringify(useLoaderData())}</p>;
+}
+`;
+
 /**
  * src/api/posts.ts — rung-2 mutation route.
  * Appends to the same JSON file and calls revalidateTag('posts').
@@ -749,6 +763,7 @@ async function _scaffoldAndBuild(): Promise<{
   await mkdir(join(dir, 'src', 'api', 'tasks'), { recursive: true });
 
   await writeFile(join(dir, 'src', 'pages', 'posts.tsx'), POSTS_PAGE);
+  await writeFile(join(dir, 'src', 'pages', 'account.tsx'), ACCOUNT_PAGE);
   await writeFile(join(dir, 'src', 'pages', 'index.tsx'), INDEX_PAGE);
   await writeFile(join(dir, 'src', 'pages', 'widget.tsx'), WIDGET_PAGE);
   await writeFile(join(dir, 'src', 'pages', 'mixed.tsx'), MIXED_PAGE);
