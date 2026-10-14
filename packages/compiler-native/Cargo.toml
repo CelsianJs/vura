@@ -16,7 +16,7 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 swc_ecma_parser = "24"
 swc_ecma_ast = "15"
-swc_common = { version = "14", features = ["sourcemap"] }
+swc_common = { version = "26", features = ["sourcemap"] }
 notify = { version = "6", features = ["macos_kqueue"] }
 
 [build-dependencies]
