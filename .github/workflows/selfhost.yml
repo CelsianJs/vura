@@ -6,9 +6,13 @@ name: Self-host guides
 # Every target job downloads that artifact — so they all test the same
 # local packages, not npm latest.
 
-# Runs on Depot CI (.depot/workflows/) as of 2026-07-11 (Kirby's directive).
-# This copy keeps workflow_dispatch as a manual fallback.
+# Runs on GitHub-hosted runners: free for this public repository, and public
+# repositories never use ZVN's self-hosted runners (a fork pull request could
+# run code on them). Depot CI was retired for this workflow on 2026-10-19.
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:

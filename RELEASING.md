@@ -1,7 +1,10 @@
 # Releasing Vura
 
 Releases are tag-driven (`v*`) through `.depot/workflows/release.yml`
-(verify matrix → publish → registry smoke). The manual GitHub fallback is
+(verify matrix → publish → registry smoke). CI, docs, security and self-host
+checks run on GitHub-hosted runners; only the two publishers (`release.yml` and
+`publish-recovery.yml`) remain on Depot CI, because the current `NPM_TOKEN`
+lives there. The manual GitHub fallback is
 `.github/workflows/release.yml`, dispatched against the release tag; only that
 GitHub-hosted publisher explicitly enables npm provenance. Do not claim
 provenance for a Depot publish, or run both publishers concurrently. Use the
@@ -111,8 +114,6 @@ run the verification-only recovery workflow against the already-published
 version:
 
 ```bash
-depot ci dispatch --repo CelsianJs/vura --workflow verify-registry.yml --ref main --input version=X.Y.Z
-# GitHub-hosted verification-only fallback:
 gh workflow run verify-registry.yml --repo CelsianJs/vura --ref main -f version=X.Y.Z
 ```
 

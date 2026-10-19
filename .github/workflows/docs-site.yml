@@ -1,12 +1,22 @@
 name: Docs site
 
-# Runs on Depot CI (.depot/workflows/) as of 2026-07-11 (Kirby's directive).
-# This copy keeps workflow_dispatch as a manual fallback.
+# Runs on GitHub-hosted runners: free for this public repository, and public
+# repositories never use ZVN's self-hosted runners (a fork pull request could
+# run code on them). Depot CI was retired for this workflow on 2026-10-19.
 on:
+  pull_request:
+    paths: ['docs-site/**', 'packages/core/package.json']
+  push:
+    branches: [main]
+    paths: ['docs-site/**', 'packages/core/package.json']
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:

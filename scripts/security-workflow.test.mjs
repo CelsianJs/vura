@@ -15,25 +15,19 @@ function job(workflow, name) {
   return block;
 }
 
-describe.each(['.depot/workflows/security.yml', '.github/workflows/security.yml'])('%s least-privilege scanning', (file) => {
+describe.each(['.github/workflows/security.yml'])('%s least-privilege scanning', (file) => {
   const source = () => readFile(new URL(`../${file}`, import.meta.url), 'utf8');
 
   it('does not request CodeQL permissions for every scanner', async () => {
     expect(permissions(await source(), 0)).toEqual({ contents: 'read' });
   });
 
-  it.runIf(file.startsWith('.github/'))('retains CodeQL permissions and analysis steps', async () => {
+  it('retains CodeQL permissions and analysis steps, weekly and on demand only', async () => {
     const block = job(await source(), 'codeql');
+    expect(block).toContain("if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'");
     expect(permissions(block, 4)).toEqual({ contents: 'read', actions: 'read', 'security-events': 'write' });
     expect(block).toContain('uses: github/codeql-action/init@v4');
     expect(block).toContain('uses: github/codeql-action/analyze@v4');
-  });
-
-  it.runIf(file.startsWith('.depot/'))('leaves CodeQL to the GitHub-hosted workflow', async () => {
-    const workflow = await source();
-    expect(workflow).not.toMatch(/^  codeql:/m);
-    expect(workflow).not.toContain('codeql-action');
-    expect(workflow).not.toContain('security-events');
   });
 
   it('runs the redacted secret scan with only repository read access', async () => {
