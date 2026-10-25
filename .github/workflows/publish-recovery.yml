@@ -1,4 +1,8 @@
 name: Recover tagged publication
+
+# Moved from Depot CI (.depot/workflows/publish-recovery.yml) to GitHub-hosted
+# runners on 2026-10-25. Same steps; it publishes without npm provenance, as
+# it did on Depot.
 on:
   workflow_dispatch:
     inputs:
@@ -17,7 +21,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   recover:
-    runs-on: depot-ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:

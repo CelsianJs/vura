@@ -1,15 +1,14 @@
 # Releasing Vura
 
-Releases are tag-driven (`v*`) through `.depot/workflows/release.yml`
-(verify matrix → publish → registry smoke). CI, docs, security and self-host
-checks run on GitHub-hosted runners; only the two publishers (`release.yml` and
-`publish-recovery.yml`) remain on Depot CI, because the current `NPM_TOKEN`
-lives there. The manual GitHub fallback is
-`.github/workflows/release.yml`, dispatched against the release tag; only that
-GitHub-hosted publisher explicitly enables npm provenance. Do not claim
-provenance for a Depot publish, or run both publishers concurrently. Use the
-configured `NPM_TOKEN` secret and verify its publish authority through the
-release tooling rather than assuming a token type or expiry policy.
+Releases are tag-driven (`v*`) through `.github/workflows/release.yml`
+(verify matrix → publish → registry smoke) on GitHub-hosted runners, like CI,
+docs, security and self-host checks. Depot CI is no longer used: the two
+publishers moved back from `.depot/workflows/` on 2026-10-25. The release
+publisher explicitly enables npm provenance; `publish-recovery.yml` does not.
+Dispatching `release.yml` against the release tag is the manual fallback. Do not
+run two publishers concurrently. Use the repository's `NPM_TOKEN` secret and
+verify its publish authority through the release tooling rather than assuming a
+token type or expiry policy.
 
 > **Token hygiene:** rotate the npm token if it has ever appeared in a
 > chat transcript, browser session, or screenshot — even in a private
@@ -130,7 +129,7 @@ inputs are unchanged. No silent carry-forward of checks from an older candidate.
 ### Repairing tooling after a tagged publisher fails before uploads
 
 Do not move the immutable tag. When **none** of its package versions were
-uploaded, reviewed publishing-tool fixes may use Depot's `publish-recovery.yml`.
+uploaded, reviewed publishing-tool fixes may use `publish-recovery.yml`.
 It requires the existing stable tag and its exact commit, permits only a small
 allowlist of tooling/documentation differences, verifies all package versions
 match the tag, and runs the complete clean release gate before authenticated
@@ -138,8 +137,8 @@ publication. Package sources, manifests, lockfiles and the publish list cannot
 change. Run only one publisher at a time.
 
 ```sh
-depot ci dispatch --repo CelsianJs/vura --workflow publish-recovery.yml --ref main \
-  --input release_tag=vX.Y.Z --input release_commit=FULL_IMMUTABLE_COMMIT
+gh workflow run publish-recovery.yml --repo CelsianJs/vura --ref main \
+  -f release_tag=vX.Y.Z -f release_commit=FULL_IMMUTABLE_COMMIT
 ```
 
 The dry-run gate rejects already-published versions, so this is not a partial-

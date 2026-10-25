@@ -1,11 +1,16 @@
 name: Release JS packages
 
-# Releases run on Depot CI (.depot/workflows/release.yml) as of 2026-07-11 —
-# Kirby's call: all-Depot, accepting that npm provenance (GHA-OIDC-only) is
-# dropped. This copy keeps workflow_dispatch as a fallback publisher; if run
-# here it still attaches provenance (publish script gates on the OIDC env).
+# Releases are tag-driven (v*) on GitHub-hosted runners, which are free for a
+# public repo. From 2026-07-11 to 2026-10-25 they ran on Depot CI
+# (.depot/workflows/release.yml), which is paid and could not attach npm
+# provenance. This publisher attaches provenance (the publish script gates it
+# on NPM_PROVENANCE and the GitHub OIDC env). workflow_dispatch against a tag
+# stays as the manual fallback.
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: read

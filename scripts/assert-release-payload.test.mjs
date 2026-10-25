@@ -28,7 +28,7 @@ async function fixture() {
 it('accepts reviewed tooling changes while preserving immutable release inputs', async () => {
   const f = await fixture();
   await f.put('scripts/publish-packages.mjs', '// repaired tooling');
-  await f.put('.depot/workflows/publish-recovery.yml', 'name: recovery');
+  await f.put('.github/workflows/publish-recovery.yml', 'name: recovery');
   f.commit();
   expect(assertReleasePayload('v0.8.3', f.sha, f.dir).commit).toBe(f.sha);
 });

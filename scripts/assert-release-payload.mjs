@@ -10,7 +10,7 @@ const toolingPaths = new Set([
   'scripts/publish-packages.test.mjs',
   'scripts/assert-release-payload.mjs',
   'scripts/assert-release-payload.test.mjs',
-  '.depot/workflows/publish-recovery.yml',
+  '.github/workflows/publish-recovery.yml',
   'README.md',
   'CONTRIBUTING.md',
   'RELEASING.md',
